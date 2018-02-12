@@ -22,6 +22,7 @@
 #  
 #  
 
+#This scripts creates an animated gif which shows two images alternating with a dissolvence between them
 #This script must be placed in ~/.gimp-n.m/plug-ins
 #where n.m is the gimp version (e.g. 2.8)
 
