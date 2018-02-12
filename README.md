@@ -1,4 +1,4 @@
-# GIMP-plugins
+# GIMP_plugins
 Plug-ins for GIMP (in python)
 
 
