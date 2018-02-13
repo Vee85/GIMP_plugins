@@ -33,14 +33,21 @@ from gimpfu import *
 defsavename = "/myanimated.gif"
 
 #The function to be registered in GIMP
-def python_make_switchgif(timg, tdrawable, fn_imagebg, fn_imagetransp, savepath, frdelay, longtime):
+def python_make_switchgif(timg, tdrawable, fn_imagebg, fn_imagetransp, savepath, frdelay, longtime, rescale):
   image = pdb.gimp_file_load(fn_imagebg, fn_imagebg)
-  trlayer = pdb.gimp_file_load_layer(image, fn_imagetransp)
-  trlayer.name = "upimage"
   bglayer = image.layers[0]
   bglayer.name = "downimage"
+  trlayer = pdb.gimp_file_load_layer(image, fn_imagetransp)
+  trlayer.name = "upimage"
   image.add_layer(trlayer, 1)
-
+  
+  #Here resizing the images to have same size. Transparent image is resized to background image
+  if (rescale):
+    wd = image.width;
+    he = image.height;
+    if (trlayer.width != wd and trlayer.height != he):
+      pdb.gimp_layer_scale(trlayer, wd, he, False)
+  
   #creating the first phase of layers, setting a set of opacity and merging the paired layers
   for i in range(1, 10):
     bglayertt = bglayer.copy()
@@ -95,6 +102,7 @@ register(
     (PF_FILE, "savepath", "Destination", os.getcwd() + defsavename),
     (PF_INT32, "frdelay", "Base delay between frames (ms)", 100),
     (PF_INT32, "longtime", "Longer delay for basic frames (ms)", 2000),
+    (PF_BOOL, "rescale", "Does Image2 must be scaled to Image1?", True),
   ],
   [],
   python_make_switchgif
