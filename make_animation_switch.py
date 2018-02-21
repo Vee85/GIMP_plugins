@@ -82,7 +82,7 @@ def python_make_switchgif(timg, tdrawable, fn_imagebg, fn_imagetransp, savepath,
   elif (savepath[-4:] != ".gif"):
     savepath = savepath + ".gif"
 
-  pdb.gimp_image_convert_indexed(image, 0, 0, 100, 1, 1, "ignored")
+  pdb.gimp_image_convert_indexed(image, 0, 0, 100, False, False, "ignored")
   pdb.file_gif_save(image, tdrawable, savepath, savepath, 0, 1, frdelay, 0)
 
 
@@ -94,7 +94,7 @@ register(
   "Valentino Esposito",
   "Valentino Esposito",
   "2018",
-  "<Image>/Image/MakeAnimationSwitchGif...",
+  "<Image>/Filters/Animation/SwitchImages",
   "RGB*, GRAY*",
   [
     (PF_FILE, "imagebg", "Image1", ""),
