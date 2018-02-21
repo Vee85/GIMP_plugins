@@ -5,4 +5,4 @@
   Create an animated gif which switches between two images with a blurring dissolvence between them
 
 * **make_animation_blurring.py**:
-  Create an animation of the base image using the motion blur filter. For now only horizontally
+  Create an animation of the base image using the motion blur filter. A set of direction can be chosen
