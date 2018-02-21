@@ -145,7 +145,7 @@ register(
   "Valentino Esposito",
   "Valentino Esposito",
   "2018",
-  "<Image>/Filters/Animation/MakeAnimationBlurring",
+  "<Image>/Filters/Animation/BlurMotion",
   "RGB*, GRAY*",
   [],
   [],
