@@ -22,7 +22,9 @@
 #  
 #  
 
-#It creates an animation using the motion blur filter, starting from a base image and animating a blurring linear effect
+#This script creates an animation using the motion blur filter, starting from a base image and animating a blurring linear effect
+#This script must be placed in ~/.gimp-n.m/plug-ins
+#where n.m is the gimp version (e.g. 2.8)
 
 import sys
 import os
@@ -34,23 +36,63 @@ BLURSTEPS = 5
 BLURDIR = ["left", "top-left", "top", "top-right", "right", "bottom-right", "bottom", "bottom-left"]
 DEFBLURDIR = 0
 
-#Class for the customized panel interface (using gtk as GUI)
-class MainDialog(gtk.Window):
+#Class for the customized secondary dialog interface (using gtk as GUI)
+class AskDialog(gtk.Dialog):
+  #constructor
+  def __init__(self, *args):
+    mwin = gtk.Dialog.__init__(self, *args)
+    self.set_border_width(10)
+    
+    #Internal arguments
+    self.answer = False
+    
+    #Obey the window manager quit signal:
+    self.connect("destroy", gtk.main_quit)
+
+    #Designing the interface    
+    qlabel = gtk.Label("Do I need to export the animated gif now?")
+    self.vbox.add(qlabel)
+    qlabel.show()
+    
+    butno = gtk.Button("No")
+    self.action_area.add(butno)
+    butno.show()
+    butno.connect("clicked", self.on_button_clicked, False)
+    
+    butyes = gtk.Button("Yes")
+    self.action_area.add(butyes)
+    butyes.show()
+    butyes.connect("clicked", self.on_button_clicked, True)
+    
+    self.vbox.show()
+    self.action_area.show()
+    self.show()
+    return mwin
+  
+  #callback method for the buttons
+  def on_button_clicked(self, widget, answ):
+    self.answer = answ
+    self.hide()
+    
+
+#Class for the customized main panel interface (using gtk as GUI)
+class MainWin(gtk.Window):
   #constructor
   def __init__(self, image, layer, *args):
     mwin = gtk.Window.__init__(self, *args)
     self.set_border_width(10)
     
-    #internal arguments to be hold
+    #internal arguments
     self.img = image
     self.layer = layer
     self.numblursteps = BLURSTEPS
     self.blurdir = 0 #will be reinitialized in GUI construction
+    self.savepath = os.getcwd() #will be updated by user choice
 
     #Obey the window manager quit signal:
     self.connect("destroy", gtk.main_quit)
 
-    #Design the interface
+    #Designing the interface
     vbx = gtk.VBox(spacing=10, homogeneous=True)
     self.add(vbx)
 
@@ -78,7 +120,7 @@ class MainDialog(gtk.Window):
     
     boxmodel = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
     
-    #filling the model
+    #filling the model for the combobox
     for i, j in zip(BLURDIR, range(len(BLURDIR))):
       irow = boxmodel.append(None, [i, j])
       if (j == DEFBLURDIR):
@@ -115,7 +157,7 @@ class MainDialog(gtk.Window):
     refmode = widget.get_model()
     self.blurdir = refmode.get_value(widget.get_active_iter(), 1)
     
-  #callback method, do the blurring
+  #callback method, do the blurring and optionally export the gif
   def on_butok_clicked(self, widget):
     
     #defining blurring parameters
@@ -130,10 +172,35 @@ class MainDialog(gtk.Window):
       blurlayer.flush()
     
     pdb.gimp_displays_flush()
+    dial = AskDialog("Exporting", self, gtk.DIALOG_MODAL)
+    dial.run()
+    
+    #asking if the gif should be exported now
+    if (dial.answer):
+      #creating the file chooser dialog
+      ffilter = gtk.FileFilter()
+      ffilter.set_name("Animated gif")
+      ffilter.add_mime_type("image/gif")
+      filechooser = gtk.FileChooserDialog(title="Choose file", parent=self, action=gtk.FILE_CHOOSER_ACTION_SAVE, buttons=None, backend=None)
+      filechooser.add_filter(ffilter)
+      filechooser.add_button("Cancel", gtk.RESPONSE_CANCEL)
+      filechooser.add_button("Save", gtk.RESPONSE_OK)
+      
+      respfc = filechooser.run()
+
+      #export the animated gif      
+      if (respfc == gtk.RESPONSE_OK):
+        self.savepath = filechooser.get_filename()        
+        frdelay = 100
+        pdb.gimp_image_convert_indexed(self.img, 0, 0, 100, False, False, "ignored")
+        pdb.file_gif_save(self.img, self.layer, self.savepath, self.savepath, 0, 1, frdelay, 0)
+
+    dial.destroy()
+
 
 #The function to be registered in GIMP
 def python_make_blurring(img, layer):
-  ll = MainDialog(img, layer)
+  ll = MainWin(img, layer)
   gtk.main()
 
   
