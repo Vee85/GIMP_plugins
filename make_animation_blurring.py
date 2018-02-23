@@ -35,6 +35,7 @@ from gimpfu import *
 BLURSTEPS = 5
 BLURDIR = ["left", "top-left", "top", "top-right", "right", "bottom-right", "bottom", "bottom-left"]
 DEFBLURDIR = 0
+FRAMETIME = 100
 
 #Class for the customized secondary dialog interface (using gtk as GUI)
 class AskDialog(gtk.Dialog):
@@ -88,6 +89,7 @@ class MainWin(gtk.Window):
     self.numblursteps = BLURSTEPS
     self.blurdir = 0 #will be reinitialized in GUI construction
     self.savepath = os.getcwd() #will be updated by user choice
+    self.frametime = FRAMETIME
 
     #Obey the window manager quit signal:
     self.connect("destroy", gtk.main_quit)
@@ -110,6 +112,21 @@ class MainWin(gtk.Window):
     spbuta.show()
     
     hbxa.show()
+    
+    hbxc = gtk.HBox(spacing=10, homogeneous=True)
+    vbx.add(hbxc)
+    
+    labc = gtk.Label("Delay between frames")
+    hbxc.add(labc)
+    labc.show()
+    
+    butcadj = gtk.Adjustment(FRAMETIME, 50, 2000, 1, 20)
+    spbutc = gtk.SpinButton(butcadj, 0, 0)
+    spbutc.connect("output", self.on_frametime_change)
+    hbxc.add(spbutc)
+    spbutc.show()
+    
+    hbxc.show()
     
     hbxb = gtk.HBox(spacing=10, homogeneous=True)
     vbx.add(hbxb)
@@ -151,7 +168,11 @@ class MainWin(gtk.Window):
   #callback method, setting the step number value to the one in the spinbutton
   def on_blurstep_change(self, widget):
     self.numblursteps = widget.get_value()
-   
+    
+  #callback method, setting the delay between frames value to the one in the spinbutton
+  def on_frametime_change(self, widget):
+    self.frametime = widget.get_value()
+    
   #callback method, setting the blurring direction value to the one in the combobox
   def on_cbox_changed(self, widget):
     refmode = widget.get_model()
@@ -166,7 +187,7 @@ class MainWin(gtk.Window):
     #creating the first phase of layers with different blurring
     for i in range(1, int(self.numblursteps)):
       blurlayer = self.layer.copy()
-      self.img.add_layer(blurlayer, i)
+      self.img.add_layer(blurlayer, 0)
       pdb.plug_in_mblur(self.img, blurlayer, 0, 5*i, blrang, 0, 0)
       blurlayer.name = self.layer.name + "_" + str(i)
       blurlayer.flush()
@@ -191,9 +212,8 @@ class MainWin(gtk.Window):
       #export the animated gif      
       if (respfc == gtk.RESPONSE_OK):
         self.savepath = filechooser.get_filename()        
-        frdelay = 100
         pdb.gimp_image_convert_indexed(self.img, 0, 0, 100, False, False, "ignored")
-        pdb.file_gif_save(self.img, self.layer, self.savepath, self.savepath, 0, 1, frdelay, 0)
+        pdb.file_gif_save(self.img, self.layer, self.savepath, self.savepath, 0, 1, self.frametime, 0)
 
     dial.destroy()
 
