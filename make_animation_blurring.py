@@ -200,7 +200,7 @@ class MainWin(gtk.Window):
     if (dial.answer):
       #creating the file chooser dialog
       ffilter = gtk.FileFilter()
-      ffilter.set_name("Animated gif")
+      ffilter.set_name("Animated Graphic Interface Format (gif)")
       ffilter.add_mime_type("image/gif")
       filechooser = gtk.FileChooserDialog(title="Choose file", parent=self, action=gtk.FILE_CHOOSER_ACTION_SAVE, buttons=None, backend=None)
       filechooser.add_filter(ffilter)
