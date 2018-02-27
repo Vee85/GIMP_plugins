@@ -148,7 +148,7 @@ class MainWin(gtk.Window):
     cbox.pack_start(rendtext, True)
     cbox.add_attribute(rendtext, "text", 0)
     cbox.set_entry_text_column(0)
-    cbox.set_active(0)
+    cbox.set_active(self.blurdir)
     cbox.connect("changed", self.on_cbox_changed)
     hbxb.add(cbox)
     cbox.show()
