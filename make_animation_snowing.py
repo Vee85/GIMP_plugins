@@ -45,6 +45,13 @@ OBSCIINT = ["null", "weak", "medium", "strong"]
 DEFOBSCIINT = [0, 1, 3, 6]
 NLAYER = 10
 
+#generic function used by
+def gdkcoltorgb(gdkc):
+  red = int(gdkc.red_float * 255)
+  green = int(gdkc.green_float * 255)
+  blue = int(gdkc.blue_float * 255)
+  return (red, green, blue)
+
 
 class SnowFlake:
   #constructor
@@ -83,6 +90,7 @@ class MainApp(gtk.Window):
     self.obsci = 0 #will be reinitialized in GUI costruction
     self.pn = 0 #will be reinitialized in GUI costruction
     self.nlayer = NLAYER #@@@ fix frame number as an user option
+    self.sncol = gtk.gdk.Color(65535, 65535, 65535) #initialized to white
 
     #Obey the window manager quit signal:
     self.connect("destroy", gtk.main_quit)
@@ -200,10 +208,22 @@ class MainApp(gtk.Window):
     hbxe.add(cboxd)
 
     #new row
+    hbxf = gtk.HBox(spacing=10, homogeneous=True)
+    vbx.add(hbxf)
+    
+    labf = gtk.Label("Snow color")
+    hbxf.add(labf)
+    
+    #colorbutton
+    colbu = gtk.ColorButton()
+    colbu.set_color(self.sncol)
+    hbxf.add(colbu)
+    colbu.connect("color-set", self.on_color_chosen)
+
+    #new row
     butok = gtk.Button("OK")
     vbx.add(butok)
     butok.connect("clicked", self.on_butok_clicked)
-    butok.show()
 
     self.show_all()
     
@@ -233,12 +253,15 @@ class MainApp(gtk.Window):
     refmode = widget.get_model()
     self.obsci = refmode.get_value(widget.get_active_iter(), 1)
 
+  #callback method, setting the snow color
+  def on_color_chosen(self, widget):
+    self.sncol = widget.get_color()
+
   #callback method, do the animation
   def on_butok_clicked(self, widget):
     #setting the color 
     oldfgcol = pdb.gimp_context_get_foreground()
-    fgcol = (0, 0, 0) #set color to white
-    pdb.gimp_context_set_foreground(fgcol)
+    pdb.gimp_context_set_foreground(gdkcoltorgb(self.sncol))
     
     #setting basic dimension
     ww = pdb.gimp_image_width(self.img)
