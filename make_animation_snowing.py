@@ -275,8 +275,10 @@ class MainApp(gtk.Window):
   
   #callback method, do the animation
   def on_butok_clicked(self, widget):
-    #setting the color 
     oldfgcol = pdb.gimp_context_get_foreground()
+    oldbrush = pdb.gimp_context_get_brush()
+    
+    #setting the color
     pdb.gimp_context_set_foreground(gdkcoltorgb(self.sncol))
     
     #setting basic dimension
@@ -341,6 +343,7 @@ class MainApp(gtk.Window):
 
     askdi.destroy()
     pdb.gimp_context_set_foreground(oldfgcol)
+    pdb.gimp_context_get_brush(oldbrush)
   
   #method to draw on the drawable the flakes in the flake list
   def drawflakes(self, drw, flakelist):
