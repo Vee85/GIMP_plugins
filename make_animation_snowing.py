@@ -43,7 +43,7 @@ SPEEDS = ["slow", "medium", "fast"]
 DEFSPEED = [2, 5, 10]
 OBSCIINT = ["null", "weak", "medium", "strong"]
 DEFOBSCIINT = [0, 1, 3, 6]
-NLAYER = 10
+TIME = 1
 
 #generic function used by
 def gdkcoltorgb(gdkc):
@@ -89,8 +89,9 @@ class MainApp(gtk.Window):
     self.speed = 0 #will be reinitialized in GUI costruction
     self.obsci = 0 #will be reinitialized in GUI costruction
     self.pn = 0 #will be reinitialized in GUI costruction
-    self.nlayer = NLAYER #@@@ fix frame number as an user option
     self.sncol = gtk.gdk.Color(65535, 65535, 65535) #initialized to white
+    self.time = TIME * 10.0
+    self.savepath = os.getcwd() #will be updated by user choice
 
     #Obey the window manager quit signal:
     self.connect("destroy", gtk.main_quit)
@@ -221,12 +222,23 @@ class MainApp(gtk.Window):
     colbu.connect("color-set", self.on_color_chosen)
 
     #new row
+    hbxg = gtk.HBox(spacing=10, homogeneous=True)
+    vbx.add(hbxg)
+    
+    labg = gtk.Label("Animation time (seconds)")
+    hbxg.add(labg)
+    
+    butgadj = gtk.Adjustment(TIME, TIME, 20.0, 0.1, 5.0)
+    spbutg = gtk.SpinButton(butgadj, 0, 1)
+    spbutg.connect("output", self.on_time_change)
+    hbxg.add(spbutg)
+
+    #new row
     butok = gtk.Button("OK")
     vbx.add(butok)
     butok.connect("clicked", self.on_butok_clicked)
 
     self.show_all()
-    
     return mwin
     
   #callback method, setting the coverage factor to the one in the spinbutton
@@ -257,6 +269,10 @@ class MainApp(gtk.Window):
   def on_color_chosen(self, widget):
     self.sncol = widget.get_color()
 
+  #callback method, setting the animation time (frame numbers)
+  def on_time_change(self, widget):
+    self.time = widget.get_value() * 10.0 #each frame is 0.1 seconds
+  
   #callback method, do the animation
   def on_butok_clicked(self, widget):
     #setting the color 
@@ -281,7 +297,7 @@ class MainApp(gtk.Window):
       flakes[i] = fl
     
     #creating the layer copies
-    for i in range(1, self.nlayer):
+    for i in range(1, int(self.time)):
       copylayer = self.layer.copy()
       self.img.add_layer(copylayer, 0)
       copylayer.name = self.layer.name + "_" + str(i)
@@ -293,6 +309,37 @@ class MainApp(gtk.Window):
       self.moveflakes(flakes)
     
     pdb.gimp_displays_flush()
+  
+    #asking if the gif should be exported now
+    askdi = gtk.Dialog(title="Exporting", parent=self)
+    qlabel = gtk.Label("Do I need to export the animated gif now?")
+    askdi.vbox.add(qlabel)
+    qlabel.show()
+    askdi.add_button("No", gtk.RESPONSE_CANCEL)
+    askdi.add_button("Yes", gtk.RESPONSE_OK)
+    askdi.connect("destroy", gtk.main_quit)
+    
+    exportnow = askdi.run()
+    
+    if (exportnow == gtk.RESPONSE_OK):
+      #creating the file chooser dialog
+      ffilter = gtk.FileFilter()
+      ffilter.set_name("Animated Graphic Interface Format (gif)")
+      ffilter.add_mime_type("image/gif")
+      filechooser = gtk.FileChooserDialog(title="Choose file", parent=askdi, action=gtk.FILE_CHOOSER_ACTION_SAVE, buttons=None, backend=None)
+      filechooser.add_filter(ffilter)
+      filechooser.add_button("Cancel", gtk.RESPONSE_CANCEL)
+      filechooser.add_button("Save", gtk.RESPONSE_OK)
+      
+      respfc = filechooser.run()
+
+      #export the animated gif      
+      if (respfc == gtk.RESPONSE_OK):
+        self.savepath = filechooser.get_filename()        
+        pdb.gimp_image_convert_indexed(self.img, 0, 0, 100, False, False, "ignored")
+        pdb.file_gif_save(self.img, self.layer, self.savepath, self.savepath, 0, 1, 100, 0)
+
+    askdi.destroy()
     pdb.gimp_context_set_foreground(oldfgcol)
   
   #method to draw on the drawable the flakes in the flake list
@@ -302,7 +349,6 @@ class MainApp(gtk.Window):
       flc = flake.get_coord()
       pdb.gimp_context_set_brush_size(flake.r)
       pdb.gimp_paintbrush_default(drw, len(flc), flc)
-    
     
   #method to move the flakes applying velocity
   def moveflakes(self, flakelist):
@@ -350,7 +396,6 @@ class MainApp(gtk.Window):
         if (flake.x < 0):
           nx = random.uniform(1, hh)
           flake.set_coord(ww, nx)
-
 
 
 #The function to be registered in GIMP
