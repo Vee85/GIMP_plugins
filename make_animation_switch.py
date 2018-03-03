@@ -33,57 +33,58 @@ from gimpfu import *
 defsavename = "/myanimated.gif"
 
 #The function to be registered in GIMP
-def python_make_switchgif(timg, tdrawable, fn_imagebg, fn_imagetransp, savepath, frdelay, longtime, rescale):
-  image = pdb.gimp_file_load(fn_imagebg, fn_imagebg)
-  bglayer = image.layers[0]
-  bglayer.name = "downimage"
-  trlayer = pdb.gimp_file_load_layer(image, fn_imagetransp)
-  trlayer.name = "upimage"
-  image.add_layer(trlayer, 1)
-  
-  #Here resizing the images to have same size. Transparent image is resized to background image
-  if (rescale):
-    wd = image.width;
-    he = image.height;
-    if (trlayer.width != wd and trlayer.height != he):
-      pdb.gimp_layer_scale(trlayer, wd, he, False)
-  
-  #creating the first phase of layers, setting a set of opacity and merging the paired layers
-  for i in range(1, 10):
-    bglayertt = bglayer.copy()
-    trlayertt = trlayer.copy()
-    pdb.gimp_layer_set_opacity(trlayertt, i*10)
-    image.add_layer(trlayertt, 2)
-    image.add_layer(bglayertt, 3)
-    merglayer = pdb.gimp_image_merge_down(image, trlayertt, 0)
-    merglayer.name = "phase" + str(i*10)
-  
-  pdb.gimp_image_lower_item_to_bottom(image, bglayer)
+def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale):
+  if (len(image.layers) != 2):
+    pdb.gimp_message("You need two layers")
+  else:
+    bglayer = image.layers[0]
+    bglayer.name = "downimage"
+    trlayer = image.layers[1]
+    trlayer.name = "upimage"
+    
+    #Here resizing the images to have same size. Transparent image is resized to background image
+    if (rescale):
+      wd = image.width;
+      he = image.height;
+      if (trlayer.width != wd and trlayer.height != he):
+        pdb.gimp_layer_scale(trlayer, wd, he, False)
+    
+    #creating the first phase of layers, setting a set of opacity and merging the paired layers
+    for i in range(1, 10):
+      bglayertt = bglayer.copy()
+      trlayertt = trlayer.copy()
+      pdb.gimp_layer_set_opacity(trlayertt, i*10)
+      image.add_layer(trlayertt, 2)
+      image.add_layer(bglayertt, 3)
+      merglayer = pdb.gimp_image_merge_down(image, trlayertt, 0)
+      merglayer.name = "phase" + str(i*10)
+    
+    pdb.gimp_image_lower_item_to_bottom(image, bglayer)
 
-  #creating the second phase of layers with reversed opacity order
-  allph = image.layers[1:-1]
-  for ll in allph[::-1]: #this reverses the list
-    nl = len(image.layers)
-    newl = ll.copy()
-    newl.name = ll.name + "d"
-    image.add_layer(newl, nl)
-  
-  closel = trlayer.copy()
-  image.add_layer(closel, len(image.layers))
-  
-  #adjusting names for timing frame
-  closel.name = trlayer.name + "bis(" + str(longtime/2) + "ms)"
-  trlayer.name = trlayer.name + " (" + str(longtime/2) + "ms)"
-  bglayer.name = bglayer.name + " (" + str(longtime) + "ms)"
+    #creating the second phase of layers with reversed opacity order
+    allph = image.layers[1:-1]
+    for ll in allph[::-1]: #this reverses the list
+      nl = len(image.layers)
+      newl = ll.copy()
+      newl.name = ll.name + "d"
+      image.add_layer(newl, nl)
+    
+    closel = trlayer.copy()
+    image.add_layer(closel, len(image.layers))
+    
+    #adjusting names for timing frame
+    closel.name = trlayer.name + "bis(" + str(longtime/2) + "ms)"
+    trlayer.name = trlayer.name + " (" + str(longtime/2) + "ms)"
+    bglayer.name = bglayer.name + " (" + str(longtime) + "ms)"
 
-  #preparing exporting to gif
-  if (len(savepath) == 0):
-    savepath = os.getcwd() + defname
-  elif (savepath[-4:] != ".gif"):
-    savepath = savepath + ".gif"
+    #preparing exporting to gif
+    if (len(savepath) == 0):
+      savepath = os.getcwd() + defname
+    elif (savepath[-4:] != ".gif"):
+      savepath = savepath + ".gif"
 
-  pdb.gimp_image_convert_indexed(image, 0, 0, 100, False, False, "ignored")
-  pdb.file_gif_save(image, tdrawable, savepath, savepath, 0, 1, frdelay, 0)
+    pdb.gimp_image_convert_indexed(image, 0, 0, 100, False, False, "ignored")
+    pdb.file_gif_save(image, tdrawable, savepath, savepath, 0, 1, frdelay, 0)
 
 
 #The command to register the function
@@ -97,8 +98,6 @@ register(
   "<Image>/Filters/Animation/SwitchImages",
   "RGB*, GRAY*",
   [
-    (PF_FILE, "imagebg", "Image1", ""),
-    (PF_FILE, "imagetransp", "Image2", ""),
     (PF_FILE, "savepath", "Destination", os.getcwd() + defsavename),
     (PF_INT32, "frdelay", "Base delay between frames (ms)", 100),
     (PF_INT32, "longtime", "Longer delay for basic frames (ms)", 2000),
