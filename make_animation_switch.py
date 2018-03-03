@@ -35,7 +35,7 @@ defsavename = "/myanimated.gif"
 #The function to be registered in GIMP
 def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale):
   if (len(image.layers) != 2):
-    pdb.gimp_message("You need two layers")
+    pdb.gimp_message("The SwitchImages animation need exactly two source layers")
   else:
     bglayer = image.layers[0]
     bglayer.name = "downimage"
