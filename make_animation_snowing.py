@@ -34,7 +34,7 @@ import gtk
 import gobject
 from gimpfu import *
 
-COVERAGE = 5 #a percentage
+COVERAGE = 10 #a percentage
 FRAGMENTATION = ["low", "medium", "high"]
 DEFFRAGM = [10, 30, 60]
 DIRECTIONS = ["down", "right", "top", "left"]
@@ -53,6 +53,7 @@ def gdkcoltorgb(gdkc):
   return (red, green, blue)
 
 
+#class holding information on a single flake
 class SnowFlake:
   #constructor
   def __init__(self, r, x, y):
@@ -74,16 +75,17 @@ class SnowFlake:
     self.x = self.x + vx
     self.y = self.y + vy
 
+
 #Class for the customized GUI
 class MainApp(gtk.Window):
   #constructor
-  def __init__(self, image, layer, *args):
+  def __init__(self, image, drawab, *args):
     mwin = gtk.Window.__init__(self, *args)
     self.set_border_width(10)
     
     #internal arguments
     self.img = image
-    self.layer = layer
+    self.drawab = drawab
     self.cover = COVERAGE
     self.direc = 0 #will be reinitialized in GUI costruction
     self.speed = 0 #will be reinitialized in GUI costruction
@@ -298,12 +300,15 @@ class MainApp(gtk.Window):
       fl = SnowFlake(npr, rx, ry)
       flakes[i] = fl
     
-    #creating the layer copies
-    for i in range(1, int(self.time)):
-      copylayer = self.layer.copy()
-      self.img.add_layer(copylayer, 0)
-      copylayer.name = self.layer.name + "_" + str(i)
-      copylayer.flush()
+    #creating the layer copies if there is only one layer
+    if (len(self.img.layers) == 1):
+      baselayer = self.img.layers[0]
+      bname = baselayer.name
+      for i in range(1, int(self.time)):
+        copylayer = baselayer.copy()
+        self.img.add_layer(copylayer, 0)
+        copylayer.name = bname + "_" + str(i)
+        copylayer.flush()
     
     #drawing the flakes on top of each layer
     for ll in self.img.layers[::-1]: #this reverses the list
@@ -339,7 +344,7 @@ class MainApp(gtk.Window):
       if (respfc == gtk.RESPONSE_OK):
         self.savepath = filechooser.get_filename()        
         pdb.gimp_image_convert_indexed(self.img, 0, 0, 100, False, False, "ignored")
-        pdb.file_gif_save(self.img, self.layer, self.savepath, self.savepath, 0, 1, 100, 0)
+        pdb.file_gif_save(self.img, self.drawab, self.savepath, self.savepath, 0, 1, 100, 0)
 
     askdi.destroy()
     pdb.gimp_context_set_foreground(oldfgcol)
@@ -402,8 +407,8 @@ class MainApp(gtk.Window):
 
 
 #The function to be registered in GIMP
-def make_animation_snowing(img, layer):
-  ll = MainApp(img, layer)
+def make_animation_snowing(img, tdraw):
+  ll = MainApp(img, tdraw)
   gtk.main()
 
 
