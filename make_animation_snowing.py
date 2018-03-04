@@ -419,7 +419,7 @@ def make_animation_snowing(img, tdraw):
 register(
   "python-fu_make_snowing",
   "python-fu_make_snowing",
-  "Create an animation superimposing a snowing effect on an image",
+  "Create or edit an animation superimposing a snowing effect on an image or an existing animation",
   "Valentino Esposito",
   "Valentino Esposito",
   "2018",
