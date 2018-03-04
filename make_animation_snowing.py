@@ -109,7 +109,7 @@ class MainApp(gtk.Window):
     laba = gtk.Label("Maximum coverage allowed")
     hbxa.add(laba)
     
-    butaadj = gtk.Adjustment(COVERAGE, COVERAGE, 80, 1, 5)
+    butaadj = gtk.Adjustment(COVERAGE, 5, 80, 1, 5)
     spbuta = gtk.SpinButton(butaadj, 0, 0)
     spbuta.connect("output", self.on_coverage_change)
     hbxa.add(spbuta)
@@ -342,8 +342,11 @@ class MainApp(gtk.Window):
 
       #export the animated gif      
       if (respfc == gtk.RESPONSE_OK):
-        self.savepath = filechooser.get_filename()        
-        pdb.gimp_image_convert_indexed(self.img, 0, 0, 100, False, False, "ignored")
+        self.savepath = filechooser.get_filename()
+        
+        if (self.img.base_type != 2): #converting to indexed image only if is not already an indexed image
+          pdb.gimp_image_convert_indexed(self.img, 0, 0, 100, False, False, "ignored")
+
         pdb.file_gif_save(self.img, self.drawab, self.savepath, self.savepath, 0, 1, 100, 0)
 
     askdi.destroy()
@@ -421,7 +424,7 @@ register(
   "Valentino Esposito",
   "2018",
   "<Image>/Filters/Animation/Snow",
-  "RGB*, GRAY*",
+  "RGB*, GRAY*, INDEXED*",
   [],
   [],
   make_animation_snowing
