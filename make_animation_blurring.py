@@ -92,10 +92,19 @@ class MainWin(gtk.Window):
     self.connect("destroy", gtk.main_quit)
 
     #Designing the interface
-    vbx = gtk.VBox(spacing=10, homogeneous=True)
+    vbx = gtk.VBox(spacing=10, homogeneous=False)
     self.add(vbx)
 
-    hbxa = gtk.HBox(spacing=10, homogeneous=True)
+    hbxini = gtk.HBox(spacing=10, homogeneous=False)
+    vbx.add(hbxini)
+    topmess = "You should have maximum two layers. The first one will be animated.\n"
+    topmess += "If there is a second one, will be the unanimated background.\n"
+    topmess += "In this case, be sure that the first one has some transparency."
+    labini = gtk.Label(topmess)
+    hbxini.add(labini)
+    
+    hbxa = gtk.HBox(spacing=10, homogeneous=False)
+    vbx.add(hbxa)
     
     laba = gtk.Label("Blurring steps")
     hbxa.add(laba)
@@ -105,7 +114,7 @@ class MainWin(gtk.Window):
     spbuta.connect("output", self.on_blurstep_change)
     hbxa.add(spbuta)
     
-    hbxc = gtk.HBox(spacing=10, homogeneous=True)
+    hbxc = gtk.HBox(spacing=10, homogeneous=False)
     vbx.add(hbxc)
     
     labc = gtk.Label("Delay between frames")
@@ -116,7 +125,7 @@ class MainWin(gtk.Window):
     spbutc.connect("output", self.on_frametime_change)
     hbxc.add(spbutc)
     
-    hbxb = gtk.HBox(spacing=10, homogeneous=True)
+    hbxb = gtk.HBox(spacing=10, homogeneous=False)
     vbx.add(hbxb)
     
     labb = gtk.Label("Blur direction")
