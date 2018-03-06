@@ -32,10 +32,11 @@ import gtk
 import gobject
 from gimpfu import *
 
-BLURSTEPS = 5
+BLURSTEPS = 10
 BLURDIR = ["left", "top-left", "top", "top-right", "right", "bottom-right", "bottom", "bottom-left"]
 DEFBLURDIR = 0
 FRAMETIME = 100
+BIDIRBLUR = False
 
 #Class for the customized secondary dialog interface (using gtk as GUI)
 class AskDialog(gtk.Dialog):
@@ -53,21 +54,16 @@ class AskDialog(gtk.Dialog):
     #Designing the interface    
     qlabel = gtk.Label("Do I need to export the animated gif now?")
     self.vbox.add(qlabel)
-    qlabel.show()
     
     butno = gtk.Button("No")
     self.action_area.add(butno)
-    butno.show()
     butno.connect("clicked", self.on_button_clicked, False)
     
     butyes = gtk.Button("Yes")
     self.action_area.add(butyes)
-    butyes.show()
     butyes.connect("clicked", self.on_button_clicked, True)
     
-    self.vbox.show()
-    self.action_area.show()
-    self.show()
+    self.show_all()
     return mwin
   
   #callback method for the buttons
@@ -90,6 +86,7 @@ class MainWin(gtk.Window):
     self.blurdir = 0 #will be reinitialized in GUI construction
     self.savepath = os.getcwd() #will be updated by user choice
     self.frametime = FRAMETIME
+    self.bidblur = BIDIRBLUR
 
     #Obey the window manager quit signal:
     self.connect("destroy", gtk.main_quit)
@@ -99,41 +96,31 @@ class MainWin(gtk.Window):
     self.add(vbx)
 
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
-    vbx.add(hbxa)
     
     laba = gtk.Label("Blurring steps")
     hbxa.add(laba)
-    laba.show()
     
     butaadj = gtk.Adjustment(BLURSTEPS, 2, 10, 1, 5)
     spbuta = gtk.SpinButton(butaadj, 0, 0)
     spbuta.connect("output", self.on_blurstep_change)
     hbxa.add(spbuta)
-    spbuta.show()
-    
-    hbxa.show()
     
     hbxc = gtk.HBox(spacing=10, homogeneous=True)
     vbx.add(hbxc)
     
     labc = gtk.Label("Delay between frames")
     hbxc.add(labc)
-    labc.show()
     
     butcadj = gtk.Adjustment(FRAMETIME, 50, 2000, 1, 20)
     spbutc = gtk.SpinButton(butcadj, 0, 0)
     spbutc.connect("output", self.on_frametime_change)
     hbxc.add(spbutc)
-    spbutc.show()
-    
-    hbxc.show()
     
     hbxb = gtk.HBox(spacing=10, homogeneous=True)
     vbx.add(hbxb)
     
     labb = gtk.Label("Blur direction")
     hbxb.add(labb)
-    labb.show()
     
     boxmodel = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
     
@@ -151,17 +138,17 @@ class MainWin(gtk.Window):
     cbox.set_active(self.blurdir)
     cbox.connect("changed", self.on_cbox_changed)
     hbxb.add(cbox)
-    cbox.show()
     
-    hbxb.show()
+    butch = gtk.CheckButton("Bidirectional blurring")
+    vbx.add(butch)
+    butch.set_active(BIDIRBLUR)
+    butch.connect("toggled", self.on_butch_toggled)
     
     butok = gtk.Button("OK")
     vbx.add(butok)
     butok.connect("clicked", self.on_butok_clicked)
-    butok.show()
 
-    vbx.show()
-    self.show()
+    self.show_all()
 
     return mwin
     
@@ -178,44 +165,79 @@ class MainWin(gtk.Window):
     refmode = widget.get_model()
     self.blurdir = refmode.get_value(widget.get_active_iter(), 1)
     
+  #callback method, setting the boolean value if bidirectional blurring to the one in the checkbutton
+  def on_butch_toggled(self, widget):
+    self.bidblur = widget.get_active()
+    
   #callback method, do the blurring and optionally export the gif
   def on_butok_clicked(self, widget):
     
-    #defining blurring parameters
-    blrang = self.blurdir * 45
-    
-    #creating the first phase of layers with different blurring
-    for i in range(1, int(self.numblursteps)):
-      blurlayer = self.layer.copy()
-      self.img.add_layer(blurlayer, 0)
-      pdb.plug_in_mblur(self.img, blurlayer, 0, 5*i, blrang, 0, 0)
-      blurlayer.name = self.layer.name + "_" + str(i)
-      blurlayer.flush()
-    
-    pdb.gimp_displays_flush()
-    dial = AskDialog("Exporting", self, gtk.DIALOG_MODAL)
-    dial.run()
-    
-    #asking if the gif should be exported now
-    if (dial.answer):
-      #creating the file chooser dialog
-      ffilter = gtk.FileFilter()
-      ffilter.set_name("Animated Graphic Interface Format (gif)")
-      ffilter.add_mime_type("image/gif")
-      filechooser = gtk.FileChooserDialog(title="Choose file", parent=self, action=gtk.FILE_CHOOSER_ACTION_SAVE, buttons=None, backend=None)
-      filechooser.add_filter(ffilter)
-      filechooser.add_button("Cancel", gtk.RESPONSE_CANCEL)
-      filechooser.add_button("Save", gtk.RESPONSE_OK)
+    if (len(self.img.layers) > 2):
+      txtmess = "The BlurMotion animation need maximut two source layers.\nIf two layers are provided, the first one will be animated.\n"
+      txtmess += "Be sure it has an alpha channel. The second one will be the unanimated background."
+      pdb.gimp_message(txtmess)
+
+    else:
+      #defining blurring parameters
+      blrang = self.blurdir * 45
       
-      respfc = filechooser.run()
+      refblurlayer = self.img.layers[0]
+      mergbg = False
+      if (len(self.img.layers) == 2):
+        refbglayer = self.img.layers[1]
+        mergbg = True
+      
+      #creating the layers with different blurring
+      for i in range(1, int(self.numblursteps)):
+        blurlayer = refblurlayer.copy()
+        self.img.add_layer(blurlayer, 0)
+        pdb.plug_in_mblur(self.img, blurlayer, 0, 5*i, blrang, 0, 0)
+        
+        #performing bidirectional blurring
+        if (self.bidblur):
+          bilayer = refblurlayer.copy()
+          self.img.add_layer(bilayer, 0)
+          pdb.plug_in_mblur(self.img, bilayer, 0, 5*i, (blrang + 180), 0, 0)
+          blurlayer = pdb.gimp_image_merge_down(self.img, bilayer, 0)
 
-      #export the animated gif      
-      if (respfc == gtk.RESPONSE_OK):
-        self.savepath = filechooser.get_filename()        
-        pdb.gimp_image_convert_indexed(self.img, 0, 0, 100, False, False, "ignored")
-        pdb.file_gif_save(self.img, self.layer, self.savepath, self.savepath, 0, 1, self.frametime, 0)
+        #merging with background image if present
+        if (mergbg):
+          bglayer = refbglayer.copy()
+          self.img.add_layer(bglayer, 1)
+          blurlayer = pdb.gimp_image_merge_down(self.img, blurlayer, 0)
+          
+        blurlayer.name = refblurlayer.name + "_" + str(i)
+        blurlayer.flush()
+      
+      #merging the original layers if needed
+      if (mergbg):
+        lastlayer = pdb.gimp_image_merge_down(self.img, refblurlayer, 0)
+        lastlayer.flush()
+      
+      pdb.gimp_displays_flush()
+      dial = AskDialog("Exporting", self, gtk.DIALOG_MODAL)
+      dial.run()
+      
+      #asking if the gif should be exported now
+      if (dial.answer):
+        #creating the file chooser dialog
+        ffilter = gtk.FileFilter()
+        ffilter.set_name("Animated Graphic Interface Format (gif)")
+        ffilter.add_mime_type("image/gif")
+        filechooser = gtk.FileChooserDialog(title="Choose file", parent=self, action=gtk.FILE_CHOOSER_ACTION_SAVE, buttons=None, backend=None)
+        filechooser.add_filter(ffilter)
+        filechooser.add_button("Cancel", gtk.RESPONSE_CANCEL)
+        filechooser.add_button("Save", gtk.RESPONSE_OK)
+        
+        respfc = filechooser.run()
 
-    dial.destroy()
+        #export the animated gif      
+        if (respfc == gtk.RESPONSE_OK):
+          self.savepath = filechooser.get_filename()        
+          pdb.gimp_image_convert_indexed(self.img, 0, 0, 100, False, False, "ignored")
+          pdb.file_gif_save(self.img, self.img.layers[0], self.savepath, self.savepath, 0, 1, self.frametime, 0)
+
+      dial.destroy()
 
 
 #The function to be registered in GIMP
