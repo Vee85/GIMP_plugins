@@ -180,7 +180,6 @@ class MainWin(gtk.Window):
     
   #callback method, do the blurring and optionally export the gif
   def on_butok_clicked(self, widget):
-    
     if (len(self.img.layers) > 2):
       txtmess = "The BlurMotion animation need maximut two source layers.\nIf two layers are provided, the first one will be animated.\n"
       txtmess += "Be sure it has an alpha channel. The second one will be the unanimated background."
