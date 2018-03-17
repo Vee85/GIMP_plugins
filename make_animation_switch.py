@@ -44,8 +44,8 @@ def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale
     
     #Here resizing the images to have same size. Transparent image is resized to background image
     if (rescale):
-      wd = image.width;
-      he = image.height;
+      wd = image.width
+      he = image.height
       if (trlayer.width != wd and trlayer.height != he):
         pdb.gimp_layer_scale(trlayer, wd, he, False)
     
