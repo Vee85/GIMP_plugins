@@ -28,54 +28,51 @@
 
 import sys
 import os
+import copy
 from gimpfu import *
 
 defsavename = "/myanimated.gif"
 
 #The function to be registered in GIMP
 def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale):
-  if (len(image.layers) != 2):
-    pdb.gimp_message("The SwitchImages animation need exactly two source layers")
+  if (len(image.layers) < 2):
+    pdb.gimp_message("The SwitchImages animation need at least two source layers")
+
   else:
-    bglayer = image.layers[0]
-    bglayer.name = "downimage"
-    trlayer = image.layers[1]
-    trlayer.name = "upimage"
+    #Saving a copy of the original layers, so that altering the image.layers does not affect later references
+    baselayers = copy.copy(image.layers)
     
-    #Here resizing the images to have same size. Transparent image is resized to background image
+    #Resizing layers if requested
     if (rescale):
       wd = image.width
       he = image.height
-      if (trlayer.width != wd and trlayer.height != he):
-        pdb.gimp_layer_scale(trlayer, wd, he, False)
+      for ly in baselayers:
+        if (ly.width != wd or ly.height != he):
+          pdb.gimp_layer_scale(ly, wd, he, False)
     
-    #creating the first phase of layers, setting a set of opacity and merging the paired layers
-    for i in range(1, 10):
-      bglayertt = bglayer.copy()
-      trlayertt = trlayer.copy()
-      pdb.gimp_layer_set_opacity(trlayertt, i*10)
-      image.add_layer(trlayertt, 2)
-      image.add_layer(bglayertt, 3)
-      merglayer = pdb.gimp_image_merge_down(image, trlayertt, 0)
-      merglayer.name = "phase" + str(i*10)
+    intersteps = range(1, 10)
     
-    pdb.gimp_image_lower_item_to_bottom(image, bglayer)
-
-    #creating the second phase of layers with reversed opacity order
-    allph = image.layers[1:-1]
-    for ll in allph[::-1]: #this reverses the list
-      nl = len(image.layers)
-      newl = ll.copy()
-      newl.name = ll.name + "d"
-      image.add_layer(newl, nl)
-    
-    closel = trlayer.copy()
-    image.add_layer(closel, len(image.layers))
-    
-    #adjusting names for timing frame
-    closel.name = trlayer.name + "bis(" + str(longtime/2) + "ms)"
-    trlayer.name = trlayer.name + " (" + str(longtime/2) + "ms)"
-    bglayer.name = bglayer.name + " (" + str(longtime) + "ms)"
+    #Selecting the two contiguous layers between which the dissolvence is made
+    for ll in range(len(baselayers)):
+      bglayer = baselayers[ll]
+      try:
+        trlayer = baselayers[ll+1]
+      except IndexError:
+        trlayer = baselayers[0]
+        
+      #creating the phase of dissolvence between layers, setting a set of opacity and merging the paired layers
+      for i in intersteps:
+        abspos = ll * (len(intersteps)+1) + i
+        bglayertt = bglayer.copy()
+        trlayertt = trlayer.copy()
+        pdb.gimp_layer_set_opacity(trlayertt, i*10)
+        image.add_layer(trlayertt, abspos)
+        image.add_layer(bglayertt, abspos+1)
+        merglayer = pdb.gimp_image_merge_down(image, trlayertt, 0)
+        merglayer.name = "ph" + str(ll) + "phase" + str(i*10)
+      
+      #adjusting names for timing frame
+      bglayer.name = bglayer.name + " (" + str(longtime) + "ms)"
 
     #preparing exporting to gif
     if (len(savepath) == 0):
@@ -101,7 +98,7 @@ register(
     (PF_FILE, "savepath", "Destination", os.getcwd() + defsavename),
     (PF_INT32, "frdelay", "Base delay between frames (ms)", 100),
     (PF_INT32, "longtime", "Longer delay for basic frames (ms)", 2000),
-    (PF_BOOL, "rescale", "Does Image2 must be scaled to Image1?", True),
+    (PF_BOOL, "rescale", "Does images have to be rescaled to the image size?", True),
   ],
   [],
   python_make_switchgif
