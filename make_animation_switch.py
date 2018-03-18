@@ -34,13 +34,14 @@ from gimpfu import *
 defsavename = "/myanimated.gif"
 
 #The function to be registered in GIMP
-def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale):
+def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale, midstart):
   if (len(image.layers) < 2):
     pdb.gimp_message("The SwitchImages animation need at least two source layers")
 
   else:
     #Saving a copy of the original layers, so that altering the image.layers does not affect later references
     baselayers = copy.copy(image.layers)
+    zeroname = baselayers[0].name
     
     #Resizing layers if requested
     if (rescale):
@@ -72,8 +73,17 @@ def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale
         merglayer.name = "ph" + str(ll) + "phase" + str(i*10)
       
       #adjusting names for timing frame
-      bglayer.name = bglayer.name + " (" + str(longtime) + "ms)"
-
+      if (ll == 0 and midstart):
+        bglayer.name = bglayer.name + " (" + str(longtime/2) + "ms)"
+      else:
+        bglayer.name = bglayer.name + " (" + str(longtime) + "ms)"
+        
+    #adding final layer if midstart is requested
+    if (midstart):
+      finallayer = baselayers[0].copy()
+      image.add_layer(finallayer, len(image.layers))
+      finallayer.name = zeroname + "copy (" + str(longtime/2) + "ms)"
+        
     #preparing exporting to gif
     if (len(savepath) == 0):
       savepath = os.getcwd() + defname
@@ -99,6 +109,7 @@ register(
     (PF_INT32, "frdelay", "Base delay between frames (ms)", 100),
     (PF_INT32, "longtime", "Longer delay for basic frames (ms)", 2000),
     (PF_BOOL, "rescale", "Does images have to be rescaled to the image size?", True),
+    (PF_BOOL, "midstart", "Does animation have to start in the middle of a longer delay?", True),
   ],
   [],
   python_make_switchgif
