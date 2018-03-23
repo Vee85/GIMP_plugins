@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 #
-#  make_blurred_anim.py
+#  make_animation_blurring.py
 #  
 #  Copyright 2018 Valentino Esposito <valentinoe85@gmail.com>
 #  
