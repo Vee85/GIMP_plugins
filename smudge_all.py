@@ -22,7 +22,7 @@
 #  
 #  
 
-#This script creates an animation using the motion blur filter, starting from a base image and animating a blurring linear effect
+#This script smudge the full layer or a selection area in randomatic directions, creating a random smudge effect.
 #This script must be placed in ~/.gimp-n.m/plug-ins
 #where n.m is the gimp version (e.g. 2.8)
 
