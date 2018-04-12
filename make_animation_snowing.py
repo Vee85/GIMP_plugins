@@ -45,7 +45,7 @@ OBSCIINT = ["null", "weak", "medium", "strong"]
 DEFOBSCIINT = [0, 1, 3, 6]
 TIME = 1
 
-#generic function used by
+#generic function used to adjust RGB color
 def gdkcoltorgb(gdkc):
   red = int(gdkc.red_float * 255)
   green = int(gdkc.green_float * 255)
