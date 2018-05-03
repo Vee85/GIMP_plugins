@@ -13,3 +13,6 @@
 
 * **smudge_all.py**:
   Smudge the full layer or a selection area in randomatic directions, creating a random smudge effect. The smudging pressure can be chosen.
+
+* **make_landmap.py**:
+  Generate a regional map. Start from an image with a single layer with white background: pop up dialogs appear to guide the user in the process. The plug-in is not yet completed: up to now can be used to create a very basic featureless map.
