@@ -219,7 +219,7 @@ class LandProfile(TLSbase):
     self.set_border_width(10)
     
     #internal arguments
-    self.coastnamelist = ["no coastline", "archipelago/lakes", "simple coastline", "island", "customized"]
+    self.coastnamelist = ["no coastline", "archipelago/lakes", "simple coastline", "island", "big lake", "customized"]
     self.coasttypelist = range(len(self.coastnamelist))
     self.coasttype = 0 #will be reinitialized in GUI costruction
     
@@ -281,14 +281,14 @@ class LandProfile(TLSbase):
       if (self.coasttype == 1): #to generate archipelago
         #setting the layer to a light gray color
         colfillayer(self.img, self.bgl, (128, 128, 128)) #rgb notation for a 50% gray
-      elif (self.coasttype > 1 and self.coasttype < 4):
+      elif (self.coasttype > 1 and self.coasttype < 5):
         if (self.coasttype == 2): #to generate a coastline
           gradtype = 0 #linear
           x1 = random.random() * (pdb.gimp_image_width(self.img) / FSG)
           y1 = random.random() * (pdb.gimp_image_height(self.img) / FSG)
           x2 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / FSG))
           y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / FSG))
-        elif (self.coasttype == 3): #to generate a circular island
+        elif (self.coasttype == 3 or self.coasttype == 4): #to generate a circular island or lake
           gradtype = 2 #radial
           x1 = pdb.gimp_image_width(self.img)/2
           y1 = pdb.gimp_image_height(self.img)/2
@@ -298,7 +298,10 @@ class LandProfile(TLSbase):
         
         #drawing the gradients
         pdb.gimp_edit_blend(self.bgl, 0, 0, gradtype, 100, 0, 0, False, False, 1, 0, True, x1, y1, x2, y2) #0 (first) = normal mode, 0 (second) linear gradient
-      elif (self.coasttype == 4):
+        if (self.coasttype == 3): #inverting the gradient
+          pdb.gimp_invert(self.bgl)
+        
+      elif (self.coasttype == 5):
         pass
       
       #making the other steps
@@ -434,26 +437,36 @@ class LandDetails(TLSbase):
     self.grassbumpsl = None
     
     #internal parameters
-    self.desertlist = ["no", "manually", "randomly"]
-    self.deserttype = range(len(self.desertlist))
-    self.desertdo = 0 #will be reinitialized in GUI costruction
+    #@@@ ideally all of these: grassland, desert, arctic, underdark || these should be smaller regions rendered in other ways: forest, mountain, swamp, coast 
+    self.regionlist = ["grassland", "desert", "arctic"]
+    self.regiontype = range(len(self.regionlist))
+    self.region = 0 #will be reinitialized in GUI costruction
+
+    #~ self.desertlist = ["no", "manually", "randomly"]
+    #~ self.deserttype = range(len(self.desertlist))
+    #~ self.desertdo = 0 #will be reinitialized in GUI costruction
     
-    self.colorgrassdeep = (76, 83, 41) #a dark green color, like ditch
-    self.colorgrasslight = (149, 149, 89) #a light green color, like high grass
+    #color couples to generate gradients
+    self.colorgrassdeep = (76, 83, 41) #a dark green color, known as ditch
+    self.colorgrasslight = (149, 149, 89) #a light green color, known as high grass
+    self.colordesertdeep = (150, 113, 23) #a relatively dark brown, known as sand dune
+    self.colordesertlight = (244, 164, 96) #a light brown almost yellow, known as sandy brown
+    self.colorarcticdeep = (128, 236, 217) #a clear blue
+    self.colorarcticlight = (196, 223, 225) #a light blue
     
     #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxa)
     
-    laba = gtk.Label("Add desert area?")
+    laba = gtk.Label("Select type of region")
     hbxa.add(laba)
     
     boxmodela = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
     #filling the model for the combobox
-    for i, j in zip(self.desertlist, self.deserttype):
+    for i, j in zip(self.regionlist, self.regiontype):
       irow = boxmodela.append(None, [i, j])
 
-    self.desertdo = self.deserttype[0]
+    self.region = self.regiontype[0]
 
     cboxa = gtk.ComboBox(boxmodela)
     rendtexta = gtk.CellRendererText()
@@ -461,7 +474,7 @@ class LandDetails(TLSbase):
     cboxa.add_attribute(rendtexta, "text", 0)
     cboxa.set_entry_text_column(0)
     cboxa.set_active(0)
-    cboxa.connect("changed", self.on_desert_action_changed)
+    cboxa.connect("changed", self.on_region_changed)
     hbxa.add(cboxa)
     
     #button area
@@ -476,16 +489,22 @@ class LandDetails(TLSbase):
     self.show_all()
     return mwin
     
-  #callback method, setting desert action parameter 
-  def on_desert_action_changed(self, widget):
+  #callback method, setting base region parameter 
+  def on_region_changed(self, widget):
     refmode = widget.get_model()
-    self.desertdo = refmode.get_value(widget.get_active_iter(), 1)
+    self.region = refmode.get_value(widget.get_active_iter(), 1)
     
   #callback method, generate land details
   def on_butgendet_clicked(self, widget):
     #base color for grass
     self.addmaskp(self.bgl)
-    self.cgradmap(self.bgl, self.colorgrassdeep, self.colorgrasslight)
+    if (self.region == 0):
+      self.cgradmap(self.bgl, self.colorgrassdeep, self.colorgrasslight)
+    elif (self.region == 1):
+      self.cgradmap(self.bgl, self.colordesertdeep, self.colordesertlight)
+    elif (self.region == 2):
+      self.cgradmap(self.bgl, self.colorarcticdeep, self.colorarcticlight)
+      
     self.noisel = self.makenoisel("grasstexture", 3)
     self.addmaskp(self.noisel)
     
