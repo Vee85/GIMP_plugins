@@ -149,6 +149,7 @@ class TLSbase(gtk.Dialog):
     mode = 0 #normal mode
     if (overlay):
       mode = 5  #overlay mode
+    
     noiselayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, mode)
     self.img.add_layer(noiselayer, 0)
     pdb.plug_in_solid_noise(self.img, noiselayer, False, turbulent, random.random() * 9999999999, 15, pixsize, pixsize)
@@ -178,8 +179,12 @@ class TLSbase(gtk.Dialog):
     
   #method to apply a channel mask to a layer 
   def addmaskp(self, layer, inverting=False, applying=False):
-    pdb.gimp_image_set_active_channel(self.img, self.channelms) #setting the active channel: if there is no active channel, gimp_layer_create_mask will fail.
-    mask = pdb.gimp_layer_create_mask(layer, 6) #6 = channel mask
+    maskmode = 0 #white mask (full transparent)
+    if (self.channelms is not None):
+      maskmode = 6 #channel mask
+      pdb.gimp_image_set_active_channel(self.img, self.channelms) #setting the active channel: if there is no active channel, gimp_layer_create_mask will fail.
+    
+    mask = pdb.gimp_layer_create_mask(layer, maskmode)
     pdb.gimp_layer_add_mask(layer, mask)
 
     if (inverting):
@@ -214,7 +219,7 @@ class LandProfile(TLSbase):
     self.set_border_width(10)
     
     #internal arguments
-    self.coastnamelist = ["no coastline", "archipelago/lakes", "simple coastline", "island"]
+    self.coastnamelist = ["no coastline", "archipelago/lakes", "simple coastline", "island", "customized"]
     self.coasttypelist = range(len(self.coastnamelist))
     self.coasttype = 0 #will be reinitialized in GUI costruction
     
@@ -222,6 +227,7 @@ class LandProfile(TLSbase):
     labb = gtk.Label("In the final result: white represent land and black represent water.")
     self.vbox.add(labb)
     
+    #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxa)
     
@@ -245,6 +251,10 @@ class LandProfile(TLSbase):
     cboxa.connect("changed", self.on_coasttype_changed)
     hbxa.add(cboxa)
     
+    #new row
+    labc = gtk.Label("To generate a more elaborate profile, draw a gradient with the shape you wish\nand select the customized option in the dropdown menu.")
+    self.vbox.add(labc)
+    
     #button area
     butcanc = gtk.Button("Cancel")
     self.action_area.add(butcanc)
@@ -265,32 +275,38 @@ class LandProfile(TLSbase):
   #callback method, generate the profile
   def on_butgenpr_clicked(self, widget):
     #Using the TSL tecnnique: shape layer
-    if (self.coasttype == 1): #to generate archipelago
-      #setting the layer to a light gray color
-      colfillayer(self.img, self.bgl, (128, 128, 128)) #rgb notation for a 50% gray
-    elif (self.coasttype > 1):
-      if (self.coasttype == 2): #to generate a coastline
-        gradtype = 0 #linear
-        x1 = random.random() * (pdb.gimp_image_width(self.img) / FSG)
-        y1 = random.random() * (pdb.gimp_image_height(self.img) / FSG)
-        x2 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / FSG))
-        y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / FSG))
-      elif (self.coasttype == 3): #to generate a circular island
-        gradtype = 2 #radial
-        x1 = pdb.gimp_image_width(self.img)/2
-        y1 = pdb.gimp_image_height(self.img)/2
-        aver = (x1 + y1)/2.0
-        x2 = aver + (aver * (0.75 + random.random()/2.0))
-        y2 = y1
+    if (self.coasttype == 0):
+      pass
+    else:
+      if (self.coasttype == 1): #to generate archipelago
+        #setting the layer to a light gray color
+        colfillayer(self.img, self.bgl, (128, 128, 128)) #rgb notation for a 50% gray
+      elif (self.coasttype > 1 and self.coasttype < 4):
+        if (self.coasttype == 2): #to generate a coastline
+          gradtype = 0 #linear
+          x1 = random.random() * (pdb.gimp_image_width(self.img) / FSG)
+          y1 = random.random() * (pdb.gimp_image_height(self.img) / FSG)
+          x2 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / FSG))
+          y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / FSG))
+        elif (self.coasttype == 3): #to generate a circular island
+          gradtype = 2 #radial
+          x1 = pdb.gimp_image_width(self.img)/2
+          y1 = pdb.gimp_image_height(self.img)/2
+          aver = (x1 + y1)/2.0
+          x2 = aver + (aver * (0.75 + random.random()/2.0))
+          y2 = y1
+        
+        #drawing the gradients
+        pdb.gimp_edit_blend(self.bgl, 0, 0, gradtype, 100, 0, 0, False, False, 1, 0, True, x1, y1, x2, y2) #0 (first) = normal mode, 0 (second) linear gradient
+      elif (self.coasttype == 4):
+        pass
       
-      #drawing the gradients
-      pdb.gimp_edit_blend(self.bgl, 0, 0, gradtype, 100, 0, 0, False, False, 1, 0, True, x1, y1, x2, y2)
+      #making the other steps
+      self.noisel = self.makenoisel("noiselayer", 5)
+      cmm = "The lower the selected value, the more the resulting land."
+      self.clipl = self.makeclipl("cliplayer", cmm)
+      self.makeprofilel("landlayer")
     
-    #making the other steps
-    self.noisel = self.makenoisel("noiselayer", 5)
-    cmm = "The lower the selected value, the more the resulting land."
-    self.clipl = self.makeclipl("cliplayer", cmm)
-    self.makeprofilel("landlayer")
     self.on_job_done()
 
 
@@ -528,19 +544,21 @@ class MainApp(gtk.Window):
     land.run()
     channelmask = land.channelms
     
+    landbg = self.drawab
     #create a copy of the landmass to use as base layer for the watermass
-    waterbg = land.maskl.copy()
-    waterbg.name = "seashape"
-    self.img.add_layer(waterbg, 0)
+    if (land.coasttype > 0):
+      waterbg = land.maskl.copy()
+      waterbg.name = "seashape"
+      self.img.add_layer(waterbg, 0)
+      
+      water = WaterProfile(self.img, waterbg, channelmask, "Building water mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+      water.run()
 
-    water = WaterProfile(self.img, waterbg, channelmask, "Building water mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    water.run()
-    
-    #create a copy of the landmass to use as base layer for the landmass decoration
-    landbg = water.bgl.copy()
-    landbg.name = "grass"
-    self.img.add_layer(landbg, 0)
-    
+      #create a copy of the landmass to use as base layer for the landmass decoration      
+      landbg = water.bgl.copy()
+      self.img.add_layer(landbg, 0)
+
+    landbg.name = "grass"    
     landdet = LandDetails(self.img, landbg, channelmask, "Building land details", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     landdet.run()
     
