@@ -439,8 +439,8 @@ class LandDetails(TLSbase):
     #internal parameters
     #@@@ ideally all of these: grassland, desert, arctic, underdark || these should be smaller regions rendered in other ways: forest, mountain, swamp, coast 
     self.regionlist = ["grassland", "desert", "arctic"]
-    self.regiontype = range(len(self.regionlist))
-    self.region = 0 #will be reinitialized in GUI costruction
+    self.regiontype = ["grass", "sand", "ice"]
+    self.region = self.regiontype[0] #will be reinitialized in GUI costruction
 
     #~ self.desertlist = ["no", "manually", "randomly"]
     #~ self.deserttype = range(len(self.desertlist))
@@ -452,7 +452,7 @@ class LandDetails(TLSbase):
     self.colordesertdeep = (150, 113, 23) #a relatively dark brown, known as sand dune
     self.colordesertlight = (244, 164, 96) #a light brown almost yellow, known as sandy brown
     self.colorarcticdeep = (128, 236, 217) #a clear blue
-    self.colorarcticlight = (196, 223, 225) #a light blue
+    self.colorarcticlight = (232, 232, 232) #a dirty white
     
     #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
@@ -461,7 +461,7 @@ class LandDetails(TLSbase):
     laba = gtk.Label("Select type of region")
     hbxa.add(laba)
     
-    boxmodela = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
+    boxmodela = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_STRING)
     #filling the model for the combobox
     for i, j in zip(self.regionlist, self.regiontype):
       irow = boxmodela.append(None, [i, j])
@@ -498,20 +498,21 @@ class LandDetails(TLSbase):
   def on_butgendet_clicked(self, widget):
     #base color for grass
     self.addmaskp(self.bgl)
-    if (self.region == 0):
+    self.bgl.name = self.region    
+    if (self.bgl.name == "grass"):
       self.cgradmap(self.bgl, self.colorgrassdeep, self.colorgrasslight)
-    elif (self.region == 1):
+    elif (self.bgl.name == "sand"):
       self.cgradmap(self.bgl, self.colordesertdeep, self.colordesertlight)
-    elif (self.region == 2):
+    elif (self.bgl.name == "ice"):
       self.cgradmap(self.bgl, self.colorarcticdeep, self.colorarcticlight)
       
-    self.noisel = self.makenoisel("grasstexture", 3)
+    self.noisel = self.makenoisel(self.bgl.name + "texture", 3)
     self.addmaskp(self.noisel)
     
     #create an embossing effect using a bump map
-    self.bumpmapl = self.makenoisel("grassbumpmap", 15, False, True)
+    self.bumpmapl = self.makenoisel(self.bgl.name + "bumpmap", 15, False, True)
     pdb.gimp_item_set_visible(self.bumpmapl, False)
-    self.grassbumpsl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, "grassbumps", 100, 5) #5 = overlay mode
+    self.grassbumpsl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.bgl.name + "bumps", 100, 5) #5 = overlay mode
     self.img.add_layer(self.grassbumpsl, 0)
     colfillayer(self.img, self.grassbumpsl, (128, 128, 128)) #make foreground 50% gray
 
@@ -577,7 +578,7 @@ class MainApp(gtk.Window):
       landbg = water.bgl.copy()
       self.img.add_layer(landbg, 0)
 
-    landbg.name = "grass"    
+    landbg.name = "base"
     landdet = LandDetails(self.img, landbg, channelmask, "Building land details", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     landdet.run()
     
