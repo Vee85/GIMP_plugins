@@ -98,7 +98,7 @@ class ClipDialog(gtk.Dialog):
   def make_cliplayer(self):
     self.cliplayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.lname, 100, 10) #10 = lighten only mode
     self.img.add_layer(self.cliplayer, 0)
-    colfillayer(self.img, self.cliplayer, (255, 255, 255)) #make foreground color white
+    colfillayer(self.img, self.cliplayer, (255, 255, 255)) #make layer color white
     
   #callback method, apply the new value
   def on_value_changed(self, widget):
@@ -173,7 +173,7 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_selection_invert(self.img) #inverting selection
     self.maskl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, 0) #0 (last) = normal mode
     self.img.add_layer(self.maskl, 0)
-    colfillayer(self.img, self.maskl, (255, 255, 255)) #make foreground color white
+    colfillayer(self.img, self.maskl, (255, 255, 255)) #make layer color white
     self.channelms = pdb.gimp_selection_save(self.img)
     pdb.gimp_selection_none(self.img)
     
@@ -219,7 +219,8 @@ class LandProfile(TLSbase):
     self.set_border_width(10)
     
     #internal arguments
-    self.coastnamelist = ["no coastline", "archipelago/lakes", "simple coastline", "island", "big lake", "customized"]
+    self.genonce = False
+    self.coastnamelist = ["no water", "archipelago/lakes", "simple coastline", "island", "big lake", "customized"]
     self.coasttypelist = range(len(self.coastnamelist))
     self.coasttype = 0 #will be reinitialized in GUI costruction
     
@@ -252,17 +253,17 @@ class LandProfile(TLSbase):
     hbxa.add(cboxa)
     
     #new row
-    labc = gtk.Label("To generate a more elaborate profile, draw a gradient with the shape you wish\nand select the customized option in the dropdown menu.")
+    labc = gtk.Label("To generate a more elaborate profile, draw a gradient with the shape you wish\nand select the customized option in the dropdown menu.\nPress again Generate land profile if you want to regenerate the profile.")
     self.vbox.add(labc)
     
     #button area
-    butcanc = gtk.Button("Cancel")
-    self.action_area.add(butcanc)
-    butcanc.connect("clicked", gtk.main_quit)
-    
     butgenpr = gtk.Button("Generate land profile")
     self.action_area.add(butgenpr)
     butgenpr.connect("clicked", self.on_butgenpr_clicked)
+    
+    butnext = gtk.Button("Next step")
+    self.action_area.add(butnext)
+    butnext.connect("clicked", self.on_butnext_clicked)
     
     self.show_all()
     return mwin
@@ -272,11 +273,46 @@ class LandProfile(TLSbase):
     refmode = widget.get_model()
     self.coasttype = refmode.get_value(widget.get_active_iter(), 1)
   
+  #callback method, regenerate the land profile
+  def on_butnext_clicked(self, widget):
+    if not self.genonce:
+      if (self.coasttype == 0):
+        self.on_job_done()
+      else:
+        #dialog telling to press the other button first
+        infodi = gtk.Dialog(title="Warning", parent=self)
+        ilabel = gtk.Label("You cannot go to the next step until you generate a land profile.\nPress the \"Generate land profile\" button first.")
+        infodi.vbox.add(ilabel)
+        ilabel.show()
+        infodi.add_button("Ok", gtk.RESPONSE_OK)
+        infodi.run()
+        infodi.destroy()
+      
+    else:
+      self.on_job_done()
+    
+  
   #callback method, generate the profile
   def on_butgenpr_clicked(self, widget):
+    #removing previous layers if we are regenerating
+    if (self.genonce):
+      if self.bgl is not None:
+        pdb.gimp_image_remove_layer(self.img, self.bgl)
+        self.bgl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, "Sfondo", 100, 0) #0 = normal mode
+        self.img.add_layer(self.bgl, 0)
+        colfillayer(self.img, self.bgl, (255, 255, 255)) #make layer full white
+      if self.noisel is not None:
+        pdb.gimp_image_remove_layer(self.img, self.noisel)
+      if self.clipl is not None:
+        pdb.gimp_image_remove_layer(self.img, self.clipl)
+      if self.maskl is not None:
+        pdb.gimp_image_remove_layer(self.img, self.maskl)
+      if self.channelms is not None:
+        pdb.gimp_image_remove_channel(self.img, self.channelms)
+      
     #Using the TSL tecnnique: shape layer
-    if (self.coasttype == 0):
-      pass
+    if (self.coasttype == 0): #no need of a coast, skip everything
+      self.genonce = True
     else:
       if (self.coasttype == 1): #to generate archipelago
         #setting the layer to a light gray color
@@ -309,8 +345,9 @@ class LandProfile(TLSbase):
       cmm = "The lower the selected value, the more the resulting land."
       self.clipl = self.makeclipl("cliplayer", cmm)
       self.makeprofilel("landlayer")
-    
-    self.on_job_done()
+      self.genonce = True
+      
+      pdb.gimp_displays_flush()
 
 
 #class to generate the water mass profile (sea, ocean, lakes)
@@ -514,7 +551,7 @@ class LandDetails(TLSbase):
     pdb.gimp_item_set_visible(self.bumpmapl, False)
     self.grassbumpsl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.bgl.name + "bumps", 100, 5) #5 = overlay mode
     self.img.add_layer(self.grassbumpsl, 0)
-    colfillayer(self.img, self.grassbumpsl, (128, 128, 128)) #make foreground 50% gray
+    colfillayer(self.img, self.grassbumpsl, (128, 128, 128)) #make layer 50% gray
 
     pdb.plug_in_bump_map_tiled(self.img, self.grassbumpsl, self.bumpmapl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
     self.addmaskp(self.grassbumpsl)
