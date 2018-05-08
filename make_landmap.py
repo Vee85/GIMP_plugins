@@ -56,37 +56,82 @@ def colfillayer(image, layer, rgbcolor):
 
 
 #class to set the maximum color output level of a layer
-class ClipDialog(gtk.Dialog):
+class CLevDialog(gtk.Dialog):
+  #class constants (used as a sort of enumeration)
+  GAMMA = 0
+  INPUT_MIN = 1
+  INPUT_MAX = 2
+  OUTPUT_MIN = 3
+  OUTPUT_MAX = 4
+  ALL = 5
+
   #constructor
-  def __init__(self, image, ltext, namelayer, *args):
+  def __init__(self, image, layer, ltext, modes, *args):
     dwin = gtk.Dialog.__init__(self, *args)
     self.set_border_width(10)
-    self.img = image
-    self.cliplayer = None
-    self.lname = namelayer
-    self.thrcol = 255 #threshold color set to maximum (if used in the three channel (RGB) is white)
-    self.closed = False
     
-    self.make_cliplayer()
-    pdb.gimp_displays_flush()
-
+    #internal arguments
+    self.modes = modes
+    self.img = image
+    self.origlayer = layer
+    self.reslayer = None
+    self.inlow = 0 #threshold  color set to minimum (if used in the three channel (RGB) is black)
+    self.inhigh = 255 #threshold  color set to maximum (if used in the three channel (RGB) is white)
+    self.gamma = 1.0 #gamma value for input color
+    self.outlow = 0 #threshold  color set to minimum (if used in the three channel (RGB) is black)
+    self.outhigh = 255 #threshold  color set to maximum (if used in the three channel (RGB) is white)
+    
     #Designing the interface
     #new row
     laba = gtk.Label(ltext)
     self.vbox.add(laba)
+
+    labtxt = []
+    adjlist = []
+    hboxes = []
+    labb = []
+    scab = []
+    spbutc = []
     
-    genadj = gtk.Adjustment(self.thrcol, 0, 255, 1, 10)
-    #new row
-    scab = gtk.HScale(genadj)
-    scab.connect("value-changed", self.on_value_changed)
-    self.vbox.add(scab)
+    if self.modes[0] == CLevDialog.ALL:
+      self.modes = [CLevDialog.GAMMA, CLevDialog.INPUT_MIN, CLevDialog.INPUT_MAX, CLevDialog.OUTPUT_MIN, CLevDialog.OUTPUT_MAX]
     
-    #new row
-    spbutc = gtk.SpinButton(genadj, 0, 0)
-    spbutc.connect("output", self.on_value_changed)
-    self.vbox.add(spbutc)
+    #creating the necessary adjustments
+    for m in self.modes:
+      if (m == CLevDialog.GAMMA):
+        adjlist.append(gtk.Adjustment(self.gamma, 0.10, 10.00, 0.01, 0.1))
+        labtxt.append("Gamma")
+      if (m == CLevDialog.INPUT_MIN):
+        adjlist.append(gtk.Adjustment(self.inlow, 0, 255, 1, 10))
+        labtxt.append("Low Input")
+      if (m == CLevDialog.INPUT_MAX):
+        adjlist.append(gtk.Adjustment(self.inhigh, 0, 255, 1, 10))
+        labtxt.append("High Input")
+      if (m == CLevDialog.OUTPUT_MIN):
+        adjlist.append(gtk.Adjustment(self.outlow, 0, 255, 1, 10))
+        labtxt.append("Low Output")
+      if (m == CLevDialog.OUTPUT_MAX):
+        adjlist.append(gtk.Adjustment(self.outhigh, 0, 255, 1, 10))
+        labtxt.append("High Output")
+
+    #making the scale and spinbuttons for the adjustments
+    for adj, ww, lt in zip(adjlist, self.modes, labtxt):
+      #new row
+      hboxes.append(gtk.HBox(spacing=10, homogeneous=False))
+      self.vbox.add(hboxes[-1])
     
-    #new row
+      labb.append(gtk.Label(lt))
+      hboxes[-1].add(labb[-1])
+      
+      scab.append(gtk.HScale(adj))
+      scab[-1].connect("value-changed", self.on_value_changed, ww)
+      hboxes[-1].add(scab[-1])
+      
+      spbutc.append(gtk.SpinButton(adj, 0, 2))
+      spbutc[-1].connect("output", self.on_value_changed, ww)
+      hboxes[-1].add(spbutc[-1])
+      
+    #action area
     butok = gtk.Button("OK")
     self.action_area.add(butok)
     butok.connect("clicked", self.on_butok_clicked)
@@ -95,23 +140,39 @@ class ClipDialog(gtk.Dialog):
     return dwin
 
   #callback method, create the cliplayer
-  def make_cliplayer(self):
-    self.cliplayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.lname, 100, 10) #10 = lighten only mode
-    self.img.add_layer(self.cliplayer, 0)
-    colfillayer(self.img, self.cliplayer, (255, 255, 255)) #make layer color white
+  def make_reslayer(self):
+    #deleting the reslayer and recreating if it already exists
+    if self.reslayer is not None:
+      pdb.gimp_image_remove_layer(self.img, self.reslayer)
+    
+    pdb.gimp_item_set_visible(self.origlayer, True)
+    self.reslayer = self.origlayer.copy()
+    self.img.add_layer(self.reslayer, 0)
+    pdb.gimp_item_set_visible(self.origlayer, False)
     
   #callback method, apply the new value
-  def on_value_changed(self, widget):
-    #deleting the layer and recreating
-    pdb.gimp_image_remove_layer(self.img, self.cliplayer)
-    self.make_cliplayer()
-    self.thrcol = int(widget.get_value())
-    pdb.gimp_levels(self.cliplayer, 0, 0, 255, 1, 0, self.thrcol) #regulating color levels, channel = #0 (second parameter) is for histogram value
+  def on_value_changed(self, widget, m):
+    self.make_reslayer()
+
+    if (m == CLevDialog.GAMMA):
+      self.gamma = widget.get_value()
+    if (m == CLevDialog.INPUT_MIN):
+      self.inlow = widget.get_value()
+    if (m == CLevDialog.INPUT_MAX):
+      self.inhigh = widget.get_value()
+    if (m == CLevDialog.OUTPUT_MIN):
+      self.outlow = widget.get_value()
+    if (m == CLevDialog.OUTPUT_MAX):
+      self.outhigh = widget.get_value()
+            
+    pdb.gimp_levels(self.reslayer, 0, self.inlow, self.inhigh, self.gamma, self.outlow, self.outhigh) #regulating color levels, channel = #0 (second parameter) is for histogram value
     pdb.gimp_displays_flush()
 
   #callback method for ok button
   def on_butok_clicked(self, widget):
-    self.closed = True
+    rname = self.origlayer.name
+    pdb.gimp_image_remove_layer(self.img, self.origlayer)
+    self.reslayer.name = rname
     self.hide()
 
 
@@ -119,7 +180,7 @@ class ClipDialog(gtk.Dialog):
 #it works as a sort of abstract class, but python does not have the concecpt of abstract classes, so it's just a normal class. 
 class TLSbase(gtk.Dialog):
   #constructor
-  def __init__(self, image, drawable, *args):
+  def __init__(self, image, drawable, layermask, channelmask, *args):
     mwin = gtk.Dialog.__init__(self, *args)
     self.set_border_width(10)
     
@@ -131,8 +192,8 @@ class TLSbase(gtk.Dialog):
     self.bgl = drawable
     self.noisel = None
     self.clipl = None
-    self.maskl = None
-    self.channelms = None
+    self.maskl = layermask
+    self.channelms = channelmask
     self.thrc = 0 #will be selected later
     
     #nothing in the dialog: labels and buttons are created in the child classes
@@ -143,13 +204,24 @@ class TLSbase(gtk.Dialog):
   def on_job_done(self):
     pdb.gimp_displays_flush()
     self.hide()
-  
-  #method to generate the noise layer
-  def makenoisel(self, lname, pixsize, overlay=True, turbulent=False):
-    mode = 0 #normal mode
-    if (overlay):
-      mode = 5  #overlay mode
+      
+  #method to generate a uniformly colored layer (typically the background layer
+  def makeunilayer(self, lname, lcolor=None):
+    res = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, 0) #0 = normal mode
+    self.img.add_layer(res, 0)
+    if lcolor is None:      
+      lcolor = (255, 255, 255) #make layer color white
     
+    colfillayer(self.img, res, lcolor)
+    pdb.gimp_displays_flush()
+    return res
+  
+  #method to generate the uniformly colored background layer
+  def makebgl(self, lcolor=None):
+    self.bgl = self.makeunilayer("bgl", lcolor)
+
+  #method to generate the noise layer
+  def makenoisel(self, lname, pixsize, mode=NORMAL_MODE, turbulent=False):    
     noiselayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, mode)
     self.img.add_layer(noiselayer, 0)
     pdb.plug_in_solid_noise(self.img, noiselayer, False, turbulent, random.random() * 9999999999, 15, pixsize, pixsize)
@@ -157,10 +229,14 @@ class TLSbase(gtk.Dialog):
   
   #method to generate the clip layer
   def makeclipl(self, lname, commtxt):
-    cld = ClipDialog(self.img, commtxt, lname, "Set clip layer level", self, gtk.DIALOG_MODAL) #title = "max output", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    cliplayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, 10) #10 = lighten only mode
+    self.img.add_layer(cliplayer, 0)
+    colfillayer(self.img, cliplayer, (255, 255, 255)) #make layer color white
+    
+    cld = CLevDialog(self.img, cliplayer, commtxt, [CLevDialog.OUTPUT_MAX], "Set clip layer level", self, gtk.DIALOG_MODAL) #title = "sel clip...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     cld.run()
-    cliplayer = cld.cliplayer
-    self.thrc = cld.thrcol
+    cliplayer = cld.reslayer
+    self.thrc = cld.outhigh
     cld.destroy()
     return cliplayer
 
@@ -179,17 +255,23 @@ class TLSbase(gtk.Dialog):
     
   #method to apply a channel mask to a layer 
   def addmaskp(self, layer, inverting=False, applying=False):
-    maskmode = 0 #white mask (full transparent)
-    if (self.channelms is not None):
-      maskmode = 6 #channel mask
-      pdb.gimp_image_set_active_channel(self.img, self.channelms) #setting the active channel: if there is no active channel, gimp_layer_create_mask will fail.
-    
-    mask = pdb.gimp_layer_create_mask(layer, maskmode)
-    pdb.gimp_layer_add_mask(layer, mask)
-
-    if (inverting):
-      pdb.gimp_invert(mask)
+    if pdb.gimp_layer_get_mask(layer) is None:
+      maskmode = 0 #white mask (full transparent)
+      if (self.channelms is not None):
+        maskmode = 6 #channel mask
+        if (pdb.gimp_image_get_active_channel(self.img) is None): #checking if there is already an active channel
+          pdb.gimp_image_set_active_channel(self.img, self.channelms) #setting the active channel: if there is no active channel, gimp_layer_create_mask will fail.
       
+      mask = pdb.gimp_layer_create_mask(layer, maskmode)
+      pdb.gimp_layer_add_mask(layer, mask)
+
+      if (inverting):
+        pdb.gimp_invert(mask)
+    
+    else:
+      #mask already present, hence it is removed with the MASK_APPLY option
+      applying = True
+        
     if (applying):
       pdb.gimp_layer_remove_mask(layer, 0) #0 = MASK_APPLY
       return None
@@ -215,8 +297,7 @@ class TLSbase(gtk.Dialog):
 class LandProfile(TLSbase):
   #constructor
   def __init__(self, image, tdraw, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, *args)
-    self.set_border_width(10)
+    mwin = TLSbase.__init__(self, image, tdraw, None, None, *args)
     
     #internal arguments
     self.genonce = False
@@ -253,7 +334,11 @@ class LandProfile(TLSbase):
     hbxa.add(cboxa)
     
     #new row
-    labc = gtk.Label("To generate a more elaborate profile, draw a gradient with the shape you wish\nand select the customized option in the dropdown menu.\nPress again Generate land profile if you want to regenerate the profile.")
+    labtext = "To generate a more elaborate profile, draw a gradient with the shape you wish\n"
+    labtext += "and select the customized option in the dropdown menu.\n"
+    labtext += "Press again Generate land profile if you want to regenerate the profile.\n"
+    labtext += "Press Next step to continue." 
+    labc = gtk.Label(labtext)
     self.vbox.add(labc)
     
     #button area
@@ -287,7 +372,7 @@ class LandProfile(TLSbase):
         infodi.add_button("Ok", gtk.RESPONSE_OK)
         infodi.run()
         infodi.destroy()
-      
+        
     else:
       self.on_job_done()
     
@@ -341,7 +426,7 @@ class LandProfile(TLSbase):
         pass
       
       #making the other steps
-      self.noisel = self.makenoisel("noiselayer", 5)
+      self.noisel = self.makenoisel("noiselayer", 5, OVERLAY_MODE)
       cmm = "The lower the selected value, the more the resulting land."
       self.clipl = self.makeclipl("cliplayer", cmm)
       self.makeprofilel("landlayer")
@@ -353,10 +438,8 @@ class LandProfile(TLSbase):
 #class to generate the water mass profile (sea, ocean, lakes)
 class WaterProfile(TLSbase):
   #constructor
-  def __init__(self, image, tdraw, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, *args)
-    self.set_border_width(10)
-    self.channelms = channelmask
+  def __init__(self, image, tdraw, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
     self.seal = None
     self.shorel = None
 
@@ -429,7 +512,7 @@ class WaterProfile(TLSbase):
       pdb.plug_in_gauss(self.img, self.bgl, pix, pix, 0)
       pdb.gimp_displays_flush()
     
-    self.noisel = self.makenoisel("seanoise", 4)
+    self.noisel = self.makenoisel("seanoise", 4, OVERLAY_MODE)
     self.bgl = pdb.gimp_image_merge_down(self.img, self.noisel, 0)
 
     #copy noise layer into a new layer 
@@ -463,15 +546,13 @@ class WaterProfile(TLSbase):
     self.on_job_done()
 
 
-#class to generate the land details (grass and so on)
-class LandDetails(TLSbase):
+#class to generate the base land (color and mask of the terrain)
+class BaseDetails(TLSbase):
   #constructor
-  def __init__(self, image, tdraw, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, *args)
-    self.set_border_width(10)
-    self.channelms = channelmask
+  def __init__(self, image, tdraw, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
     self.bumpmapl = None
-    self.grassbumpsl = None
+    self.basebumpsl = None
     
     #internal parameters
     #@@@ ideally all of these: grassland, desert, arctic, underdark || these should be smaller regions rendered in other ways: forest, mountain, swamp, coast 
@@ -543,21 +624,140 @@ class LandDetails(TLSbase):
     elif (self.bgl.name == "ice"):
       self.cgradmap(self.bgl, self.colorarcticdeep, self.colorarcticlight)
       
-    self.noisel = self.makenoisel(self.bgl.name + "texture", 3)
+    self.noisel = self.makenoisel(self.bgl.name + "texture", 3, OVERLAY_MODE)
     self.addmaskp(self.noisel)
     
     #create an embossing effect using a bump map
-    self.bumpmapl = self.makenoisel(self.bgl.name + "bumpmap", 15, False, True)
+    self.bumpmapl = self.makenoisel(self.bgl.name + "bumpmap", 15, NORMAL_MODE, True)
     pdb.gimp_item_set_visible(self.bumpmapl, False)
-    self.grassbumpsl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.bgl.name + "bumps", 100, 5) #5 = overlay mode
-    self.img.add_layer(self.grassbumpsl, 0)
-    colfillayer(self.img, self.grassbumpsl, (128, 128, 128)) #make layer 50% gray
+    self.basebumpsl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.bgl.name + "bumps", 100, OVERLAY_MODE)
+    self.img.add_layer(self.basebumpsl, 0)
+    colfillayer(self.img, self.basebumpsl, (128, 128, 128)) #make layer 50% gray
 
-    pdb.plug_in_bump_map_tiled(self.img, self.grassbumpsl, self.bumpmapl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
-    self.addmaskp(self.grassbumpsl)
-        
+    pdb.plug_in_bump_map_tiled(self.img, self.basebumpsl, self.bumpmapl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
+    self.addmaskp(self.basebumpsl)
+    
     self.on_job_done()
 
+
+#class to generate the dirt on the terrain
+class DirtDetails(TLSbase):
+  #constructor
+  def __init__(self, image, tdraw, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
+    self.bumpmapl = None
+    self.basebumpsl = None
+    self.smp = 50
+    
+    #colors
+    self.colordirt = (128, 107, 80) #med dirt, a moderate brown
+
+    #new row
+    hbxa = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxa)
+    
+    laba = gtk.Label("Adding dirt to the map?")
+    hbxa.add(laba)
+    
+    #button area
+    butcanc = gtk.Button("No")
+    self.action_area.add(butcanc)
+    butcanc.connect("clicked", self.on_butcanc_clicked)
+    
+    butgendrt = gtk.Button("Yes")
+    self.action_area.add(butgendrt)
+    butgendrt.connect("clicked", self.on_butgendrt_clicked)
+
+    self.show_all()
+    return mwin
+
+  #method to make the more complex noise for dirt: should be combined with the land profile to have dirt close to the coast if a coast is present
+  def makedirtnoisel(self, lname, pixsize):
+    #preparing the noiselayer generation
+    if self.maskl is not None:
+      masklcopy = self.maskl.copy()
+      self.img.add_layer(masklcopy, 0)
+      pdb.plug_in_gauss(self.img, masklcopy, self.smp, self.smp, 0)
+    
+      #adding the noise layer mixed with the copy mask
+      self.noisel = self.makenoisel(lname, pixsize, DIFFERENCE_MODE)
+      self.noisel = pdb.gimp_image_merge_down(self.img, self.noisel, 0)
+      pdb.gimp_invert(self.noisel)
+      
+    else:
+      #just generating a normal noise layer
+      self.noisel = self.makenoisel(lname, pixsize, NORMAL_MODE)
+      
+    self.noisel.name = "dirtnoisemask"
+
+
+    #correcting the mask color levels
+    commtxt = "Set minimum, maximum and gamma to edit the B/W ratio in the image.\n"
+    commtxt += "The white regions will be covered by dirt."
+    cld = CLevDialog(self.img, self.noisel, commtxt, [CLevDialog.INPUT_MIN, CLevDialog.GAMMA, CLevDialog.INPUT_MAX], "Set input levels", self, gtk.DIALOG_MODAL)
+    cld.run()
+    resl = cld.reslayer
+    cld.destroy()
+    return resl
+
+  #callback method, skipping the dirt adding
+  def on_butcanc_clicked(self, widget):
+    self.on_job_done()
+
+  #callback method, generate the layers to create the dirt
+  def on_butgendrt_clicked(self, widget):
+    self.makebgl(self.colordirt)
+    self.bgl.name = "dirt"
+    
+    #adding some effect to the layer to make it like dirt
+    pdb.plug_in_hsv_noise(self.img, self.bgl, 4, 11, 10, 22)
+    pdb.plug_in_bump_map_tiled(self.img, self.bgl, self.bgl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
+    
+    oknoise = True
+    while oknoise:
+      self.noisel = self.makedirtnoisel("dirtnoise", 16)
+      
+      #dialog checking that the user is satisfied with the result
+      infodi = gtk.Dialog(title="Checking dialod", parent=self)
+      ilabel = gtk.Label("Press OK if you are satisfied with the current mask.\nPress Cancel to generate a new mask for the dirt.")
+      infodi.vbox.add(ilabel)
+      ilabel.show()
+      infodi.add_button("Cancel", gtk.RESPONSE_CANCEL)
+      infodi.add_button("OK", gtk.RESPONSE_OK)
+      useransw = infodi.run()
+      
+      if (useransw == gtk.RESPONSE_OK):
+        oknoise = False
+      elif (useransw == gtk.RESPONSE_CANCEL):
+        pdb.gimp_image_remove_layer(self.img, self.noisel)
+
+      infodi.destroy()
+    
+    #applying some masks
+    self.addmaskp(self.bgl, False, True)
+    maskbis = self.addmaskp(self.bgl, False, False) #readding but not applying, we need to work on the second mask
+
+    noisemask = self.addmaskp(self.noisel)
+    pdb.plug_in_gauss(self.img, self.noisel, 10, 10, 0)
+    pdb.plug_in_spread(self.img, self.noisel, 10, 10)    
+    self.addmaskp(self.noisel) #here called again to apply the mask
+    
+    #applying the mask, final step
+    if self.maskl is not None:
+      masklcopy = self.maskl.copy()
+      self.img.add_layer(masklcopy, 1)      
+      self.noisel = pdb.gimp_image_merge_down(self.img, self.noisel, 0)
+
+    pdb.gimp_edit_copy(self.noisel)
+    flsel = pdb.gimp_edit_paste(maskbis, False)
+    pdb.gimp_floating_sel_anchor(flsel)
+
+    pdb.gimp_item_set_visible(self.noisel, False)
+    pdb.gimp_layer_set_opacity(self.bgl, 55)
+    
+    self.on_job_done()
+
+  
 
 #class for the customized GUI
 class MainApp(gtk.Window):
@@ -599,16 +799,17 @@ class MainApp(gtk.Window):
     
     land = LandProfile(self.img, self.drawab, "Building land mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     land.run()
+    layermask = land.maskl
     channelmask = land.channelms
-    
+        
     landbg = self.drawab
-    #create a copy of the landmass to use as base layer for the watermass
     if (land.coasttype > 0):
+      #create a copy of the landmass to use as base layer for the watermass
       waterbg = land.maskl.copy()
       waterbg.name = "seashape"
       self.img.add_layer(waterbg, 0)
       
-      water = WaterProfile(self.img, waterbg, channelmask, "Building water mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+      water = WaterProfile(self.img, waterbg, layermask, channelmask, "Building water mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
       water.run()
 
       #create a copy of the landmass to use as base layer for the landmass decoration      
@@ -616,8 +817,11 @@ class MainApp(gtk.Window):
       self.img.add_layer(landbg, 0)
 
     landbg.name = "base"
-    landdet = LandDetails(self.img, landbg, channelmask, "Building land details", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    landdet = BaseDetails(self.img, landbg, layermask, channelmask, "Building land details", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     landdet.run()
+    
+    dirtd = DirtDetails(self.img, None, layermask, channelmask, "Building dirt", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    dirtd.run()
     
   #callback method to use current image as map
   def on_butusemap_clicked(self, widget):
