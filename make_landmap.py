@@ -205,6 +205,32 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_displays_flush()
     self.hide()
       
+  #method to get the maximum brightness from the pixel histogram of a layer
+  def get_brightness_max(self, layer, channel=HISTOGRAM_VALUE):
+    endr = 255
+    found = False
+    while not found:
+      mean, std_dev, median, pixels, count, percentile = pdb.gimp_histogram(layer, channel, 0, endr)
+      if (count < pixels):
+        found = True
+      else:
+        endr = endr - 1
+        
+    return endr
+    
+  #method to get the minimum brightness from the pixel histogram of a layer
+  def get_brightness_min(self, layer, channel=HISTOGRAM_VALUE):
+    startr = 0
+    found = False
+    while not found:
+      mean, std_dev, median, pixels, count, percentile = pdb.gimp_histogram(layer, channel, startr, 255)
+      if (count < pixels):
+        found = True
+      else:
+        startr = startr + 1
+        
+    return startr
+  
   #method to generate a uniformly colored layer (typically the background layer
   def makeunilayer(self, lname, lcolor=None):
     res = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, 0) #0 = normal mode
@@ -422,7 +448,7 @@ class LandProfile(TLSbase):
         if (self.coasttype == 3): #inverting the gradient
           pdb.gimp_invert(self.bgl)
         
-      elif (self.coasttype == 5):
+      elif (self.coasttype == 5): #custom shape (gradient already present), nothing to do
         pass
       
       #making the other steps
@@ -757,7 +783,85 @@ class DirtDetails(TLSbase):
     
     self.on_job_done()
 
+
+#class to generate the mountains
+class MountainsBuild(TLSbase):
+  #constructor
+  def __init__(self, image, tdraw, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
+    self.mountainschannel = None
+    
+    #new row
+    hbxa = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxa)
+    
+    laba = gtk.Label("Adding mountains to the map.")
+    hbxa.add(laba)
+        
+    #button area
+    butcanc = gtk.Button("Cancel")
+    self.action_area.add(butcanc)
+    butcanc.connect("clicked", self.on_butcanc_clicked)
+    
+    butgenrnd = gtk.Button("Random")
+    self.action_area.add(butgenrnd)
+    butgenrnd.connect("clicked", self.on_butgenrdn_clicked)
+
+    self.butgenhnp = gtk.Button("Hand-placed")
+    self.action_area.add(self.butgenhnp)
+    self.butgenhnp.connect("clicked", self.on_butgenhnp_clicked)
+    
+    self.show_all()
+    return mwin
   
+  #callback method
+  def on_butcanc_clicked(self, widget):
+    self.on_job_done()
+    
+  #callback method, randomly generate a selection where mountains are drawn
+  def on_butgenrdn_clicked(self, widget):
+    pass
+
+  #callback method, allow the user to draw a selection where mountains are drawn
+  def on_butgenhnp_clicked(self, widget):
+    #dialog telling to select the area where to place the mountains
+    infodi = gtk.Dialog(title="Info", parent=self)
+    imess = "Select the area where you want to place the mountains with the lazo tool or another selection instrument.\n"
+    imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
+    ilabel = gtk.Label(imess)
+    infodi.vbox.add(ilabel)
+    ilabel.show()
+    infodi.add_button("Cancel", gtk.RESPONSE_CANCEL)
+    infodi.add_button("Ok", gtk.RESPONSE_OK)
+    diresp = infodi.run()
+
+    if (diresp == gtk.RESPONSE_OK):
+      if not pdb.gimp_selection_is_empty(self.img):
+        self.mountainschannel = pdb.gimp_selection_save(self.img)
+        infodi.destroy()
+        self.mountainsdraw()
+      else:
+        infodib = gtk.Dialog(title="Warning", parent=infodi)
+        ilabelb = gtk.Label("You have to create a selection!")
+        infodib.vbox.add(ilabelb)
+        ilabelb.show()
+        infodib.add_button("Ok", gtk.RESPONSE_OK)
+        rr = infodib.run()
+
+        if rr == gtk.RESPONSE_OK:
+          infodib.destroy()
+          infodi.destroy()
+          self.on_butgenhnp_clicked(self.butgenhnp)
+
+    elif (diresp == gtk.RESPONSE_CANCEL):
+      pdb.gimp_selection_none(self.img)
+      infodi.destroy()
+      self.on_butgenhnp_clicked(self.butgenhnp)
+      
+  #method, drawing the mountains in the selection (when the method is called, a selection should be already present)
+  def mountainsdraw(self):
+    pass
+
 
 #class for the customized GUI
 class MainApp(gtk.Window):
@@ -822,6 +926,9 @@ class MainApp(gtk.Window):
     
     dirtd = DirtDetails(self.img, None, layermask, channelmask, "Building dirt", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     dirtd.run()
+    
+    mount = MountainsBuild(self.img, None, layermask, channelmask, "Building mountains", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    mount.run()
     
   #callback method to use current image as map
   def on_butusemap_clicked(self, widget):
