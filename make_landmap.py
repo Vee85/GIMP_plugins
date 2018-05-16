@@ -51,7 +51,7 @@ def gdkcoltorgb(gdkc):
 def colfillayer(image, layer, rgbcolor):
   oldfgcol = pdb.gimp_context_get_foreground()
   pdb.gimp_context_set_foreground(rgbcolor) #set foreground color
-  pdb.gimp_edit_bucket_fill(layer, 0, 0, 100, 255, True, pdb.gimp_image_width(image)/2, pdb.gimp_image_height(image)/2) #filling the clip layer with white
+  pdb.gimp_edit_bucket_fill(layer, 0, 0, 100, 255, True, pdb.gimp_image_width(image)/2, pdb.gimp_image_height(image)/2) #0 (first): filling the layer with foreground color
   pdb.gimp_context_set_foreground(oldfgcol)
 
 
@@ -790,6 +790,7 @@ class MountainsBuild(TLSbase):
   def __init__(self, image, tdraw, layermask, channelmask, *args):
     mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
     self.mountainschannel = None
+    self.mountainsangular = None
     
     #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
@@ -826,7 +827,7 @@ class MountainsBuild(TLSbase):
   def on_butgenhnp_clicked(self, widget):
     #dialog telling to select the area where to place the mountains
     infodi = gtk.Dialog(title="Info", parent=self)
-    imess = "Select the area where you want to place the mountains with the lazo tool or another selection instrument.\n"
+    imess = "Select the area where you want to place the mountains with the lazo tool or another selection tool.\n"
     imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
     ilabel = gtk.Label(imess)
     infodi.vbox.add(ilabel)
@@ -838,6 +839,7 @@ class MountainsBuild(TLSbase):
     if (diresp == gtk.RESPONSE_OK):
       if not pdb.gimp_selection_is_empty(self.img):
         self.mountainschannel = pdb.gimp_selection_save(self.img)
+        pdb.gimp_selection_none(self.img)
         infodi.destroy()
         self.mountainsdraw()
       else:
@@ -858,9 +860,42 @@ class MountainsBuild(TLSbase):
       infodi.destroy()
       self.on_butgenhnp_clicked(self.butgenhnp)
       
-  #method, drawing the mountains in the selection (when the method is called, a selection should be already present)
+  #method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def mountainsdraw(self):
-    pass
+    self.mountainschannel.name = "mountainsmask"
+    
+    #creating blurred base
+    self.bgl = self.makeunilayer("mountainsblur", (0, 0, 0))
+    pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
+    colfillayer(self.img, self.bgl, (255, 255, 255))
+    pdb.gimp_selection_none(self.img)
+    pdb.plug_in_gauss(self.img, self.bgl, 100, 100, 0) #@@@ let the user choose the blurring, maybe within a pool of options and adjust them looking at the size of the selection/image
+
+    #creating noise
+    self.noisel = self.makeunilayer("mountainsnoise", (0, 0, 0))
+    pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
+    pdb.gimp_selection_feather(self.img, 50) #@@@ let the user choose the blurring, maybe within a pool of options and adjust them looking at the size of the selection/image
+    paramstr = str(random.random() * 9999999999)
+    paramstr += " 10.0 10.0 8.0 2.0 0.30 1.0 0.0 planar lattice_noise NO ramp fbm smear 0.0 0.0 0.0 fg_bg"
+    pdb.plug_in_fimg_noise(self.img, self.noisel, paramstr) #using felimage plugin
+    
+    #creating angular gradient
+    self.mountainsangular = self.makeunilayer("mountainsangular", (0, 0, 0))
+    #drawing the gradients: #0 (first) = normal mode, 0 (second) linear gradient, 6 (third): shape angular gradient, True (eighth): supersampling
+    pdb.gimp_edit_blend(self.mountainsangular, 0, 0, 6, 100, 0, 0, True, True, 4, 3.0, True, 0, 0, self.img.width, self.img.height)
+    pdb.gimp_selection_none(self.img)
+    
+    #editing level modes and color levels
+    pdb.gimp_layer_set_mode(self.noisel, ADDITION_MODE)
+    pdb.gimp_layer_set_mode(self.mountainsangular, ADDITION_MODE)
+    pdb.gimp_levels(self.bgl, 0, 0, 255, 1.0, 0, 85) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    inhh = self.get_brightness_max(self.noisel)
+    pdb.gimp_levels(self.noisel, 0, 0, inhh, 1.0, 0, 50) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    
+    #editing color curves
+    #@@@
+    
+    self.on_job_done()
 
 
 #class for the customized GUI
