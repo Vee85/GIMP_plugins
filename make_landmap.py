@@ -55,7 +55,7 @@ def colfillayer(image, layer, rgbcolor):
   pdb.gimp_context_set_foreground(oldfgcol)
 
 
-#class to set the maximum color output level of a layer
+#class to adjust the color levels of a layer, reproducing a simpler interface to the GIMP color levels dialog. 
 class CLevDialog(gtk.Dialog):
   #class constants (used as a sort of enumeration)
   GAMMA = 0
@@ -69,7 +69,8 @@ class CLevDialog(gtk.Dialog):
   def __init__(self, image, layer, ltext, modes, *args):
     dwin = gtk.Dialog.__init__(self, *args)
     self.set_border_width(10)
-    
+    self.connect("destroy", gtk.main_quit)
+
     #internal arguments
     self.modes = modes
     self.img = image
@@ -139,7 +140,7 @@ class CLevDialog(gtk.Dialog):
     self.show_all()
     return dwin
 
-  #callback method, create the cliplayer
+  #method, create the result layer
   def make_reslayer(self):
     #deleting the reslayer and recreating if it already exists
     if self.reslayer is not None:
@@ -149,7 +150,7 @@ class CLevDialog(gtk.Dialog):
     self.reslayer = self.origlayer.copy()
     self.img.add_layer(self.reslayer, 0)
     pdb.gimp_item_set_visible(self.origlayer, False)
-    
+  
   #callback method, apply the new value
   def on_value_changed(self, widget, m):
     self.make_reslayer()
@@ -174,7 +175,245 @@ class CLevDialog(gtk.Dialog):
     pdb.gimp_image_remove_layer(self.img, self.origlayer)
     self.reslayer.name = rname
     self.hide()
+    
 
+#class linked to a graphic marker in the drawing area
+class CCMarker:
+  #constructor
+  def __init__(self, x, y, at=True):
+    self.setcoord(x, y)
+    self.setactive(at)
+
+  #method, setting the coordinate
+  def setcoord(self, x, y):
+    self.x = x
+    self.y = y
+
+  #method, getting the x coordinate
+  def getx(self):
+    return self.x
+
+  #method, getting the y coordinate
+  def gety(self):
+    return self.y
+
+  #method, setting if active
+  def setactive(self, at):
+    self.active = at
+
+  #method, getting if active
+  def getactive(self):
+    return self.active
+  
+  #method, get distance from coordinates
+  def cdistance(self, cx, cy):
+    dx = self.x - cx
+    dy = self.y - cy
+    return math.sqrt(dx*dx + dy*dy)
+
+
+#class to adjust the color levels of a layer, reproducing a simpler interface to the GIMP color curves dialog. 
+class BDrawDial(gtk.Dialog):
+  #constructor
+  def __init__(self, ltext, *args):
+    dwin = gtk.Dialog.__init__(self, *args)
+    self.set_border_width(10)
+    self.connect("destroy", gtk.main_quit) #@@@ may be modified at a later time
+
+    #internal argument
+    self.drw = 500
+    self.drh = 500
+    self.xfr = 10
+    self.yfr = 10
+    self.radmar = 5
+    self.redrawrad = self.radmar + 2
+    self.markers = []
+    self.draggedmarker = None
+
+    #Designing the interface
+    #new row
+    laba = gtk.Label(ltext)
+    self.vbox.add(laba)
+    
+    #the drawing area
+    self.darea = gtk.DrawingArea()
+    self.darea.set_size_request(self.drw, self.drh)
+    self.darea.connect("expose-event", self.on_expose)
+    self.darea.add_events(gtk.gdk.BUTTON_PRESS_MASK)
+    self.darea.add_events(gtk.gdk.BUTTON_RELEASE_MASK)
+    #~ self.darea.add_events(gtk.gdk.POINTER_MOTION_MASK)
+    self.darea.connect("button-press-event", self.on_button_press)
+    self.darea.connect("button-release-event", self.on_button_release)
+    #~ self.darea.connect("motion-notify-event", self.on_pointer_moving)
+    self.vbox.add(self.darea)
+
+    #action area empty
+
+    self.show_all()
+    return dwin
+
+  #callback method, draw stuffs when the drawing area appears
+  def on_expose(self, widget, ev):
+    cr = widget.window.cairo_create()
+    cr.set_line_width(2)
+    cr.set_source_rgb(0.5, 0.5, 0.5)
+    cr.move_to(0, self.drh)
+    cr.line_to(self.drw, 0)
+    
+    cr.stroke()
+
+    if len(self.markers) > 0:
+      for i in self.markers:
+        self.drawmarker(i)
+
+  #method, draw a marker
+  def drawmarker(self, mm):
+    cr = self.darea.window.cairo_create()
+    cr.set_line_width(1)
+    cr.set_source_rgb(0, 0, 0)
+    cr.arc(mm.getx(), mm.gety(), self.radmar, 0, 2*math.pi)
+    if mm.getactive():
+      cr.fill()
+
+    cr.stroke()
+
+  #method, verify distances and get the marker, if any
+  def markdist(self, x, y):
+    res = None
+    for m in self.markers:
+      if m.cdistance(x, y) <= self.radmar:
+        res = m
+        break
+
+    return res
+
+  #callback method, draw a circle on button press or set for redraw
+  def on_button_press(self, widget, ev):
+    if ev.type == gtk.gdk.BUTTON_PRESS:
+      closemarker = self.markdist(ev.x, ev.y)
+      if closemarker is None:
+        if ev.button == 1:
+          att = True
+        elif ev.button == 3:
+          att = False
+
+        mm = CCMarker(ev.x, ev.y, att)
+        self.markers.append(mm)
+        self.drawmarker(mm)
+
+      else:
+        self.draggedmarker = closemarker
+
+  #callback method, redraw a circle on button release
+  def on_button_release(self, widget, ev):
+    if ev.type == gtk.gdk.BUTTON_RELEASE:
+      if self.draggedmarker is not None:
+        if self.draggedmarker.cdistance(ev.x, ev.y) <= self.radmar:
+          self.draggedmarker.setactive(not self.draggedmarker.getactive())
+          widget.queue_draw_area(int(self.draggedmarker.getx() - self.redrawrad), int(self.draggedmarker.gety() - self.redrawrad), self.redrawrad*2, self.redrawrad*2)
+        else:
+          oldx = self.draggedmarker.getx()
+          oldy = self.draggedmarker.gety()
+          self.draggedmarker.setcoord(ev.x, ev.y)
+          widget.queue_draw_area(int(oldx - self.redrawrad), int(oldy - self.redrawrad), self.redrawrad*2, self.redrawrad*2)
+          widget.queue_draw_area(int(self.draggedmarker.getx() - self.redrawrad), int(self.draggedmarker.gety() - self.redrawrad), self.redrawrad*2, self.redrawrad*2)
+        
+        self.draggedmarker = None
+        
+
+#class to adjust the color levels of a layer, reproducing a simpler interface to the GIMP color curves dialog. 
+class CCurveDialog(BDrawDial):
+  #constructor
+  def __init__(self, image, layer, ltext, *args):
+    dwin = BDrawDial.__init__(self, ltext, *args)
+
+    #internal arguments
+    self.img = image
+    self.origlayer = layer
+    self.reslayer = None
+    self.cns = None
+    
+    #action area
+    butprev = gtk.Button("See preview")
+    self.action_area.add(butprev)
+    butprev.connect("clicked", self.on_butprev_clicked)
+    
+    butok = gtk.Button("OK")
+    self.action_area.add(butok)
+    butok.connect("clicked", self.on_butok_clicked)
+    
+    self.show_all()
+    self.getcounts()
+    self.xunit = (self.drw - 2*self.xfr) / math.log(255.0)
+    self.yunit = (self.drh - 2*self.yfr) / math.log(255.0)
+    
+    #here adding some basic marker to control the curve
+    self.markers = [CCMarker(self.xfr, self.drh - self.yfr, True), CCMarker(self.drw - self.xfr, self.yfr, True)]
+    
+    self.show_all()
+    return dwin
+
+  #method to get the counts in the pixel histogram
+  def getcounts(self):
+    fullres = [pdb.gimp_histogram(self.origlayer, 0, i, i) for i in range(255)]
+    self.cns = [(j, math.log(i[4]) if i[4] != 0 else 0) for i, j in zip(fullres, range(len(fullres)))]
+
+  #method to convert a marker coordinate from pixel to color scale unit (0 - 255) 
+  def markerconvert(self, mm):
+    mx = mm.getx() / self.xunit
+    my = math.log(255.0) - (mm.gety() / self.yunit)
+    print "markerconvert", math.exp(mx), math.exp(my)
+    sys.stdout.flush()
+    return math.exp(mx), math.exp(my)
+
+  #method, create the result layer
+  def make_reslayer(self):
+    #deleting the reslayer and recreating if it already exists
+    if self.reslayer is not None:
+      pdb.gimp_image_remove_layer(self.img, self.reslayer)
+    
+    pdb.gimp_item_set_visible(self.origlayer, True)
+    self.reslayer = self.origlayer.copy()
+    self.img.add_layer(self.reslayer, 0)
+    pdb.gimp_item_set_visible(self.origlayer, False)
+
+  #callback method, draw stuffs when the drawing area appears
+  def on_expose(self, widget, ev):
+    if self.cns is not None:
+      cr = widget.window.cairo_create()
+      cr.set_source_rgb(0.3, 0.3, 0.3)
+      cr.set_line_width(1)
+      
+      xscale = 1.0*(self.drw - 2*self.xfr) / len(self.cns)
+      yscale = (self.drh - 2*self.yfr) / max([i[1] for i in self.cns])
+      
+      #here drawing the log histogram on the background
+      for i in self.cns:
+        cr.move_to(self.xfr + i[0]*xscale, self.drh - self.yfr)
+        cr.line_to(self.xfr + i[0]*xscale, self.drh - self.yfr - i[1]*yscale)
+      
+      cr.stroke()
+      
+      BDrawDial.on_expose(self, widget, ev)
+      
+  #callback method, show preview
+  def on_butprev_clicked(self, widget):
+    self.make_reslayer()
+    actmarks = [m for m in self.markers if m.getactive()]
+    ctrlptem = [self.markerconvert(m) for m in actmarks]
+    ctrlp = list(sum(ctrlptem, ())) #this flatten the list of tuples
+    pdb.gimp_curves_spline(self.reslayer, 0, len(ctrlp), ctrlp) #0 (second) = editing histogram value.
+    pdb.gimp_displays_flush()
+
+  #callback method, accept the preview
+  def on_butok_clicked(self, widget):
+    if self.reslayer is not None:
+      rname = self.origlayer.name
+      pdb.gimp_image_remove_layer(self.img, self.origlayer)
+      self.reslayer.name = rname
+      pdb.gimp_displays_flush()
+      self.hide()
+    
 
 #base class to implement the TSL tecnnique. This class is inherited by the GUI-provided classes.
 #it works as a sort of abstract class, but python does not have the concecpt of abstract classes, so it's just a normal class. 
@@ -877,7 +1116,10 @@ class MountainsBuild(TLSbase):
     pdb.gimp_selection_feather(self.img, 50) #@@@ let the user choose the blurring, maybe within a pool of options and adjust them looking at the size of the selection/image
     paramstr = str(random.random() * 9999999999)
     paramstr += " 10.0 10.0 8.0 2.0 0.30 1.0 0.0 planar lattice_noise NO ramp fbm smear 0.0 0.0 0.0 fg_bg"
-    pdb.plug_in_fimg_noise(self.img, self.noisel, paramstr) #using felimage plugin
+    try:
+      pdb.plug_in_fimg_noise(self.img, self.noisel, paramstr) #using felimage plugin
+    except:
+      pdb.plug_in_solid_noise(self.img, self.noisel, False, False, random.random() * 9999999999, 16, 4, 4)
     
     #creating angular gradient
     self.mountainsangular = self.makeunilayer("mountainsangular", (0, 0, 0))
@@ -893,7 +1135,9 @@ class MountainsBuild(TLSbase):
     pdb.gimp_levels(self.noisel, 0, 0, inhh, 1.0, 0, 50) #regulating color levels, channel = #0 (second parameter) is for histogram value
     
     #editing color curves
-    #@@@
+    ditext = "Histogram in log scale of the pixel counts."
+    cdd = CCurveDialog(self.img, self.mountainsangular, ditext, "Setting color curve", self, gtk.DIALOG_MODAL)
+    cdd.run()
     
     self.on_job_done()
 
@@ -940,14 +1184,14 @@ class MainApp(gtk.Window):
     land.run()
     layermask = land.maskl
     channelmask = land.channelms
-        
+    
     landbg = self.drawab
     if (land.coasttype > 0):
       #create a copy of the landmass to use as base layer for the watermass
       waterbg = land.maskl.copy()
       waterbg.name = "seashape"
       self.img.add_layer(waterbg, 0)
-      
+            
       water = WaterProfile(self.img, waterbg, layermask, channelmask, "Building water mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
       water.run()
 
@@ -972,6 +1216,11 @@ class MainApp(gtk.Window):
 
 #The function to be registered in GIMP
 def python_make_landmap(img, tdraw):
+  #query the procedure database
+  nummfelimg, procedure_names = pdb.gimp_procedural_db_query("plug-in-fimg-noise", ".*", ".*", ".*", ".*", ".*", ".*")
+  if nummfelimg == 0:
+    pdb.gimp_message("Warning: you need to install the felimage plugin to use all the features of this plugin properly.\nWithout the felimage plugin, the mountains will be of poor quality.")  
+    
   mapp = MainApp(img, tdraw)
   gtk.main()
 
