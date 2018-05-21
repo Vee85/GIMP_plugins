@@ -262,12 +262,7 @@ class BDrawDial(gtk.Dialog):
     
     cr.stroke()
 
-    print "parent expose"
-    sys.stdout.flush()
-    
     if len(self.markers) > 0:
-      print "parent expose 2"
-      sys.stdout.flush()
       for i in self.markers:
         self.drawmarker(i)
 
@@ -283,8 +278,6 @@ class BDrawDial(gtk.Dialog):
     cr.arc(mm.getx(), mm.gety(), self.radmar, 0, 2*math.pi)
     if mm.getactive():
       cr.fill()
-
-    print "drawmarker", mm.getx(), mm.gety()
 
     cr.stroke()
 
@@ -379,8 +372,8 @@ class CCurveDialog(BDrawDial):
   def markerconvert(self, mm):
     mx = (mm.getx() - self.xfr) / self.xunit
     my = 255.0 - ((mm.gety() - self.yfr) / self.yunit)
-    print "markerconvert", mx, my
-    sys.stdout.flush()
+    #~ print "markerconvert", mx, my
+    #~ sys.stdout.flush()
     return mx, my
 
   #method, create the result layer
