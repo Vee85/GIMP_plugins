@@ -262,9 +262,18 @@ class BDrawDial(gtk.Dialog):
     
     cr.stroke()
 
+    print "parent expose"
+    sys.stdout.flush()
+    
     if len(self.markers) > 0:
+      print "parent expose 2"
+      sys.stdout.flush()
       for i in self.markers:
         self.drawmarker(i)
+
+  #method, sort markers on their x coordinate
+  def sortmarkers(self):
+    self.markers.sort(key= lambda o: o.getx())
 
   #method, draw a marker
   def drawmarker(self, mm):
@@ -274,6 +283,8 @@ class BDrawDial(gtk.Dialog):
     cr.arc(mm.getx(), mm.gety(), self.radmar, 0, 2*math.pi)
     if mm.getactive():
       cr.fill()
+
+    print "drawmarker", mm.getx(), mm.gety()
 
     cr.stroke()
 
@@ -299,6 +310,7 @@ class BDrawDial(gtk.Dialog):
 
         mm = CCMarker(ev.x, ev.y, att)
         self.markers.append(mm)
+        self.sortmarkers()
         self.drawmarker(mm)
 
       else:
@@ -315,6 +327,7 @@ class BDrawDial(gtk.Dialog):
           oldx = self.draggedmarker.getx()
           oldy = self.draggedmarker.gety()
           self.draggedmarker.setcoord(ev.x, ev.y)
+          self.sortmarkers()
           widget.queue_draw_area(int(oldx - self.redrawrad), int(oldy - self.redrawrad), self.redrawrad*2, self.redrawrad*2)
           widget.queue_draw_area(int(self.draggedmarker.getx() - self.redrawrad), int(self.draggedmarker.gety() - self.redrawrad), self.redrawrad*2, self.redrawrad*2)
         
@@ -334,21 +347,25 @@ class CCurveDialog(BDrawDial):
     self.cns = None
     
     #action area
-    butprev = gtk.Button("See preview")
-    self.action_area.add(butprev)
-    butprev.connect("clicked", self.on_butprev_clicked)
+    self.butrest = gtk.Button("Restore")
+    self.action_area.add(self.butrest)
+    self.butrest.connect("clicked", self.on_butrest_clicked, True)
     
-    butok = gtk.Button("OK")
-    self.action_area.add(butok)
-    butok.connect("clicked", self.on_butok_clicked)
+    self.butprev = gtk.Button("See preview")
+    self.action_area.add(self.butprev)
+    self.butprev.connect("clicked", self.on_butprev_clicked)
+    
+    self.butok = gtk.Button("OK")
+    self.action_area.add(self.butok)
+    self.butok.connect("clicked", self.on_butok_clicked)
     
     self.show_all()
     self.getcounts()
-    self.xunit = (self.drw - 2*self.xfr) / math.log(255.0)
-    self.yunit = (self.drh - 2*self.yfr) / math.log(255.0)
+    self.xunit = (self.drw - 2*self.xfr) / 255.0
+    self.yunit = (self.drh - 2*self.yfr) / 255.0
     
-    #here adding some basic marker to control the curve
-    self.markers = [CCMarker(self.xfr, self.drh - self.yfr, True), CCMarker(self.drw - self.xfr, self.yfr, True)]
+    #here adding some basic markers to control the curve
+    self.on_butrest_clicked(self.butrest, False)
     
     self.show_all()
     return dwin
@@ -356,15 +373,15 @@ class CCurveDialog(BDrawDial):
   #method to get the counts in the pixel histogram
   def getcounts(self):
     fullres = [pdb.gimp_histogram(self.origlayer, 0, i, i) for i in range(255)]
-    self.cns = [(j, math.log(i[4]) if i[4] != 0 else 0) for i, j in zip(fullres, range(len(fullres)))]
+    self.cns = [(j, math.log(i[4]) if i[4] != 0 else -1) for i, j in zip(fullres, range(len(fullres)))]
 
   #method to convert a marker coordinate from pixel to color scale unit (0 - 255) 
   def markerconvert(self, mm):
-    mx = mm.getx() / self.xunit
-    my = math.log(255.0) - (mm.gety() / self.yunit)
-    print "markerconvert", math.exp(mx), math.exp(my)
+    mx = (mm.getx() - self.xfr) / self.xunit
+    my = 255.0 - ((mm.gety() - self.yfr) / self.yunit)
+    print "markerconvert", mx, my
     sys.stdout.flush()
-    return math.exp(mx), math.exp(my)
+    return mx, my
 
   #method, create the result layer
   def make_reslayer(self):
@@ -396,13 +413,21 @@ class CCurveDialog(BDrawDial):
       
       BDrawDial.on_expose(self, widget, ev)
       
+  #callback method, replace all markers with default
+  def on_butrest_clicked(self, widget, doprev=True):
+    self.markers = [CCMarker(self.xfr, self.drh - self.yfr, True), CCMarker(self.drw - self.xfr, self.yfr, True)]
+    if doprev:
+      self.on_butprev_clicked(self.butprev)
+  
   #callback method, show preview
   def on_butprev_clicked(self, widget):
     self.make_reslayer()
     actmarks = [m for m in self.markers if m.getactive()]
-    ctrlptem = [self.markerconvert(m) for m in actmarks]
+    self.markers = actmarks
+    ctrlptem = [self.markerconvert(m) for m in self.markers]
     ctrlp = list(sum(ctrlptem, ())) #this flatten the list of tuples
-    pdb.gimp_curves_spline(self.reslayer, 0, len(ctrlp), ctrlp) #0 (second) = editing histogram value.
+    corrctrlp = [i if i >= 0 and i <= 255 else 0 if i < 0 else 255 for i in ctrlp] #ensuring that there are not values outside allowed range
+    pdb.gimp_curves_spline(self.reslayer, 0, len(corrctrlp), corrctrlp) #0 (second) = editing histogram value.
     pdb.gimp_displays_flush()
 
   #callback method, accept the preview
@@ -1030,6 +1055,7 @@ class MountainsBuild(TLSbase):
     mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
     self.mountainschannel = None
     self.mountainsangular = None
+    self.embosslayer = None
     
     #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
@@ -1138,7 +1164,37 @@ class MountainsBuild(TLSbase):
     ditext = "Histogram in log scale of the pixel counts."
     cdd = CCurveDialog(self.img, self.mountainsangular, ditext, "Setting color curve", self, gtk.DIALOG_MODAL)
     cdd.run()
+    self.mountainsangular = cdd.reslayer
     
+    cvlayer = pdb.gimp_layer_new_from_visible(self.img, self.img, "visible")
+    self.img.add_layer(cvlayer, 0)
+    cdd.destroy()
+    
+    #editing color curves, again
+    cddb = CCurveDialog(self.img, cvlayer, ditext, "Setting color curve", self, gtk.DIALOG_MODAL)
+    cddb.run()
+    cvlayer = cddb.reslayer
+    
+    #adding emboss effect
+    self.embosslayer = cddb.reslayer.copy()
+    self.embosslayer.name = "emboss"
+    self.img.add_layer(self.embosslayer, 0)
+    cddb.destroy()
+    pdb.plug_in_emboss(self.img, self.embosslayer, 30.0, 30.0, 20.0, 1)
+    
+    #fixing outside selection
+    pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
+    pdb.gimp_selection_feather(self.img, 50) #@@@ let the user choose the blurring, maybe within a pool of options and adjust them looking at the size of the selection/image
+    pdb.gimp_selection_invert(self.img) #inverting selection
+    colfillayer(self.img, self.embosslayer, (128, 128, 128))
+    
+    pdb.gimp_item_set_visible(self.bgl, False)
+    pdb.gimp_item_set_visible(self.noisel, False)
+    pdb.gimp_item_set_visible(self.mountainsangular, False)
+    pdb.gimp_item_set_visible(cvlayer, False)
+    pdb.gimp_layer_set_mode(self.embosslayer, OVERLAY_MODE)
+    pdb.gimp_selection_none(self.img)
+
     self.on_job_done()
 
 
