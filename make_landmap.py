@@ -55,32 +55,48 @@ def colfillayer(image, layer, rgbcolor):
   pdb.gimp_context_set_foreground(oldfgcol)
 
 
-#class to adjust the color levels of a layer, reproducing a simpler interface to the GIMP color levels dialog. 
+#class to adjust the color levels/threshold of a layer, reproducing a simpler interface to the GIMP color levels dialog or the GIMP color threshold dialog. 
 class CLevDialog(gtk.Dialog):
   #class constants (used as a sort of enumeration)
+  LEVELS = 0
+  THRESHOLD = 1
+  
   GAMMA = 0
   INPUT_MIN = 1
   INPUT_MAX = 2
   OUTPUT_MIN = 3
   OUTPUT_MAX = 4
-  ALL = 5
+  LEV_ALL = 5
+  
+  THR_MIN = 0
+  THR_MAX = 1
+  THR_ALL = 2
 
   #constructor
-  def __init__(self, image, layer, ltext, modes, *args):
+  def __init__(self, image, layer, ltext, ctype, modes, *args):
     dwin = gtk.Dialog.__init__(self, *args)
     self.set_border_width(10)
     self.connect("destroy", gtk.main_quit)
 
     #internal arguments
+    self.ctype = ctype
     self.modes = modes
     self.img = image
     self.origlayer = layer
     self.reslayer = None
-    self.inlow = 0 #threshold  color set to minimum (if used in the three channel (RGB) is black)
-    self.inhigh = 255 #threshold  color set to maximum (if used in the three channel (RGB) is white)
+    self.lapos = [j for i, j in zip(self.img.layers, range(len(self.img.layers))) if i.name == self.origlayer.name][0]
+    self.inlow = 0 #threshold color set to minimum (if used in the three channel (RGB) is black)
+    self.inhigh = 255 #threshold color set to maximum (if used in the three channel (RGB) is white)
     self.gamma = 1.0 #gamma value for input color
-    self.outlow = 0 #threshold  color set to minimum (if used in the three channel (RGB) is black)
-    self.outhigh = 255 #threshold  color set to maximum (if used in the three channel (RGB) is white)
+    self.outlow = 0 #threshold color set to minimum (if used in the three channel (RGB) is black)
+    self.outhigh = 255 #threshold color set to maximum (if used in the three channel (RGB) is white)
+    self.thrmin = 127 #threshold color set to middle 
+    self.thrmax = 255 #threshold color set to max
+    
+    if self.ctype != CLevDialog.LEVELS and self.ctype != CLevDialog.THRESHOLD:
+      sys.stderr.write("Error, ctype value not allowed")
+      sys.stderr.flush()
+      return
     
     #Designing the interface
     #new row
@@ -94,27 +110,40 @@ class CLevDialog(gtk.Dialog):
     scab = []
     spbutc = []
     
-    if self.modes[0] == CLevDialog.ALL:
-      self.modes = [CLevDialog.GAMMA, CLevDialog.INPUT_MIN, CLevDialog.INPUT_MAX, CLevDialog.OUTPUT_MIN, CLevDialog.OUTPUT_MAX]
+    if self.ctype == CLevDialog.LEVELS:
+      if self.modes[0] == CLevDialog.LEV_ALL:
+        self.modes = [CLevDialog.GAMMA, CLevDialog.INPUT_MIN, CLevDialog.INPUT_MAX, CLevDialog.OUTPUT_MIN, CLevDialog.OUTPUT_MAX]
+    elif self.ctype == CLevDialog.THRESHOLD:
+      if self.modes[0] == CLevDialog.THR_ALL:
+        self.modes = [CLevDialog.THR_MIN, CLevDialog.THR_MAX]
     
     #creating the necessary adjustments
-    for m in self.modes:
-      if (m == CLevDialog.GAMMA):
-        adjlist.append(gtk.Adjustment(self.gamma, 0.10, 10.00, 0.01, 0.1))
-        labtxt.append("Gamma")
-      if (m == CLevDialog.INPUT_MIN):
-        adjlist.append(gtk.Adjustment(self.inlow, 0, 255, 1, 10))
-        labtxt.append("Low Input")
-      if (m == CLevDialog.INPUT_MAX):
-        adjlist.append(gtk.Adjustment(self.inhigh, 0, 255, 1, 10))
-        labtxt.append("High Input")
-      if (m == CLevDialog.OUTPUT_MIN):
-        adjlist.append(gtk.Adjustment(self.outlow, 0, 255, 1, 10))
-        labtxt.append("Low Output")
-      if (m == CLevDialog.OUTPUT_MAX):
-        adjlist.append(gtk.Adjustment(self.outhigh, 0, 255, 1, 10))
-        labtxt.append("High Output")
-
+    if self.ctype == CLevDialog.LEVELS:
+      for m in self.modes:
+        if (m == CLevDialog.GAMMA):
+          adjlist.append(gtk.Adjustment(self.gamma, 0.10, 10.00, 0.01, 0.1))
+          labtxt.append("Gamma")
+        if (m == CLevDialog.INPUT_MIN):
+          adjlist.append(gtk.Adjustment(self.inlow, 0, 255, 1, 10))
+          labtxt.append("Low Input")
+        if (m == CLevDialog.INPUT_MAX):
+          adjlist.append(gtk.Adjustment(self.inhigh, 0, 255, 1, 10))
+          labtxt.append("High Input")
+        if (m == CLevDialog.OUTPUT_MIN):
+          adjlist.append(gtk.Adjustment(self.outlow, 0, 255, 1, 10))
+          labtxt.append("Low Output")
+        if (m == CLevDialog.OUTPUT_MAX):
+          adjlist.append(gtk.Adjustment(self.outhigh, 0, 255, 1, 10))
+          labtxt.append("High Output")
+    elif self.ctype == CLevDialog.THRESHOLD:
+      for m in self.modes:
+        if (m == CLevDialog.THR_MIN):
+          adjlist.append(gtk.Adjustment(self.thrmin, 0, 255, 1, 10))
+          labtxt.append("Min Threshold")
+        if (m == CLevDialog.THR_MAX):
+          adjlist.append(gtk.Adjustment(self.thrmax, 0, 255, 1, 10))
+          labtxt.append("Max Threshold")
+          
     #making the scale and spinbuttons for the adjustments
     for adj, ww, lt in zip(adjlist, self.modes, labtxt):
       #new row
@@ -148,25 +177,35 @@ class CLevDialog(gtk.Dialog):
     
     pdb.gimp_item_set_visible(self.origlayer, True)
     self.reslayer = self.origlayer.copy()
-    self.img.add_layer(self.reslayer, 0)
+    self.img.add_layer(self.reslayer, self.lapos)
     pdb.gimp_item_set_visible(self.origlayer, False)
   
   #callback method, apply the new value
   def on_value_changed(self, widget, m):
     self.make_reslayer()
 
-    if (m == CLevDialog.GAMMA):
-      self.gamma = widget.get_value()
-    if (m == CLevDialog.INPUT_MIN):
-      self.inlow = widget.get_value()
-    if (m == CLevDialog.INPUT_MAX):
-      self.inhigh = widget.get_value()
-    if (m == CLevDialog.OUTPUT_MIN):
-      self.outlow = widget.get_value()
-    if (m == CLevDialog.OUTPUT_MAX):
-      self.outhigh = widget.get_value()
+    if self.ctype == CLevDialog.LEVELS:
+      if (m == CLevDialog.GAMMA):
+        self.gamma = widget.get_value()
+      if (m == CLevDialog.INPUT_MIN):
+        self.inlow = widget.get_value()
+      if (m == CLevDialog.INPUT_MAX):
+        self.inhigh = widget.get_value()
+      if (m == CLevDialog.OUTPUT_MIN):
+        self.outlow = widget.get_value()
+      if (m == CLevDialog.OUTPUT_MAX):
+        self.outhigh = widget.get_value()
             
-    pdb.gimp_levels(self.reslayer, 0, self.inlow, self.inhigh, self.gamma, self.outlow, self.outhigh) #regulating color levels, channel = #0 (second parameter) is for histogram value
+      pdb.gimp_levels(self.reslayer, 0, self.inlow, self.inhigh, self.gamma, self.outlow, self.outhigh) #regulating color levels, channel = #0 (second parameter) is for histogram value
+
+    elif self.ctype == CLevDialog.THRESHOLD:
+      if (m == CLevDialog.THR_MIN):
+        self.thrmin = widget.get_value()
+      if (m == CLevDialog.THR_MAX):
+        self.thrmax = widget.get_value()
+      
+      pdb.gimp_threshold(self.reslayer, self.thrmin, self.thrmax) #regulating threshold levels
+    
     pdb.gimp_displays_flush()
 
   #callback method for ok button
@@ -232,7 +271,9 @@ class BDrawDial(gtk.Dialog):
 
     #Designing the interface
     #new row
-    laba = gtk.Label(ltext)
+    ditext = "Histogram in log scale of the pixel counts.\n"
+    ditext += "Click to add a control point, or draw one to another position.\n"
+    laba = gtk.Label(ditext + ltext)
     self.vbox.add(laba)
     
     #the drawing area
@@ -338,6 +379,7 @@ class CCurveDialog(BDrawDial):
     self.origlayer = layer
     self.reslayer = None
     self.cns = None
+    self.lapos = [j for i, j in zip(self.img.layers, range(len(self.img.layers))) if i.name == self.origlayer.name][0]
     
     #action area
     self.butrest = gtk.Button("Restore")
@@ -384,13 +426,30 @@ class CCurveDialog(BDrawDial):
     
     pdb.gimp_item_set_visible(self.origlayer, True)
     self.reslayer = self.origlayer.copy()
-    self.img.add_layer(self.reslayer, 0)
+    self.img.add_layer(self.reslayer, self.lapos)
     pdb.gimp_item_set_visible(self.origlayer, False)
 
   #callback method, draw stuffs when the drawing area appears
   def on_expose(self, widget, ev):
     if self.cns is not None:
+      #drawing boundaries
       cr = widget.window.cairo_create()
+      cr.set_source_rgb(0, 0, 0)
+      cr.set_line_width(2)
+      #top line
+      cr.move_to(0, self.yfr)
+      cr.line_to(self.drw, self.yfr)
+      #botton line
+      cr.move_to(0, self.drh - self.yfr)
+      cr.line_to(self.drw, self.drh - self.yfr)
+      #left line
+      cr.move_to(self.xfr, 0)
+      cr.line_to(self.xfr, self.drh)
+      #right line
+      cr.move_to(self.drw - self.xfr, 0)
+      cr.line_to(self.drw - self.xfr, self.drh)
+
+      #drawing histogram
       cr.set_source_rgb(0.3, 0.3, 0.3)
       cr.set_line_width(1)
       
@@ -516,7 +575,7 @@ class TLSbase(gtk.Dialog):
     self.img.add_layer(cliplayer, 0)
     colfillayer(self.img, cliplayer, (255, 255, 255)) #make layer color white
     
-    cld = CLevDialog(self.img, cliplayer, commtxt, [CLevDialog.OUTPUT_MAX], "Set clip layer level", self, gtk.DIALOG_MODAL) #title = "sel clip...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    cld = CLevDialog(self.img, cliplayer, commtxt, CLevDialog.LEVELS, [CLevDialog.OUTPUT_MAX], "Set clip layer level", self, gtk.DIALOG_MODAL) #title = "sel clip...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     cld.run()
     cliplayer = cld.reslayer
     self.thrc = cld.outhigh
@@ -977,7 +1036,7 @@ class DirtDetails(TLSbase):
     #correcting the mask color levels
     commtxt = "Set minimum, maximum and gamma to edit the B/W ratio in the image.\n"
     commtxt += "The white regions will be covered by dirt."
-    cld = CLevDialog(self.img, self.noisel, commtxt, [CLevDialog.INPUT_MIN, CLevDialog.GAMMA, CLevDialog.INPUT_MAX], "Set input levels", self, gtk.DIALOG_MODAL)
+    cld = CLevDialog(self.img, self.noisel, commtxt, CLevDialog.LEVELS, [CLevDialog.INPUT_MIN, CLevDialog.GAMMA, CLevDialog.INPUT_MAX], "Set input levels", self, gtk.DIALOG_MODAL)
     cld.run()
     resl = cld.reslayer
     cld.destroy()
@@ -1048,7 +1107,9 @@ class MountainsBuild(TLSbase):
     mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
     self.mountainschannel = None
     self.mountainsangular = None
+    self.cpvlayer = None
     self.embosslayer = None
+    self.addsnow = True
     
     #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
@@ -1056,6 +1117,14 @@ class MountainsBuild(TLSbase):
     
     laba = gtk.Label("Adding mountains to the map.")
     hbxa.add(laba)
+    
+    #new row
+    hbxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxb)
+    chbb = gtk.CheckButton("Add snow on mountain's top.")
+    chbb.set_active(self.addsnow)
+    chbb.connect("toggled", self.on_chbb_toggled)
+    hbxb.add(chbb)
         
     #button area
     butcanc = gtk.Button("Cancel")
@@ -1080,6 +1149,10 @@ class MountainsBuild(TLSbase):
   #callback method, randomly generate a selection where mountains are drawn
   def on_butgenrdn_clicked(self, widget):
     pass
+
+  #callback method, set the adding snow variable
+  def on_chbb_toggled(self, widget):
+    self.addsnow = widget.get_active()
 
   #callback method, allow the user to draw a selection where mountains are drawn
   def on_butgenhnp_clicked(self, widget):
@@ -1123,14 +1196,14 @@ class MountainsBuild(TLSbase):
     self.mountainschannel.name = "mountainsmask"
     
     #creating blurred base
-    self.bgl = self.makeunilayer("mountainsblur", (0, 0, 0))
+    self.bgl = self.makeunilayer("mountain sblur", (0, 0, 0))
     pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
     colfillayer(self.img, self.bgl, (255, 255, 255))
     pdb.gimp_selection_none(self.img)
     pdb.plug_in_gauss(self.img, self.bgl, 100, 100, 0) #@@@ let the user choose the blurring, maybe within a pool of options and adjust them looking at the size of the selection/image
 
     #creating noise
-    self.noisel = self.makeunilayer("mountainsnoise", (0, 0, 0))
+    self.noisel = self.makeunilayer("mountains noise", (0, 0, 0))
     pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
     pdb.gimp_selection_feather(self.img, 50) #@@@ let the user choose the blurring, maybe within a pool of options and adjust them looking at the size of the selection/image
     paramstr = str(random.random() * 9999999999)
@@ -1141,7 +1214,7 @@ class MountainsBuild(TLSbase):
       pdb.plug_in_solid_noise(self.img, self.noisel, False, False, random.random() * 9999999999, 16, 4, 4)
     
     #creating angular gradient
-    self.mountainsangular = self.makeunilayer("mountainsangular", (0, 0, 0))
+    self.mountainsangular = self.makeunilayer("mountains angular", (0, 0, 0))
     #drawing the gradients: #0 (first) = normal mode, 0 (second) linear gradient, 6 (third): shape angular gradient, True (eighth): supersampling
     pdb.gimp_edit_blend(self.mountainsangular, 0, 0, 6, 100, 0, 0, True, True, 4, 3.0, True, 0, 0, self.img.width, self.img.height)
     pdb.gimp_selection_none(self.img)
@@ -1154,23 +1227,24 @@ class MountainsBuild(TLSbase):
     pdb.gimp_levels(self.noisel, 0, 0, inhh, 1.0, 0, 50) #regulating color levels, channel = #0 (second parameter) is for histogram value
     
     #editing color curves
-    ditext = "Histogram in log scale of the pixel counts."
+    ditext = "Try to eliminate most of the brightness by lowering the top-right control point\nand adding other points at the level of the histogram counts."
     cdd = CCurveDialog(self.img, self.mountainsangular, ditext, "Setting color curve", self, gtk.DIALOG_MODAL)
     cdd.run()
     self.mountainsangular = cdd.reslayer
     
-    cvlayer = pdb.gimp_layer_new_from_visible(self.img, self.img, "visible")
-    self.img.add_layer(cvlayer, 0)
+    self.cpvlayer = pdb.gimp_layer_new_from_visible(self.img, self.img, "visible")
+    self.img.add_layer(self.cpvlayer, 0)
     cdd.destroy()
     
     #editing color curves, again
-    cddb = CCurveDialog(self.img, cvlayer, ditext, "Setting color curve", self, gtk.DIALOG_MODAL)
+    ditextb = "Try to add one or more control points below the diagonal\nin order to better define mountains peaks."
+    cddb = CCurveDialog(self.img, self.cpvlayer, ditextb, "Setting color curve", self, gtk.DIALOG_MODAL)
     cddb.run()
-    cvlayer = cddb.reslayer
+    self.cpvlayer = cddb.reslayer
     
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
-    self.embosslayer.name = "emboss"
+    self.embosslayer.name = "mountains emboss"
     self.img.add_layer(self.embosslayer, 0)
     cddb.destroy()
     pdb.plug_in_emboss(self.img, self.embosslayer, 30.0, 30.0, 20.0, 1)
@@ -1181,13 +1255,26 @@ class MountainsBuild(TLSbase):
     pdb.gimp_selection_invert(self.img) #inverting selection
     colfillayer(self.img, self.embosslayer, (128, 128, 128))
     
+    #hiding not needed layers
     pdb.gimp_item_set_visible(self.bgl, False)
     pdb.gimp_item_set_visible(self.noisel, False)
     pdb.gimp_item_set_visible(self.mountainsangular, False)
-    pdb.gimp_item_set_visible(cvlayer, False)
+    pdb.gimp_item_set_visible(self.cpvlayer, False)
     pdb.gimp_layer_set_mode(self.embosslayer, OVERLAY_MODE)
     pdb.gimp_selection_none(self.img)
 
+    #adding snow
+    if self.addsnow:
+      pdb.gimp_item_set_visible(self.cpvlayer, True)
+      pdb.gimp_layer_set_mode(self.cpvlayer, SCREEN_MODE)
+      commtxt = "Set minimum threshold to regulate the amount of the snow."
+      cldc = CLevDialog(self.img, self.cpvlayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], "Set lower threshold", self, gtk.DIALOG_MODAL)
+      cldc.run()
+      self.cpvlayer = cldc.reslayer
+      pdb.plug_in_gauss(self.img, self.cpvlayer, 5, 5, 0)
+      pdb.gimp_layer_set_opacity(self.cpvlayer, 65)
+      cldc.destroy()
+    
     self.on_job_done()
 
 
