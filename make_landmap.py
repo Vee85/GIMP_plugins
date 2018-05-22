@@ -786,7 +786,7 @@ class MaskProfile(TLSbase):
       
       #making the other steps
       self.noisel = self.makenoisel(self.textes["baseln"] + "noise", 5, OVERLAY_MODE)
-      cmm = "The lower the selected value, the more the resulting land."
+      cmm = "The lower the selected value, the wider the affected area."
       self.clipl = self.makeclipl(self.textes["baseln"] + "clip", cmm)
       self.makeprofilel(self.textes["baseln"] + "layer")
       self.genonce = True
@@ -1159,7 +1159,7 @@ class MountainsBuild(TLSbase):
     rendtextc = gtk.CellRendererText()
     cboxc.pack_start(rendtextc, True)
     cboxc.add_attribute(rendtextc, "text", 0)
-    cboxc.set_entry_text_column(2)
+    cboxc.set_entry_text_column(0)
     cboxc.set_active(2)
     cboxc.connect("changed", self.on_smooth_changed)
     hbxc.add(cboxc)
