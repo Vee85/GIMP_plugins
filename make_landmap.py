@@ -257,7 +257,7 @@ class BDrawDial(gtk.Dialog):
   def __init__(self, ltext, *args):
     dwin = gtk.Dialog.__init__(self, *args)
     self.set_border_width(10)
-    self.connect("destroy", gtk.main_quit) #@@@ may be modified at a later time
+    self.connect("destroy", gtk.main_quit)
 
     #internal argument
     self.drw = 500
@@ -496,7 +496,7 @@ class CCurveDialog(BDrawDial):
 #it works as a sort of abstract class, but python does not have the concecpt of abstract classes, so it's just a normal class. 
 class TLSbase(gtk.Dialog):
   #constructor
-  def __init__(self, image, drawable, layermask, channelmask, *args):
+  def __init__(self, image, drawable, basemask, layermask, channelmask, *args):
     mwin = gtk.Dialog.__init__(self, *args)
     self.set_border_width(10)
     
@@ -508,6 +508,7 @@ class TLSbase(gtk.Dialog):
     self.bgl = drawable
     self.noisel = None
     self.clipl = None
+    self.baseml = basemask
     self.maskl = layermask
     self.channelms = channelmask
     self.thrc = 0 #will be selected later
@@ -582,8 +583,17 @@ class TLSbase(gtk.Dialog):
     cld.destroy()
     return cliplayer
 
+  #method to merge two layer representing two masks
+  def mergemasks(self):
+    if self.baseml is not None and self.maskl is not None:
+      mlpos = [j for i, j in zip(self.img.layers, range(len(self.img.layers))) if i.name == self.maskl.name][0]
+      copybl = self.baseml.copy()
+      self.img.add_layer(copybl, mlpos)
+      pdb.gimp_layer_set_mode(copybl, DARKEN_ONLY_MODE)
+      self.maskl = pdb.gimp_image_merge_down(self.img, copybl, 0)
+
   #method to make the final layer with the profile and save it in a channel.
-  #remember: white = land, black = water
+  #remember: white = transparent, black = blocked
   def makeprofilel(self, lname):
     pdb.gimp_context_set_sample_merged(True)
     pdb.gimp_image_select_color(self.img, 2, self.clipl, (int(self.thrc), int(self.thrc), int(self.thrc))) #2 = selection replace
@@ -592,6 +602,13 @@ class TLSbase(gtk.Dialog):
     self.maskl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, 0) #0 (last) = normal mode
     self.img.add_layer(self.maskl, 0)
     colfillayer(self.img, self.maskl, (255, 255, 255)) #make layer color white
+    
+    #merging the mask with a previous mask
+    if self.baseml is not None:
+      pdb.gimp_selection_none(self.img)
+      self.mergemasks()
+      pdb.gimp_image_select_color(self.img, 2, self.maskl, (255, 255, 255)) #2 = selection replace
+    
     self.channelms = pdb.gimp_selection_save(self.img)
     pdb.gimp_selection_none(self.img)
     
@@ -636,35 +653,36 @@ class TLSbase(gtk.Dialog):
 
 
 #class to generate random land profile
-class LandProfile(TLSbase):
+class MaskProfile(TLSbase):
   #constructor
-  def __init__(self, image, tdraw, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, None, None, *args)
+  def __init__(self, textes, image, tdraw, basemask, *args):
+    mwin = TLSbase.__init__(self, image, tdraw, basemask, None, None, *args)
     
     #internal arguments
+    self.textes = textes
     self.genonce = False
-    self.coastnamelist = ["no water", "archipelago/lakes", "simple coastline", "island", "big lake", "customized"]
-    self.coasttypelist = range(len(self.coastnamelist))
-    self.coasttype = 0 #will be reinitialized in GUI costruction
+    self.namelist = self.textes["namelist"]
+    self.typelist = range(len(self.namelist))
+    self.chtype = 0 #will be reinitialized in GUI costruction
     
     #new row
-    labb = gtk.Label("In the final result: white represent land and black represent water.")
+    labb = gtk.Label(self.textes["toplab"])
     self.vbox.add(labb)
     
     #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxa)
     
-    laba = gtk.Label("Select coastline type")
+    laba = gtk.Label("Select type")
     hbxa.add(laba)
     
     boxmodela = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
     
     #filling the model for the combobox
-    for i, j in zip(self.coastnamelist, self.coasttypelist):
+    for i, j in zip(self.namelist, self.typelist):
       irow = boxmodela.append(None, [i, j])
 
-    self.coasttype = self.coasttypelist[0]
+    self.chtype = self.typelist[0]
 
     cboxa = gtk.ComboBox(boxmodela)
     rendtexta = gtk.CellRendererText()
@@ -672,19 +690,19 @@ class LandProfile(TLSbase):
     cboxa.add_attribute(rendtexta, "text", 0)
     cboxa.set_entry_text_column(0)
     cboxa.set_active(0)
-    cboxa.connect("changed", self.on_coasttype_changed)
+    cboxa.connect("changed", self.on_type_changed)
     hbxa.add(cboxa)
     
     #new row
-    labtext = "To generate a more elaborate profile, draw a gradient with the shape you wish\n"
-    labtext += "and select the customized option in the dropdown menu.\n"
-    labtext += "Press again Generate land profile if you want to regenerate the profile.\n"
-    labtext += "Press Next step to continue." 
-    labc = gtk.Label(labtext)
+    blab = "To generate a more elaborate profile, draw a gradient with the shape you wish\n"
+    blab += "and select the customized option in the dropdown menu.\n"
+    blab += "Press again Generate land profile if you want to regenerate the profile.\n"
+    blab += "Press Next step to continue." 
+    labc = gtk.Label(blab)
     self.vbox.add(labc)
     
     #button area
-    butgenpr = gtk.Button("Generate land profile")
+    butgenpr = gtk.Button("Generate profile")
     self.action_area.add(butgenpr)
     butgenpr.connect("clicked", self.on_butgenpr_clicked)
     
@@ -696,19 +714,19 @@ class LandProfile(TLSbase):
     return mwin
   
   #callback method, setting the coast type to the one in the combobox
-  def on_coasttype_changed(self, widget):
+  def on_type_changed(self, widget):
     refmode = widget.get_model()
-    self.coasttype = refmode.get_value(widget.get_active_iter(), 1)
+    self.chtype = refmode.get_value(widget.get_active_iter(), 1)
   
   #callback method, regenerate the land profile
   def on_butnext_clicked(self, widget):
     if not self.genonce:
-      if (self.coasttype == 0):
+      if (self.chtype == 0):
         self.on_job_done()
       else:
         #dialog telling to press the other button first
         infodi = gtk.Dialog(title="Warning", parent=self)
-        ilabel = gtk.Label("You cannot go to the next step until you generate a land profile.\nPress the \"Generate land profile\" button first.")
+        ilabel = gtk.Label("You cannot go to the next step until you generate a profile.\nPress the \"Generate profile\" button first.")
         infodi.vbox.add(ilabel)
         ilabel.show()
         infodi.add_button("Ok", gtk.RESPONSE_OK)
@@ -717,7 +735,6 @@ class LandProfile(TLSbase):
         
     else:
       self.on_job_done()
-    
   
   #callback method, generate the profile
   def on_butgenpr_clicked(self, widget):
@@ -738,20 +755,20 @@ class LandProfile(TLSbase):
         pdb.gimp_image_remove_channel(self.img, self.channelms)
       
     #Using the TSL tecnnique: shape layer
-    if (self.coasttype == 0): #no need of a coast, skip everything
+    if (self.chtype == 0): #no need of a coast, skip everything
       self.genonce = True
     else:
-      if (self.coasttype == 1): #to generate archipelago
+      if (self.chtype == 1): #to generate archipelago
         #setting the layer to a light gray color
         colfillayer(self.img, self.bgl, (128, 128, 128)) #rgb notation for a 50% gray
-      elif (self.coasttype > 1 and self.coasttype < 5):
-        if (self.coasttype == 2): #to generate a coastline
+      elif (self.chtype > 1 and self.chtype < 5):
+        if (self.chtype == 2): #to generate a coastline
           gradtype = 0 #linear
           x1 = random.random() * (pdb.gimp_image_width(self.img) / FSG)
           y1 = random.random() * (pdb.gimp_image_height(self.img) / FSG)
           x2 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / FSG))
           y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / FSG))
-        elif (self.coasttype == 3 or self.coasttype == 4): #to generate a circular island or lake
+        elif (self.chtype == 3 or self.chtype == 4): #to generate a circular island or lake
           gradtype = 2 #radial
           x1 = pdb.gimp_image_width(self.img)/2
           y1 = pdb.gimp_image_height(self.img)/2
@@ -761,17 +778,17 @@ class LandProfile(TLSbase):
         
         #drawing the gradients
         pdb.gimp_edit_blend(self.bgl, 0, 0, gradtype, 100, 0, 0, False, False, 1, 0, True, x1, y1, x2, y2) #0 (first) = normal mode, 0 (second) linear gradient
-        if (self.coasttype == 3): #inverting the gradient
+        if (self.chtype == 3): #inverting the gradient
           pdb.gimp_invert(self.bgl)
         
-      elif (self.coasttype == 5): #custom shape (gradient already present), nothing to do
+      elif (self.chtype == 5): #custom shape (gradient already present), nothing to do
         pass
       
       #making the other steps
-      self.noisel = self.makenoisel("noiselayer", 5, OVERLAY_MODE)
+      self.noisel = self.makenoisel(self.textes["baseln"] + "noise", 5, OVERLAY_MODE)
       cmm = "The lower the selected value, the more the resulting land."
-      self.clipl = self.makeclipl("cliplayer", cmm)
-      self.makeprofilel("landlayer")
+      self.clipl = self.makeclipl(self.textes["baseln"] + "clip", cmm)
+      self.makeprofilel(self.textes["baseln"] + "layer")
       self.genonce = True
       
       pdb.gimp_displays_flush()
@@ -781,7 +798,7 @@ class LandProfile(TLSbase):
 class WaterProfile(TLSbase):
   #constructor
   def __init__(self, image, tdraw, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
+    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
     self.seal = None
     self.shorel = None
 
@@ -892,7 +909,7 @@ class WaterProfile(TLSbase):
 class BaseDetails(TLSbase):
   #constructor
   def __init__(self, image, tdraw, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
+    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
     self.bumpmapl = None
     self.basebumpsl = None
     
@@ -986,7 +1003,7 @@ class BaseDetails(TLSbase):
 class DirtDetails(TLSbase):
   #constructor
   def __init__(self, image, tdraw, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
+    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
     self.bumpmapl = None
     self.basebumpsl = None
     self.smp = 50
@@ -1104,12 +1121,17 @@ class DirtDetails(TLSbase):
 class MountainsBuild(TLSbase):
   #constructor
   def __init__(self, image, tdraw, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, layermask, channelmask, *args)
+    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
     self.mountainschannel = None
     self.mountainsangular = None
     self.cpvlayer = None
     self.embosslayer = None
     self.addsnow = True
+    
+    smoothbase = [0, 0.03, 0.1, 0.2]
+    self.smoothlist = ["None", "Short", "Medium", "Long"]
+    self.smoothvallist = [0.5 * i * (self.img.width + self.img.height) for i in smoothbase]
+    self.smoothval = 0 #will be reinitialized during construction
     
     #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
@@ -1117,6 +1139,30 @@ class MountainsBuild(TLSbase):
     
     laba = gtk.Label("Adding mountains to the map.")
     hbxa.add(laba)
+    
+    #new row
+    hbxc = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxc)
+    
+    labc = gtk.Label("Select smoothing range for mountains feet")
+    hbxc.add(labc)
+    
+    boxmodelc = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
+    
+    #filling the model for the combobox
+    for i, j in zip(self.smoothlist, self.smoothvallist):
+      irow = boxmodelc.append(None, [i, j])
+
+    self.smoothval = self.smoothvallist[2]
+
+    cboxc = gtk.ComboBox(boxmodelc)
+    rendtextc = gtk.CellRendererText()
+    cboxc.pack_start(rendtextc, True)
+    cboxc.add_attribute(rendtextc, "text", 0)
+    cboxc.set_entry_text_column(2)
+    cboxc.set_active(2)
+    cboxc.connect("changed", self.on_smooth_changed)
+    hbxc.add(cboxc)
     
     #new row
     hbxb = gtk.HBox(spacing=10, homogeneous=True)
@@ -1145,15 +1191,33 @@ class MountainsBuild(TLSbase):
   #callback method
   def on_butcanc_clicked(self, widget):
     self.on_job_done()
-    
-  #callback method, randomly generate a selection where mountains are drawn
-  def on_butgenrdn_clicked(self, widget):
-    pass
 
   #callback method, set the adding snow variable
   def on_chbb_toggled(self, widget):
     self.addsnow = widget.get_active()
 
+  #callback method, randomly generate a selection where mountains are drawn
+  def on_butgenrdn_clicked(self, widget):
+    mountstextes = {"baseln" : "mountains", \
+    "namelist" : ["no mountains", "sparse", "mountain chain", "central mountain mass", "central valley", "customized"], \
+    "toplab" : "In the final result: white represent where mountains are drawn."}
+    
+    basemntlayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, "basemounts", 100, 0) #0 = normal mode
+    self.img.add_layer(basemntlayer, 0)
+    colfillayer(self.img, basemntlayer, (255, 255, 255))
+    mounts = MaskProfile(mountstextes, self.img, basemntlayer, self.maskl, "Building mountains mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    mounts.run()
+    self.mountainschannel = mounts.channelms
+    
+    #hiding not needed stuffs
+    pdb.gimp_item_set_visible(mounts.bgl, False)
+    pdb.gimp_item_set_visible(mounts.noisel, False)
+    pdb.gimp_item_set_visible(mounts.clipl, False)
+    pdb.gimp_item_set_visible(mounts.maskl, False)
+    
+    mounts.destroy()
+    self.mountainsdraw()
+    
   #callback method, allow the user to draw a selection where mountains are drawn
   def on_butgenhnp_clicked(self, widget):
     #dialog telling to select the area where to place the mountains
@@ -1190,7 +1254,12 @@ class MountainsBuild(TLSbase):
       pdb.gimp_selection_none(self.img)
       infodi.destroy()
       self.on_butgenhnp_clicked(self.butgenhnp)
-      
+  
+  #method, set the smooth parameter
+  def on_smooth_changed(self, widget):
+    refmode = widget.get_model()
+    self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
+    
   #method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def mountainsdraw(self):
     self.mountainschannel.name = "mountainsmask"
@@ -1200,12 +1269,14 @@ class MountainsBuild(TLSbase):
     pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
     colfillayer(self.img, self.bgl, (255, 255, 255))
     pdb.gimp_selection_none(self.img)
-    pdb.plug_in_gauss(self.img, self.bgl, 100, 100, 0) #@@@ let the user choose the blurring, maybe within a pool of options and adjust them looking at the size of the selection/image
+    if self.smoothval > 0:
+      pdb.plug_in_gauss(self.img, self.bgl, self.smoothval, self.smoothval, 0)
 
     #creating noise
     self.noisel = self.makeunilayer("mountains noise", (0, 0, 0))
     pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
-    pdb.gimp_selection_feather(self.img, 50) #@@@ let the user choose the blurring, maybe within a pool of options and adjust them looking at the size of the selection/image
+    if self.smoothval > 0:
+      pdb.gimp_selection_feather(self.img, self.smoothval/2)
     paramstr = str(random.random() * 9999999999)
     paramstr += " 10.0 10.0 8.0 2.0 0.30 1.0 0.0 planar lattice_noise NO ramp fbm smear 0.0 0.0 0.0 fg_bg"
     try:
@@ -1251,7 +1322,8 @@ class MountainsBuild(TLSbase):
     
     #fixing outside selection
     pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
-    pdb.gimp_selection_feather(self.img, 50) #@@@ let the user choose the blurring, maybe within a pool of options and adjust them looking at the size of the selection/image
+    if self.smoothval > 0:
+      pdb.gimp_selection_feather(self.img, self.smoothval/2)
     pdb.gimp_selection_invert(self.img) #inverting selection
     colfillayer(self.img, self.embosslayer, (128, 128, 128))
     
@@ -1315,14 +1387,18 @@ class MainApp(gtk.Window):
   def on_butgenmap_clicked(self, widget):
     pdb.gimp_context_set_foreground((0, 0, 0)) #set foreground color to black
     pdb.gimp_context_set_background((255, 255, 255)) #set background to white
+
+    landtextes = {"baseln" : "land", \
+    "namelist" : ["no water", "archipelago/lakes", "simple coastline", "island", "big lake", "customized"], \
+    "toplab" : "In the final result: white represent land and black represent water."}
     
-    land = LandProfile(self.img, self.drawab, "Building land mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    land = MaskProfile(landtextes, self.img, self.drawab, None, "Building land mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     land.run()
     layermask = land.maskl
     channelmask = land.channelms
     
     landbg = self.drawab
-    if (land.coasttype > 0):
+    if (land.chtype > 0):
       #create a copy of the landmass to use as base layer for the watermass
       waterbg = land.maskl.copy()
       waterbg.name = "seashape"
