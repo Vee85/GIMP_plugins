@@ -1117,12 +1117,83 @@ class DirtDetails(TLSbase):
     self.on_job_done()
 
 
-#class to generate the mountains
-class MountainsBuild(TLSbase):
+#class for building stuffs in ristrected selected areas. Intented to be used as an abstract class and providing common methods.
+class BuildAddition(TLSbase):
   #constructor
   def __init__(self, image, tdraw, layermask, channelmask, *args):
     mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
-    self.mountainschannel = None
+    self.addingchannel = None
+    
+    #No Gui here, it is buildt in the child classes as it may change from class to class.
+    
+    self.show_all()
+    return mwin
+  
+  #method, draw stuffs. Is etmpy, will be overridden by child classes
+  def drawadding(self):
+    pass
+  
+  #method to generate random selection (mask profile)
+  def random_selecting(self, textes):
+    baselayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, textes["baseln"] + "base", 100, 0) #0 = normal mode
+    self.img.add_layer(baselayer, 0)
+    colfillayer(self.img, baselayer, (255, 255, 255))
+    mounts = MaskProfile(textes, self.img, baselayer, self.maskl, "Building " + textes["baseln"] + " mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    mounts.run()
+    self.addingchannel = mounts.channelms
+    
+    #hiding not needed stuffs
+    pdb.gimp_item_set_visible(mounts.bgl, False)
+    pdb.gimp_item_set_visible(mounts.noisel, False)
+    pdb.gimp_item_set_visible(mounts.clipl, False)
+    pdb.gimp_item_set_visible(mounts.maskl, False)
+    
+    mounts.destroy()
+    self.drawadding()
+    
+  #method to let the user to select the area by hand and generate the mask profile.
+  def hand_selecting(self, textes):
+    #dialog telling to select the area where to place the mountains
+    infodi = gtk.Dialog(title="Info", parent=self)
+    imess = "Select the area where you want to place the "+ textes["baseln"] + " with the lazo tool or another selection tool.\n"
+    imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
+    ilabel = gtk.Label(imess)
+    infodi.vbox.add(ilabel)
+    ilabel.show()
+    infodi.add_button("Cancel", gtk.RESPONSE_CANCEL)
+    infodi.add_button("Ok", gtk.RESPONSE_OK)
+    diresp = infodi.run()
+
+    if (diresp == gtk.RESPONSE_OK):
+      if not pdb.gimp_selection_is_empty(self.img):
+        self.addingchannel = pdb.gimp_selection_save(self.img)
+        pdb.gimp_selection_none(self.img)
+        infodi.destroy()
+        self.drawadding()
+      else:
+        infodib = gtk.Dialog(title="Warning", parent=infodi)
+        ilabelb = gtk.Label("You have to create a selection!")
+        infodib.vbox.add(ilabelb)
+        ilabelb.show()
+        infodib.add_button("Ok", gtk.RESPONSE_OK)
+        rr = infodib.run()
+
+        if rr == gtk.RESPONSE_OK:
+          infodib.destroy()
+          infodi.destroy()
+          self.hand_selecting(self, textes)
+
+    elif (diresp == gtk.RESPONSE_CANCEL):
+      pdb.gimp_selection_none(self.img)
+      infodi.destroy()
+      self.hand_selecting(self, textes)
+
+
+#class to generate the mountains
+class MountainsBuild(BuildAddition):
+  #constructor
+  def __init__(self, image, tdraw, layermask, channelmask, *args):
+    mwin = BuildAddition.__init__(self, image, tdraw, layermask, channelmask, *args)
     self.mountainsangular = None
     self.cpvlayer = None
     self.embosslayer = None
@@ -1133,6 +1204,11 @@ class MountainsBuild(TLSbase):
     self.smoothvallist = [0.5 * i * (self.img.width + self.img.height) for i in smoothbase]
     self.smoothval = 0 #will be reinitialized during construction
     
+    self.mtextes = {"baseln" : "mountains", \
+    "namelist" : ["no mountains", "sparse", "mountain chain", "central mountain mass", "central valley", "customized"], \
+    "toplab" : "In the final result: white represent where mountains are drawn."}
+    
+    #Designing the interface
     #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxa)
@@ -1198,83 +1274,32 @@ class MountainsBuild(TLSbase):
 
   #callback method, randomly generate a selection where mountains are drawn
   def on_butgenrdn_clicked(self, widget):
-    mountstextes = {"baseln" : "mountains", \
-    "namelist" : ["no mountains", "sparse", "mountain chain", "central mountain mass", "central valley", "customized"], \
-    "toplab" : "In the final result: white represent where mountains are drawn."}
-    
-    basemntlayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, "basemounts", 100, 0) #0 = normal mode
-    self.img.add_layer(basemntlayer, 0)
-    colfillayer(self.img, basemntlayer, (255, 255, 255))
-    mounts = MaskProfile(mountstextes, self.img, basemntlayer, self.maskl, "Building mountains mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    mounts.run()
-    self.mountainschannel = mounts.channelms
-    
-    #hiding not needed stuffs
-    pdb.gimp_item_set_visible(mounts.bgl, False)
-    pdb.gimp_item_set_visible(mounts.noisel, False)
-    pdb.gimp_item_set_visible(mounts.clipl, False)
-    pdb.gimp_item_set_visible(mounts.maskl, False)
-    
-    mounts.destroy()
-    self.mountainsdraw()
+    self.random_selecting(self.mtextes)
     
   #callback method, allow the user to draw a selection where mountains are drawn
   def on_butgenhnp_clicked(self, widget):
-    #dialog telling to select the area where to place the mountains
-    infodi = gtk.Dialog(title="Info", parent=self)
-    imess = "Select the area where you want to place the mountains with the lazo tool or another selection tool.\n"
-    imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
-    ilabel = gtk.Label(imess)
-    infodi.vbox.add(ilabel)
-    ilabel.show()
-    infodi.add_button("Cancel", gtk.RESPONSE_CANCEL)
-    infodi.add_button("Ok", gtk.RESPONSE_OK)
-    diresp = infodi.run()
-
-    if (diresp == gtk.RESPONSE_OK):
-      if not pdb.gimp_selection_is_empty(self.img):
-        self.mountainschannel = pdb.gimp_selection_save(self.img)
-        pdb.gimp_selection_none(self.img)
-        infodi.destroy()
-        self.mountainsdraw()
-      else:
-        infodib = gtk.Dialog(title="Warning", parent=infodi)
-        ilabelb = gtk.Label("You have to create a selection!")
-        infodib.vbox.add(ilabelb)
-        ilabelb.show()
-        infodib.add_button("Ok", gtk.RESPONSE_OK)
-        rr = infodib.run()
-
-        if rr == gtk.RESPONSE_OK:
-          infodib.destroy()
-          infodi.destroy()
-          self.on_butgenhnp_clicked(self.butgenhnp)
-
-    elif (diresp == gtk.RESPONSE_CANCEL):
-      pdb.gimp_selection_none(self.img)
-      infodi.destroy()
-      self.on_butgenhnp_clicked(self.butgenhnp)
+    self.hand_selecting(self.mtextes)
   
   #method, set the smooth parameter
   def on_smooth_changed(self, widget):
     refmode = widget.get_model()
     self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
     
-  #method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
-  def mountainsdraw(self):
-    self.mountainschannel.name = "mountainsmask"
+  #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
+  def drawadding(self):
+    self.addingchannel.name = self.mtextes["baseln"] + "mask"
     
     #creating blurred base
-    self.bgl = self.makeunilayer("mountain sblur", (0, 0, 0))
-    pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
+    self.bgl = self.makeunilayer(self.mtextes["baseln"] + "blur", (0, 0, 0))
+    pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
     colfillayer(self.img, self.bgl, (255, 255, 255))
     pdb.gimp_selection_none(self.img)
     if self.smoothval > 0:
       pdb.plug_in_gauss(self.img, self.bgl, self.smoothval, self.smoothval, 0)
 
     #creating noise
-    self.noisel = self.makeunilayer("mountains noise", (0, 0, 0))
-    pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
+    self.noisel = self.makeunilayer(self.mtextes["baseln"] + "noise", (0, 0, 0))
+    pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
     if self.smoothval > 0:
       pdb.gimp_selection_feather(self.img, self.smoothval/2)
     paramstr = str(random.random() * 9999999999)
@@ -1285,7 +1310,7 @@ class MountainsBuild(TLSbase):
       pdb.plug_in_solid_noise(self.img, self.noisel, False, False, random.random() * 9999999999, 16, 4, 4)
     
     #creating angular gradient
-    self.mountainsangular = self.makeunilayer("mountains angular", (0, 0, 0))
+    self.mountainsangular = self.makeunilayer(self.mtextes["baseln"] + "angular", (0, 0, 0))
     #drawing the gradients: #0 (first) = normal mode, 0 (second) linear gradient, 6 (third): shape angular gradient, True (eighth): supersampling
     pdb.gimp_edit_blend(self.mountainsangular, 0, 0, 6, 100, 0, 0, True, True, 4, 3.0, True, 0, 0, self.img.width, self.img.height)
     pdb.gimp_selection_none(self.img)
@@ -1315,13 +1340,13 @@ class MountainsBuild(TLSbase):
     
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
-    self.embosslayer.name = "mountains emboss"
+    self.embosslayer.name = self.mtextes["baseln"] + "emboss"
     self.img.add_layer(self.embosslayer, 0)
     cddb.destroy()
     pdb.plug_in_emboss(self.img, self.embosslayer, 30.0, 30.0, 20.0, 1)
     
     #fixing outside selection
-    pdb.gimp_image_select_item(self.img, 2, self.mountainschannel)
+    pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
     if self.smoothval > 0:
       pdb.gimp_selection_feather(self.img, self.smoothval/2)
     pdb.gimp_selection_invert(self.img) #inverting selection
