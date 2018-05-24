@@ -613,13 +613,16 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_selection_none(self.img)
     
   #method to apply a channel mask to a layer 
-  def addmaskp(self, layer, inverting=False, applying=False):
+  def addmaskp(self, layer, chmask=None, inverting=False, applying=False):
+    if chmask is None:
+      chmask = self.channelms
+      
     if pdb.gimp_layer_get_mask(layer) is None:
       maskmode = 0 #white mask (full transparent)
-      if (self.channelms is not None):
+      if (chmask is not None):
         maskmode = 6 #channel mask
         if (pdb.gimp_image_get_active_channel(self.img) is None): #checking if there is already an active channel
-          pdb.gimp_image_set_active_channel(self.img, self.channelms) #setting the active channel: if there is no active channel, gimp_layer_create_mask will fail.
+          pdb.gimp_image_set_active_channel(self.img, chmask) #setting the active channel: if there is no active channel, gimp_layer_create_mask will fail.
       
       mask = pdb.gimp_layer_create_mask(layer, maskmode)
       pdb.gimp_layer_add_mask(layer, mask)
@@ -652,7 +655,7 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_context_set_background(oldbgcol)
 
 
-#class to generate random land profile
+#class to generate random mask profile
 class MaskProfile(TLSbase):
   #constructor
   def __init__(self, textes, image, tdraw, basemask, *args):
@@ -742,7 +745,7 @@ class MaskProfile(TLSbase):
     if (self.genonce):
       if self.bgl is not None:
         pdb.gimp_image_remove_layer(self.img, self.bgl)
-        self.bgl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, "Sfondo", 100, 0) #0 = normal mode
+        self.bgl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.textes["baseln"] + "bg", 100, 0) #0 = normal mode
         self.img.add_layer(self.bgl, 0)
         colfillayer(self.img, self.bgl, (255, 255, 255)) #make layer full white
       if self.noisel is not None:
@@ -879,7 +882,7 @@ class WaterProfile(TLSbase):
     self.seal.name = "sea"
     self.img.add_layer(self.seal, 0)
     
-    self.addmaskp(self.seal, True, True)
+    self.addmaskp(self.seal, self.channelms, True, True)
     pdb.plug_in_normalize(self.img, self.seal)
     pdb.gimp_image_select_item(self.img, 2, self.seal) #this selects the transparent region of the layer, #2 = replace selection
     pdb.gimp_selection_invert(self.img) #inverting the selection
@@ -895,7 +898,7 @@ class WaterProfile(TLSbase):
       self.shorel = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, "seashore", 100, 0) #0 (last) = normal mode
       self.img.add_layer(self.shorel, 0)
       colfillayer(self.img, self.shorel, self.colorwaterlight)
-      maskshore = self.addmaskp(self.shorel, False, False)
+      maskshore = self.addmaskp(self.shorel)
       pxpar = 0.01 * (self.img.width + self.img.height)/2.0
       if (pxpar < 5):
         pxpar = 5.0
@@ -1004,8 +1007,6 @@ class DirtDetails(TLSbase):
   #constructor
   def __init__(self, image, tdraw, layermask, channelmask, *args):
     mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
-    self.bumpmapl = None
-    self.basebumpsl = None
     self.smp = 50
     
     #colors
@@ -1093,8 +1094,8 @@ class DirtDetails(TLSbase):
       infodi.destroy()
     
     #applying some masks
-    self.addmaskp(self.bgl, False, True)
-    maskbis = self.addmaskp(self.bgl, False, False) #readding but not applying, we need to work on the second mask
+    self.addmaskp(self.bgl, self.channelms, False, True)
+    maskbis = self.addmaskp(self.bgl) #readding but not applying, we need to work on the second mask
 
     noisemask = self.addmaskp(self.noisel)
     pdb.plug_in_gauss(self.img, self.noisel, 10, 10, 0)
@@ -1375,6 +1376,11 @@ class ForestBuild(BuildAddition):
   def __init__(self, image, tdraw, layermask, channelmask, *args):
     mwin = BuildAddition.__init__(self, image, tdraw, layermask, channelmask, *args)
     self.shapelayer = None
+    self.bumplayer = None
+    
+    self.browncol = {"tcbrown" : (75, 66, 47)}
+    self.greencol = {"tcgreen" : (59, 88, 14)}
+    self.yellowcol = {"tcyellow" : (134, 159, 48)}
     
     self.textes = {"baseln" : "forests", \
     "namelist" : ["no forests", "sparse woods", "big on one side", "big central wood", "surrounding", "customized"], \
@@ -1390,6 +1396,13 @@ class ForestBuild(BuildAddition):
     
     self.show_all()
     return mwin
+    
+  #method to add a layer color to the forest
+  def forestaddcol(self, fc):
+    lab = fc.keys()[0]
+    resl = self.makeunilayer(self.textes["baseln"] + fc.keys()[0], fc[lab])
+    self.addmaskp(resl, self.addingchannel)
+    pdb.gimp_layer_set_mode(resl, SOFTLIGHT_MODE)
     
   #override method, drawing the forest in the selection (when the method is called, a selection channel for the forest should be already present)
   def drawadding(self):
@@ -1419,7 +1432,27 @@ class ForestBuild(BuildAddition):
     self.addingchannel = pdb.gimp_selection_save(self.img) #replacing forest mask with this one.
     self.addingchannel.name = self.textes["baseln"] + "defmask"
     pdb.gimp_selection_none(self.img)
- 
+    pdb.gimp_layer_set_mode(self.shapelayer, MULTIPLY_MODE)
+    self.shapelayer = pdb.gimp_image_merge_down(self.img, self.shapelayer, 0)
+    self.shapelayer.name = self.textes["baseln"] + "trees"
+    pdb.plug_in_colortoalpha(self.img, self.shapelayer, (0, 0, 0))
+
+    #creating the bump needed to make the forest
+    pdb.plug_in_hsv_noise(self.img, self.shapelayer, 2, 0, 0, 30)
+    self.bumplayer = self.makeunilayer(self.textes["baseln"] + "bump", (127, 127, 127)) #50% gray color
+    self.addmaskp(self.bumplayer, self.addingchannel)
+    pdb.plug_in_bump_map_tiled(self.img, self.bumplayer, self.shapelayer, 135, 30, 8, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
+    
+    try:
+      pdb.python_layerfx_drop_shadow(self.img, self.bumplayer, (0, 0, 0), 75, 0, 0, NORMAL_MODE, 0, 2, 120, 2, False, False)
+    except:
+      pass
+    
+    self.forestaddcol(self.browncol)
+    self.forestaddcol(self.greencol)
+    self.forestaddcol(self.yellowcol)
+    
+      
     self.on_job_done()
 
 
@@ -1469,7 +1502,8 @@ class MainApp(gtk.Window):
     land.run()
     layermask = land.maskl
     channelmask = land.channelms
-    channelmask.name = landtextes["baseln"] + "mask"
+    if channelmask is not None:
+      channelmask.name = landtextes["baseln"] + "mask"
     
     landbg = self.drawab
     if (land.chtype > 0):
