@@ -1123,22 +1123,39 @@ class BuildAddition(TLSbase):
   def __init__(self, image, tdraw, layermask, channelmask, *args):
     mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
     self.addingchannel = None
+    self.textes = None #this should be instantiated in child classes
     
-    #No Gui here, it is buildt in the child classes as it may change from class to class.
+    #No GUI here, it is buildt in the child classes as it may change from class to class. Only the button area is buildt here, which should be equal for all the children
+    #button area
+    butcanc = gtk.Button("Cancel")
+    self.action_area.add(butcanc)
+    butcanc.connect("clicked", self.on_butcanc_clicked)
+    
+    butgenrnd = gtk.Button("Random")
+    self.action_area.add(butgenrnd)
+    butgenrnd.connect("clicked", self.on_butgenrdn_clicked)
+
+    self.butgenhnp = gtk.Button("Hand-placed")
+    self.action_area.add(self.butgenhnp)
+    self.butgenhnp.connect("clicked", self.on_butgenhnp_clicked)
     
     self.show_all()
     return mwin
   
-  #method, draw stuffs. Is etmpy, will be overridden by child classes
+  #empty method to draw stuffs. It will be overrided by child classes
   def drawadding(self):
     pass
   
-  #method to generate random selection (mask profile)
-  def random_selecting(self, textes):
-    baselayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, textes["baseln"] + "base", 100, 0) #0 = normal mode
+  #callback method, close everything
+  def on_butcanc_clicked(self, widget):
+    self.on_job_done()
+
+  #callback method to generate random selection (mask profile)
+  def on_butgenrdn_clicked(self, widget):
+    baselayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.textes["baseln"] + "base", 100, 0) #0 = normal mode
     self.img.add_layer(baselayer, 0)
     colfillayer(self.img, baselayer, (255, 255, 255))
-    mounts = MaskProfile(textes, self.img, baselayer, self.maskl, "Building " + textes["baseln"] + " mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    mounts = MaskProfile(self.textes, self.img, baselayer, self.maskl, "Building " + self.textes["baseln"] + " mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     mounts.run()
     self.addingchannel = mounts.channelms
     
@@ -1151,11 +1168,11 @@ class BuildAddition(TLSbase):
     mounts.destroy()
     self.drawadding()
     
-  #method to let the user to select the area by hand and generate the mask profile.
-  def hand_selecting(self, textes):
+  #callback method to let the user to select the area by hand and generate the mask profile.
+  def on_butgenhnp_clicked(self, widget):
     #dialog telling to select the area where to place the mountains
     infodi = gtk.Dialog(title="Info", parent=self)
-    imess = "Select the area where you want to place the "+ textes["baseln"] + " with the lazo tool or another selection tool.\n"
+    imess = "Select the area where you want to place the "+ self.textes["baseln"] + " with the lazo tool or another selection tool.\n"
     imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
     ilabel = gtk.Label(imess)
     infodi.vbox.add(ilabel)
@@ -1181,12 +1198,12 @@ class BuildAddition(TLSbase):
         if rr == gtk.RESPONSE_OK:
           infodib.destroy()
           infodi.destroy()
-          self.hand_selecting(self, textes)
+          self.on_butgenhnp_clicked(widget)
 
     elif (diresp == gtk.RESPONSE_CANCEL):
       pdb.gimp_selection_none(self.img)
       infodi.destroy()
-      self.hand_selecting(self, textes)
+      self.on_butgenhnp_clicked(widget)
 
 
 #class to generate the mountains
@@ -1204,7 +1221,7 @@ class MountainsBuild(BuildAddition):
     self.smoothvallist = [0.5 * i * (self.img.width + self.img.height) for i in smoothbase]
     self.smoothval = 0 #will be reinitialized during construction
     
-    self.mtextes = {"baseln" : "mountains", \
+    self.textes = {"baseln" : "mountains", \
     "namelist" : ["no mountains", "sparse", "mountain chain", "central mountain mass", "central valley", "customized"], \
     "toplab" : "In the final result: white represent where mountains are drawn."}
     
@@ -1247,39 +1264,16 @@ class MountainsBuild(BuildAddition):
     chbb.set_active(self.addsnow)
     chbb.connect("toggled", self.on_chbb_toggled)
     hbxb.add(chbb)
-        
-    #button area
-    butcanc = gtk.Button("Cancel")
-    self.action_area.add(butcanc)
-    butcanc.connect("clicked", self.on_butcanc_clicked)
     
-    butgenrnd = gtk.Button("Random")
-    self.action_area.add(butgenrnd)
-    butgenrnd.connect("clicked", self.on_butgenrdn_clicked)
+    #button area inherited from parent class
 
-    self.butgenhnp = gtk.Button("Hand-placed")
-    self.action_area.add(self.butgenhnp)
-    self.butgenhnp.connect("clicked", self.on_butgenhnp_clicked)
-    
     self.show_all()
     return mwin
   
-  #callback method
-  def on_butcanc_clicked(self, widget):
-    self.on_job_done()
-
   #callback method, set the adding snow variable
   def on_chbb_toggled(self, widget):
     self.addsnow = widget.get_active()
 
-  #callback method, randomly generate a selection where mountains are drawn
-  def on_butgenrdn_clicked(self, widget):
-    self.random_selecting(self.mtextes)
-    
-  #callback method, allow the user to draw a selection where mountains are drawn
-  def on_butgenhnp_clicked(self, widget):
-    self.hand_selecting(self.mtextes)
-  
   #method, set the smooth parameter
   def on_smooth_changed(self, widget):
     refmode = widget.get_model()
@@ -1287,10 +1281,10 @@ class MountainsBuild(BuildAddition):
     
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def drawadding(self):
-    self.addingchannel.name = self.mtextes["baseln"] + "mask"
+    self.addingchannel.name = self.textes["baseln"] + "mask"
     
     #creating blurred base
-    self.bgl = self.makeunilayer(self.mtextes["baseln"] + "blur", (0, 0, 0))
+    self.bgl = self.makeunilayer(self.textes["baseln"] + "blur", (0, 0, 0))
     pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
     colfillayer(self.img, self.bgl, (255, 255, 255))
     pdb.gimp_selection_none(self.img)
@@ -1298,7 +1292,7 @@ class MountainsBuild(BuildAddition):
       pdb.plug_in_gauss(self.img, self.bgl, self.smoothval, self.smoothval, 0)
 
     #creating noise
-    self.noisel = self.makeunilayer(self.mtextes["baseln"] + "noise", (0, 0, 0))
+    self.noisel = self.makeunilayer(self.textes["baseln"] + "widenoise", (0, 0, 0))
     pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
     if self.smoothval > 0:
       pdb.gimp_selection_feather(self.img, self.smoothval/2)
@@ -1310,7 +1304,7 @@ class MountainsBuild(BuildAddition):
       pdb.plug_in_solid_noise(self.img, self.noisel, False, False, random.random() * 9999999999, 16, 4, 4)
     
     #creating angular gradient
-    self.mountainsangular = self.makeunilayer(self.mtextes["baseln"] + "angular", (0, 0, 0))
+    self.mountainsangular = self.makeunilayer(self.textes["baseln"] + "angular", (0, 0, 0))
     #drawing the gradients: #0 (first) = normal mode, 0 (second) linear gradient, 6 (third): shape angular gradient, True (eighth): supersampling
     pdb.gimp_edit_blend(self.mountainsangular, 0, 0, 6, 100, 0, 0, True, True, 4, 3.0, True, 0, 0, self.img.width, self.img.height)
     pdb.gimp_selection_none(self.img)
@@ -1340,7 +1334,7 @@ class MountainsBuild(BuildAddition):
     
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
-    self.embosslayer.name = self.mtextes["baseln"] + "emboss"
+    self.embosslayer.name = self.textes["baseln"] + "emboss"
     self.img.add_layer(self.embosslayer, 0)
     cddb.destroy()
     pdb.plug_in_emboss(self.img, self.embosslayer, 30.0, 30.0, 20.0, 1)
@@ -1372,6 +1366,60 @@ class MountainsBuild(BuildAddition):
       pdb.gimp_layer_set_opacity(self.cpvlayer, 65)
       cldc.destroy()
     
+    self.on_job_done()
+
+
+#class to generate the forests
+class ForestBuild(BuildAddition):
+  #constructor
+  def __init__(self, image, tdraw, layermask, channelmask, *args):
+    mwin = BuildAddition.__init__(self, image, tdraw, layermask, channelmask, *args)
+    self.shapelayer = None
+    
+    self.textes = {"baseln" : "forests", \
+    "namelist" : ["no forests", "sparse woods", "big on one side", "big central wood", "surrounding", "customized"], \
+    "toplab" : "In the final result: white represent where forests are drawn."}
+    
+    #Designing the interface
+    #new row
+    hbxa = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxa)
+    
+    laba = gtk.Label("Adding forests to the map.")
+    hbxa.add(laba)
+    
+    self.show_all()
+    return mwin
+    
+  #override method, drawing the forest in the selection (when the method is called, a selection channel for the forest should be already present)
+  def drawadding(self):
+    self.addingchannel.name = self.textes["baseln"] + "mask"
+    
+    #creating noise base for the trees
+    self.bgl = self.makenoisel(self.textes["baseln"] + "basicnoise", 16, NORMAL_MODE, True)
+    treelev = self.bgl.copy()
+    treelev.name = self.textes["baseln"] + "level"
+    self.img.add_layer(treelev, 0)
+    pdb.gimp_levels(treelev, 0, 0, 255, 1, 80, 255) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    
+    self.shapelayer = self.makeunilayer(self.textes["baseln"] + "shape", (0, 0, 0))
+    pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
+    pdb.gimp_selection_feather(self.img, 30) #@@@ pixel parameter from input
+    colfillayer(self.img, self.shapelayer, (255, 255, 255))
+    pdb.gimp_selection_none(self.img)
+    pdb.plug_in_gauss(self.img, self.shapelayer, 30, 30, 0) #@@@ pixel parameter from input
+    pdb.gimp_layer_set_mode(self.shapelayer, MULTIPLY_MODE)
+    self.shapelayer = pdb.gimp_image_merge_down(self.img, self.shapelayer, 0)
+    commtxt = "Set the threshold until you get a shape you like"
+    frshape = CLevDialog(self.img, self.shapelayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], "Set lower threshold", self, gtk.DIALOG_MODAL)
+    frshape.run()
+    
+    self.shapelayer = frshape.reslayer
+    pdb.gimp_image_select_color(self.img, 2, self.shapelayer, (255, 255, 255)) #2 = selection replace
+    self.addingchannel = pdb.gimp_selection_save(self.img) #replacing forest mask with this one.
+    self.addingchannel.name = self.textes["baseln"] + "defmask"
+    pdb.gimp_selection_none(self.img)
+ 
     self.on_job_done()
 
 
@@ -1421,6 +1469,7 @@ class MainApp(gtk.Window):
     land.run()
     layermask = land.maskl
     channelmask = land.channelms
+    channelmask.name = landtextes["baseln"] + "mask"
     
     landbg = self.drawab
     if (land.chtype > 0):
@@ -1445,6 +1494,9 @@ class MainApp(gtk.Window):
     
     mount = MountainsBuild(self.img, None, layermask, channelmask, "Building mountains", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     mount.run()
+    
+    forest = ForestBuild(self.img, None, layermask, channelmask, "Building forests", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    forest.run()
     
   #callback method to use current image as map
   def on_butusemap_clicked(self, widget):
