@@ -1448,6 +1448,7 @@ class ForestBuild(BuildAddition):
     except:
       pass
     
+    #adding colors
     self.forestaddcol(self.browncol)
     self.forestaddcol(self.greencol)
     self.forestaddcol(self.yellowcol)
@@ -1543,6 +1544,10 @@ def python_make_landmap(img, tdraw):
   nummfelimg, procedure_names = pdb.gimp_procedural_db_query("plug-in-fimg-noise", ".*", ".*", ".*", ".*", ".*", ".*")
   if nummfelimg == 0:
     pdb.gimp_message("Warning: you need to install the felimage plugin to use all the features of this plugin properly.\nWithout the felimage plugin, the mountains will be of poor quality.")  
+
+  nummshadow, procedure_names = pdb.gimp_procedural_db_query("python-layerfx-drop-shadow", ".*", ".*", ".*", ".*", ".*", ".*")
+  if nummshadow == 0:
+    pdb.gimp_message("Warning: you need to install the Layer-Effects Script Fu plugins to use all the features of this plugin properly.\nWithout the layer effects plugin, the forests will be of poor quality.") 
     
   mapp = MainApp(img, tdraw)
   gtk.main()
@@ -1550,8 +1555,8 @@ def python_make_landmap(img, tdraw):
 
 #The command to register the function
 register(
-  "python-fu_make_landmap",
-  "python-fu_make_landmap",
+  "python-fu_make-landmap",
+  "python-fu_make-landmap",
   "Generate or edit a regional map. Start from an image with a single layer with white background: pop up dialogs appear to guide the user in the process.",
   "Valentino Esposito",
   "Valentino Esposito",
