@@ -37,8 +37,6 @@ import gtk
 import gobject
 from gimpfu import *
 
-FSG = 10
-
 
 #generic function used to adjust RGB color of a color gobject
 def gdkcoltorgb(gdkc):
@@ -564,10 +562,14 @@ class TLSbase(gtk.Dialog):
     self.bgl = self.makeunilayer("bgl", lcolor)
 
   #method to generate the noise layer
-  def makenoisel(self, lname, pixsize, mode=NORMAL_MODE, turbulent=False):    
+  def makenoisel(self, lname, pixsize, mode=NORMAL_MODE, turbulent=False, normalise=False):
     noiselayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, mode)
     self.img.add_layer(noiselayer, 0)
     pdb.plug_in_solid_noise(self.img, noiselayer, False, turbulent, random.random() * 9999999999, 15, pixsize, pixsize)
+    if normalise:
+      pdb.plug_in_normalize(self.img, noiselayer)
+      pdb.plug_in_gauss(self.img, noiselayer, 5, 5, 0)
+    
     return noiselayer
   
   #method to generate the clip layer
@@ -662,6 +664,7 @@ class MaskProfile(TLSbase):
     mwin = TLSbase.__init__(self, image, tdraw, basemask, None, None, *args)
     
     #internal arguments
+    self.fsg = 10
     self.textes = textes
     self.genonce = False
     self.namelist = self.textes["namelist"]
@@ -761,16 +764,18 @@ class MaskProfile(TLSbase):
     if (self.chtype == 0): #no need of a coast, skip everything
       self.genonce = True
     else:
+      nn = False
       if (self.chtype == 1): #to generate archipelago
         #setting the layer to a light gray color
+        nn = True
         colfillayer(self.img, self.bgl, (128, 128, 128)) #rgb notation for a 50% gray
       elif (self.chtype > 1 and self.chtype < 5):
         if (self.chtype == 2): #to generate a coastline
           gradtype = 0 #linear
-          x1 = random.random() * (pdb.gimp_image_width(self.img) / FSG)
-          y1 = random.random() * (pdb.gimp_image_height(self.img) / FSG)
-          x2 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / FSG))
-          y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / FSG))
+          x1 = random.random() * (pdb.gimp_image_width(self.img) / self.fsg)
+          y1 = random.random() * (pdb.gimp_image_height(self.img) / self.fsg)
+          x2 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / self.fsg))
+          y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / self.fsg))
         elif (self.chtype == 3 or self.chtype == 4): #to generate a circular island or lake
           gradtype = 2 #radial
           x1 = pdb.gimp_image_width(self.img)/2
@@ -788,7 +793,7 @@ class MaskProfile(TLSbase):
         pass
       
       #making the other steps
-      self.noisel = self.makenoisel(self.textes["baseln"] + "noise", 5, OVERLAY_MODE)
+      self.noisel = self.makenoisel(self.textes["baseln"] + "noise", 5, OVERLAY_MODE, False, nn)
       cmm = "The lower the selected value, the wider the affected area."
       self.clipl = self.makeclipl(self.textes["baseln"] + "clip", cmm)
       self.makeprofilel(self.textes["baseln"] + "layer")
@@ -1216,6 +1221,10 @@ class MountainsBuild(BuildAddition):
     self.cpvlayer = None
     self.embosslayer = None
     self.addsnow = True
+    self.browncol = False
+    
+    self.colormountslow = (75, 62, 43)
+    self.colormountshigh = (167, 143, 107)
     
     smoothbase = [0, 0.03, 0.1, 0.2]
     self.smoothlist = ["None", "Short", "Medium", "Long"]
@@ -1259,6 +1268,14 @@ class MountainsBuild(BuildAddition):
     hbxc.add(cboxc)
     
     #new row
+    hbxd = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxd)
+    chbd = gtk.CheckButton("Colour mountains in brown.")
+    chbd.set_active(self.browncol)
+    chbd.connect("toggled", self.on_chbd_toggled)
+    hbxd.add(chbd)
+    
+    #new row
     hbxb = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxb)
     chbb = gtk.CheckButton("Add snow on mountain's top.")
@@ -1274,6 +1291,10 @@ class MountainsBuild(BuildAddition):
   #callback method, set the adding snow variable
   def on_chbb_toggled(self, widget):
     self.addsnow = widget.get_active()
+
+  #callback method, set the brown color variable
+  def on_chbd_toggled(self, widget):
+    self.browncol = widget.get_active()
 
   #method, set the smooth parameter
   def on_smooth_changed(self, widget):
@@ -1333,6 +1354,21 @@ class MountainsBuild(BuildAddition):
     cddb.run()
     self.cpvlayer = cddb.reslayer
     
+    #changing mountains color
+    if self.browncol:
+      coloringl = cddb.reslayer.copy()
+      coloringl.name = self.textes["baseln"] + "colors"
+      self.img.add_layer(coloringl, 0)
+      self.cgradmap(coloringl, self.colormountshigh, self.colormountslow)
+      maskcol = self.addmaskp(coloringl, self.addingchannel)
+      if self.smoothval > 0:
+        pdb.plug_in_gauss(self.img, maskcol, self.smoothval, self.smoothval, 0)
+      else:
+        pdb.plug_in_gauss(self.img, maskcol, self.smoothvallist[1], self.smoothvallist[1], 0) #here always setting a bit of smooth on the map
+      
+      pdb.gimp_item_set_visible(coloringl, False)
+      pdb.gimp_layer_set_opacity(colorinl, 60)
+
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
     self.embosslayer.name = self.textes["baseln"] + "emboss"
@@ -1366,7 +1402,12 @@ class MountainsBuild(BuildAddition):
       pdb.plug_in_gauss(self.img, self.cpvlayer, 5, 5, 0)
       pdb.gimp_layer_set_opacity(self.cpvlayer, 65)
       cldc.destroy()
+      if self.browncol:
+        pdb.gimp_image_raise_item(self.img, self.cpvlayer)
     
+    if self.browncol:
+      pdb.gimp_item_set_visible(coloringl, True)
+
     self.on_job_done()
 
 
@@ -1377,6 +1418,11 @@ class ForestBuild(BuildAddition):
     mwin = BuildAddition.__init__(self, image, tdraw, layermask, channelmask, *args)
     self.shapelayer = None
     self.bumplayer = None
+    
+    smoothbase = [0, 0.03, 0.1, 0.2]
+    self.smoothlist = ["None", "Short", "Medium", "Long"]
+    self.smoothvallist = [0.25 * i * (self.img.width + self.img.height) for i in smoothbase]
+    self.smoothval = 0 #will be reinitialized during construction
     
     self.browncol = {"tcbrown" : (75, 66, 47)}
     self.greencol = {"tcgreen" : (59, 88, 14)}
@@ -1394,9 +1440,38 @@ class ForestBuild(BuildAddition):
     laba = gtk.Label("Adding forests to the map.")
     hbxa.add(laba)
     
+    #new row
+    hbxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxb)
+    
+    labb = gtk.Label("Select smoothing range for forest borders")
+    hbxb.add(labb)
+    
+    boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
+    
+    #filling the model for the combobox
+    for i, j in zip(self.smoothlist, self.smoothvallist):
+      irow = boxmodelb.append(None, [i, j])
+
+    self.smoothval = self.smoothvallist[2]
+
+    cboxb = gtk.ComboBox(boxmodelb)
+    rendtextb = gtk.CellRendererText()
+    cboxb.pack_start(rendtextb, True)
+    cboxb.add_attribute(rendtextb, "text", 0)
+    cboxb.set_entry_text_column(0)
+    cboxb.set_active(2)
+    cboxb.connect("changed", self.on_smooth_changed)
+    hbxb.add(cboxb)
+    
     self.show_all()
     return mwin
     
+  #method, set the smooth parameter
+  def on_smooth_changed(self, widget):
+    refmode = widget.get_model()
+    self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
+
   #method to add a layer color to the forest
   def forestaddcol(self, fc):
     lab = fc.keys()[0]
@@ -1409,7 +1484,7 @@ class ForestBuild(BuildAddition):
     self.addingchannel.name = self.textes["baseln"] + "mask"
     
     #creating noise base for the trees
-    self.bgl = self.makenoisel(self.textes["baseln"] + "basicnoise", 16, NORMAL_MODE, True)
+    self.bgl = self.makenoisel(self.textes["baseln"] + "basicnoise", 16, NORMAL_MODE, True, True)
     treelev = self.bgl.copy()
     treelev.name = self.textes["baseln"] + "level"
     self.img.add_layer(treelev, 0)
@@ -1417,10 +1492,10 @@ class ForestBuild(BuildAddition):
     
     self.shapelayer = self.makeunilayer(self.textes["baseln"] + "shape", (0, 0, 0))
     pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
-    pdb.gimp_selection_feather(self.img, 30) #@@@ pixel parameter from input
+    pdb.gimp_selection_feather(self.img, self.smoothval)
     colfillayer(self.img, self.shapelayer, (255, 255, 255))
     pdb.gimp_selection_none(self.img)
-    pdb.plug_in_gauss(self.img, self.shapelayer, 30, 30, 0) #@@@ pixel parameter from input
+    pdb.plug_in_gauss(self.img, self.shapelayer, self.smoothval, self.smoothval, 0)
     pdb.gimp_layer_set_mode(self.shapelayer, MULTIPLY_MODE)
     self.shapelayer = pdb.gimp_image_merge_down(self.img, self.shapelayer, 0)
     commtxt = "Set the threshold until you get a shape you like"
@@ -1452,7 +1527,6 @@ class ForestBuild(BuildAddition):
     self.forestaddcol(self.browncol)
     self.forestaddcol(self.greencol)
     self.forestaddcol(self.yellowcol)
-    
       
     self.on_job_done()
 
