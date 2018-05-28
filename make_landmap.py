@@ -1518,10 +1518,9 @@ class ForestBuild(BuildAddition):
     self.addmaskp(self.bumplayer, self.addingchannel)
     pdb.plug_in_bump_map_tiled(self.img, self.bumplayer, self.shapelayer, 135, 30, 8, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
     
-    try:
-      pdb.python_layerfx_drop_shadow(self.img, self.bumplayer, (0, 0, 0), 75, 0, 0, NORMAL_MODE, 0, 2, 120, 2, False, False)
-    except:
-      pass
+    pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
+    pdb.script_fu_drop_shadow(self.img, self.bumplayer, 2, 2, 15, (0, 0, 0), 75, False)      
+    pdb.gimp_selection_none(self.img)
     
     #adding colors
     self.forestaddcol(self.browncol)
@@ -1619,10 +1618,6 @@ def python_make_landmap(img, tdraw):
   if nummfelimg == 0:
     pdb.gimp_message("Warning: you need to install the felimage plugin to use all the features of this plugin properly.\nWithout the felimage plugin, the mountains will be of poor quality.")  
 
-  nummshadow, procedure_names = pdb.gimp_procedural_db_query("python-layerfx-drop-shadow", ".*", ".*", ".*", ".*", ".*", ".*")
-  if nummshadow == 0:
-    pdb.gimp_message("Warning: you need to install the Layer-Effects Script Fu plugins to use all the features of this plugin properly.\nWithout the layer effects plugin, the forests will be of poor quality.") 
-    
   mapp = MainApp(img, tdraw)
   gtk.main()
 
