@@ -1367,7 +1367,7 @@ class MountainsBuild(BuildAddition):
         pdb.plug_in_gauss(self.img, maskcol, self.smoothvallist[1], self.smoothvallist[1], 0) #here always setting a bit of smooth on the map
       
       pdb.gimp_item_set_visible(coloringl, False)
-      pdb.gimp_layer_set_opacity(colorinl, 60)
+      pdb.gimp_layer_set_opacity(coloringl, 60)
 
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
