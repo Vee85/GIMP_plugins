@@ -981,7 +981,7 @@ class BaseDetails(TLSbase):
     
   #callback method, generate land details
   def on_butgendet_clicked(self, widget):
-    #base color for grass
+    #setting base color
     self.addmaskp(self.bgl)
     self.bgl.name = self.region    
     if (self.bgl.name == "grass"):
@@ -990,7 +990,30 @@ class BaseDetails(TLSbase):
       self.cgradmap(self.bgl, self.colordesertdeep, self.colordesertlight)
     elif (self.bgl.name == "ice"):
       self.cgradmap(self.bgl, self.colorarcticdeep, self.colorarcticlight)
-      
+    
+    pdb.gimp_displays_flush()
+    
+    #adding small areas of other region types
+    for addt in self.regiontype:
+      if addt != self.bgl.name:
+        smtextes = {"baseln" : "small" + addt, \
+        "namelist" : ["no", "random", "simple", "center", "surrounding", "customized"], \
+        "toplab" : "In the final result: white represent where the new area is located."}
+        
+        if addt == "grass":
+          cdeep = self.colorgrassdeep
+          clight = self.colorgrasslight
+        elif addt == "sand":
+          cdeep = self.colordesertdeep
+          clight = self.colordesertlight
+        elif addt == "ice":
+          cdeep = self.colorarcticdeep
+          clight = self.colorarcticlight
+        
+        smallarea = AdditionalDetBuild(smtextes, self.img, self.bgl, self.maskl, self.channelms, cdeep, clight, "Building small", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+        smallarea.run()
+    
+    #generating noise
     self.noisel = self.makenoisel(self.bgl.name + "texture", 3, OVERLAY_MODE)
     self.addmaskp(self.noisel)
     
@@ -1054,7 +1077,6 @@ class DirtDetails(TLSbase):
       self.noisel = self.makenoisel(lname, pixsize, NORMAL_MODE)
       
     self.noisel.name = "dirtnoisemask"
-
 
     #correcting the mask color levels
     commtxt = "Set minimum, maximum and gamma to edit the B/W ratio in the image.\n"
@@ -1161,17 +1183,17 @@ class BuildAddition(TLSbase):
     baselayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.textes["baseln"] + "base", 100, 0) #0 = normal mode
     self.img.add_layer(baselayer, 0)
     colfillayer(self.img, baselayer, (255, 255, 255))
-    mounts = MaskProfile(self.textes, self.img, baselayer, self.maskl, "Building " + self.textes["baseln"] + " mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    mounts.run()
-    self.addingchannel = mounts.channelms
+    newmp = MaskProfile(self.textes, self.img, baselayer, self.maskl, "Building " + self.textes["baseln"] + " mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    newmp.run()
+    self.addingchannel = newmp.channelms
     
     #hiding not needed stuffs
-    pdb.gimp_item_set_visible(mounts.bgl, False)
-    pdb.gimp_item_set_visible(mounts.noisel, False)
-    pdb.gimp_item_set_visible(mounts.clipl, False)
-    pdb.gimp_item_set_visible(mounts.maskl, False)
+    pdb.gimp_item_set_visible(newmp.bgl, False)
+    pdb.gimp_item_set_visible(newmp.noisel, False)
+    pdb.gimp_item_set_visible(newmp.clipl, False)
+    pdb.gimp_item_set_visible(newmp.maskl, False)
     
-    mounts.destroy()
+    newmp.destroy()
     self.drawadding()
     
   #callback method to let the user to select the area by hand and generate the mask profile.
@@ -1212,6 +1234,81 @@ class BuildAddition(TLSbase):
       self.on_butgenhnp_clicked(widget)
 
 
+#class to generate small area of a different land type than the main one
+class AdditionalDetBuild(BuildAddition):
+  #constructor
+  def __init__(self, textes, image, tdraw, layermask, channelmask, colorlight, colordeep, *args):
+    mwin = BuildAddition.__init__(self, image, tdraw, layermask, channelmask, *args)
+    self.clight = colorlight
+    self.cdeep = colordeep
+    self.textes = textes
+    
+    smoothbase = [0, 0.01, 0.03, 0.6]
+    self.smoothlist = ["None", "Small", "Medium", "Big"]
+    self.smoothvallist = [i * (self.img.width + self.img.height) for i in smoothbase]
+    self.smoothval = 0 #will be reinitialized during construction
+    
+    #Designing the interface
+    #new row
+    hbxa = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxa)
+    
+    laba = gtk.Label("Adding " + self.textes["baseln"] + " to the map.")
+    hbxa.add(laba)
+    
+    #new row
+    hbxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxb)
+    
+    labb = gtk.Label("Select smoothing range for the area,\nit helps the blending with the main color.")
+    hbxb.add(labb)
+    
+    boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
+    
+    #filling the model for the combobox
+    for i, j in zip(self.smoothlist, self.smoothvallist):
+      irow = boxmodelb.append(None, [i, j])
+
+    self.smoothval = self.smoothvallist[2]
+
+    cboxb = gtk.ComboBox(boxmodelb)
+    rendtextb = gtk.CellRendererText()
+    cboxb.pack_start(rendtextb, True)
+    cboxb.add_attribute(rendtextb, "text", 0)
+    cboxb.set_entry_text_column(0)
+    cboxb.set_active(2)
+    cboxb.connect("changed", self.on_smooth_changed)
+    hbxb.add(cboxb)
+    
+    #button area inherited from parent class
+
+    self.show_all()
+    return mwin
+    
+  #callback method, set the smooth parameter
+  def on_smooth_changed(self, widget):
+    refmode = widget.get_model()
+    self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
+    
+  #override method, drawing the area
+  def drawadding(self):
+    self.addingchannel.name = self.textes["baseln"] + "mask"
+    self.bgl = self.bgl.copy()
+    self.img.add_layer(self.bgl, 0)
+    self.bgl.name = self.textes["baseln"]
+    
+    self.cgradmap(self.bgl, self.cdeep, self.clight)
+    checkmask = pdb.gimp_layer_get_mask(self.bgl)
+    if checkmask is not None:
+      pdb.gimp_layer_remove_mask(self.bgl, 1) #1 = MASK_DISCARD
+
+    maskt = self.addmaskp(self.bgl, self.addingchannel)
+    if self.smoothval > 0:
+      pdb.plug_in_gauss(self.img, maskt, self.smoothval, self.smoothval, 0)
+      
+    self.on_job_done()
+  
+    
 #class to generate the mountains
 class MountainsBuild(BuildAddition):
   #constructor
@@ -1296,7 +1393,7 @@ class MountainsBuild(BuildAddition):
   def on_chbd_toggled(self, widget):
     self.browncol = widget.get_active()
 
-  #method, set the smooth parameter
+  #callback method, set the smooth parameter
   def on_smooth_changed(self, widget):
     refmode = widget.get_model()
     self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
