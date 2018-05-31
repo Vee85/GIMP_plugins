@@ -997,20 +997,23 @@ class BaseDetails(TLSbase):
     for addt in self.regiontype:
       if addt != self.bgl.name:
         smtextes = {"baseln" : "small" + addt, \
-        "namelist" : ["no", "random", "simple", "center", "surrounding", "customized"], \
-        "toplab" : "In the final result: white represent where the new area is located."}
+        "namelist" : ["none", "random", "one side", "centered", "surroundings", "customized"], \
+        "toplab" : "In the final result: white represent where the new areas are located."}
         
         if addt == "grass":
+          smtextes["labelext"] = "smaller green areas"
           cdeep = self.colorgrassdeep
           clight = self.colorgrasslight
         elif addt == "sand":
+          smtextes["labelext"] = "smaller desertic areas"
           cdeep = self.colordesertdeep
           clight = self.colordesertlight
         elif addt == "ice":
+          smtextes["labelext"] = "smaller frosted areas"
           cdeep = self.colorarcticdeep
           clight = self.colorarcticlight
         
-        smallarea = AdditionalDetBuild(smtextes, self.img, self.bgl, self.maskl, self.channelms, cdeep, clight, "Building small", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+        smallarea = AdditionalDetBuild(smtextes, self.img, self.bgl, self.maskl, self.channelms, cdeep, clight, "Building smaller areas", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
         smallarea.run()
     
     #generating noise
@@ -1033,9 +1036,10 @@ class BaseDetails(TLSbase):
 #class to generate the dirt on the terrain
 class DirtDetails(TLSbase):
   #constructor
-  def __init__(self, image, tdraw, layermask, channelmask, *args):
+  def __init__(self, image, tdraw, layermask, channelmask, regtype, *args):
     mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
     self.smp = 50
+    self.regtype = regtype
     
     #colors
     self.colordirt = (128, 107, 80) #med dirt, a moderate brown
@@ -1140,7 +1144,12 @@ class DirtDetails(TLSbase):
     pdb.gimp_floating_sel_anchor(flsel)
 
     pdb.gimp_item_set_visible(self.noisel, False)
-    pdb.gimp_layer_set_opacity(self.bgl, 55)
+    if self.regtype == "grass" or self.regtype == "sand":
+      dirtopa = 55
+    elif self.regtype == "ice":
+      dirtopa = 35
+    
+    pdb.gimp_layer_set_opacity(self.bgl, dirtopa)
     
     self.on_job_done()
 
@@ -1200,11 +1209,15 @@ class BuildAddition(TLSbase):
   def on_butgenhnp_clicked(self, widget):
     #dialog telling to select the area where to place the mountains
     infodi = gtk.Dialog(title="Info", parent=self)
-    imess = "Select the area where you want to place the "+ self.textes["baseln"] + " with the lazo tool or another selection tool.\n"
+    imess = "Select the area where you want to place the "+ self.textes["labelext"] + " with the lazo tool or another selection tool.\n"
     imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
     ilabel = gtk.Label(imess)
     infodi.vbox.add(ilabel)
     ilabel.show()
+    ichb = gtk.CheckButton("Intersect selection with land mass if present\n(prevent the sea from being covered by the new area.")
+    ichb.set_active(True)
+    infodi.vbox.add(ichb)
+    ichb.show()
     infodi.add_button("Cancel", gtk.RESPONSE_CANCEL)
     infodi.add_button("Ok", gtk.RESPONSE_OK)
     diresp = infodi.run()
@@ -1213,6 +1226,9 @@ class BuildAddition(TLSbase):
       if not pdb.gimp_selection_is_empty(self.img):
         self.addingchannel = pdb.gimp_selection_save(self.img)
         pdb.gimp_selection_none(self.img)
+        #combining the new mask with the land profile
+        if self.channelms is not None and ichb.get_active():
+          pdb.gimp_channel_combine_masks(self.addingchannel, self.channelms, 3, 0, 0)
         infodi.destroy()
         self.drawadding()
       else:
@@ -1222,7 +1238,6 @@ class BuildAddition(TLSbase):
         ilabelb.show()
         infodib.add_button("Ok", gtk.RESPONSE_OK)
         rr = infodib.run()
-
         if rr == gtk.RESPONSE_OK:
           infodib.destroy()
           infodi.destroy()
@@ -1243,7 +1258,7 @@ class AdditionalDetBuild(BuildAddition):
     self.cdeep = colordeep
     self.textes = textes
     
-    smoothbase = [0, 0.01, 0.03, 0.6]
+    smoothbase = [0, 0.01, 0.03, 0.06]
     self.smoothlist = ["None", "Small", "Medium", "Big"]
     self.smoothvallist = [i * (self.img.width + self.img.height) for i in smoothbase]
     self.smoothval = 0 #will be reinitialized during construction
@@ -1253,7 +1268,7 @@ class AdditionalDetBuild(BuildAddition):
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxa)
     
-    laba = gtk.Label("Adding " + self.textes["baseln"] + " to the map.")
+    laba = gtk.Label("Adding " + self.textes["labelext"] + " to the map.")
     hbxa.add(laba)
     
     #new row
@@ -1312,8 +1327,9 @@ class AdditionalDetBuild(BuildAddition):
 #class to generate the mountains
 class MountainsBuild(BuildAddition):
   #constructor
-  def __init__(self, image, tdraw, layermask, channelmask, *args):
+  def __init__(self, image, tdraw, layermask, channelmask, regtype, *args):
     mwin = BuildAddition.__init__(self, image, tdraw, layermask, channelmask, *args)
+    self.regtype = regtype
     self.mountainsangular = None
     self.cpvlayer = None
     self.embosslayer = None
@@ -1329,6 +1345,7 @@ class MountainsBuild(BuildAddition):
     self.smoothval = 0 #will be reinitialized during construction
     
     self.textes = {"baseln" : "mountains", \
+    "labelext" : "mountains", \
     "namelist" : ["no mountains", "sparse", "mountain chain", "central mountain mass", "central valley", "customized"], \
     "toplab" : "In the final result: white represent where mountains are drawn."}
     
@@ -1464,7 +1481,12 @@ class MountainsBuild(BuildAddition):
         pdb.plug_in_gauss(self.img, maskcol, self.smoothvallist[1], self.smoothvallist[1], 0) #here always setting a bit of smooth on the map
       
       pdb.gimp_item_set_visible(coloringl, False)
-      pdb.gimp_layer_set_opacity(coloringl, 60)
+      
+      if self.regtype == "grass" or self.regtype == "sand":
+        monopa = 60
+      elif self.regtype == "ice":
+        monopa = 40
+      pdb.gimp_layer_set_opacity(coloringl, monopa)
 
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
@@ -1526,6 +1548,7 @@ class ForestBuild(BuildAddition):
     self.yellowcol = {"tcyellow" : (134, 159, 48)}
     
     self.textes = {"baseln" : "forests", \
+    "labelext" : "forests or woods", \
     "namelist" : ["no forests", "sparse woods", "big on one side", "big central wood", "surrounding", "customized"], \
     "toplab" : "In the final result: white represent where forests are drawn."}
     
@@ -1666,6 +1689,7 @@ class MainApp(gtk.Window):
     pdb.gimp_context_set_background((255, 255, 255)) #set background to white
 
     landtextes = {"baseln" : "land", \
+    "labelext" : "land", \
     "namelist" : ["no water", "archipelago/lakes", "simple coastline", "island", "big lake", "customized"], \
     "toplab" : "In the final result: white represent land and black represent water."}
     
@@ -1694,10 +1718,10 @@ class MainApp(gtk.Window):
     landdet = BaseDetails(self.img, landbg, layermask, channelmask, "Building land details", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     landdet.run()
     
-    dirtd = DirtDetails(self.img, None, layermask, channelmask, "Building dirt", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    dirtd = DirtDetails(self.img, None, layermask, channelmask, landdet.region, "Building dirt", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     dirtd.run()
     
-    mount = MountainsBuild(self.img, None, layermask, channelmask, "Building mountains", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    mount = MountainsBuild(self.img, None, layermask, channelmask, landdet.region, "Building mountains", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     mount.run()
     
     forest = ForestBuild(self.img, None, layermask, channelmask, "Building forests", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
