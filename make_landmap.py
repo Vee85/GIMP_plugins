@@ -845,12 +845,7 @@ class MaskProfile(TLSbase):
               y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / self.fsg))
                           
             seldir.destroy()
-
-          elif rd == gtk.RESPONSE_CANCEL:
-            #close the dialog and stop all
-            selir.destroy()
-            return
-          
+            
         elif (self.chtype == 3 or self.chtype == 4): #to generate a circular island or lake
           gradtype = 2 #radial
           x1 = pdb.gimp_image_width(self.img)/2
