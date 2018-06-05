@@ -27,8 +27,6 @@
 #This script must be placed in ~/.gimp-n.m/plug-ins
 #where n.m is the gimp version (e.g. 2.8)
 
-#@@@ add some choice on options island (radius) e single coast (direction of the coast and amount of land)
-
 import sys
 import os
 import math
@@ -658,7 +656,7 @@ class TLSbase(gtk.Dialog):
 
 
 #class to generate random mask profile
-class MaskProfile(TLSbase):
+class MaskProfile(TLSbase):  
   #constructor
   def __init__(self, textes, image, tdraw, basemask, *args):
     mwin = TLSbase.__init__(self, image, tdraw, basemask, None, None, *args)
@@ -719,6 +717,56 @@ class MaskProfile(TLSbase):
     self.show_all()
     return mwin
   
+  #nested class, handling a subdialog to improve choice for the mask
+  class SettingDir(gtk.Dialog):
+    #constructor
+    def __init__(self, textes, *args):
+      swin = gtk.Dialog.__init__(self, *args)
+      self.set_border_width(10)
+      
+      self.textes = textes
+      self.namelist = ["top", "top-right", "right", "bottom-right", "bottom", "bottom-left", "left", "top-left"]
+      self.xlist = [1, 2, 2, 2, 1, 0, 0, 0]
+      self.ylist = [0, 0, 1, 2, 2, 2, 1, 0]
+      self.dx = 0 #will be reinitialized during GUI costruction  
+      self.dy = 0 #will be reinitialized during GUI costruction
+      
+      #new row
+      laba = gtk.Label(self.textes["topnestedlab"])
+      self.vbox.add(laba)
+      
+      #new row
+      boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT, gobject.TYPE_INT)
+      
+      #filling the model for the combobox
+      for i, j, k in zip(self.namelist, self.xlist, self.ylist):
+        irow = boxmodelb.append(None, [i, j, k])
+
+      self.dx = self.xlist[0]
+      self.dy = self.ylist[0]
+      
+      cboxb = gtk.ComboBox(boxmodelb)
+      rendtextb = gtk.CellRendererText()
+      cboxb.pack_start(rendtextb, True)
+      cboxb.add_attribute(rendtextb, "text", 0)
+      cboxb.set_entry_text_column(0)
+      cboxb.set_active(0)
+      cboxb.connect("changed", self.on_dir_changed)
+      self.vbox.add(cboxb)
+      
+      #adding button with customized answers
+      self.add_button("OK", gtk.RESPONSE_OK)
+      
+      self.show_all()
+      return swin
+  
+    #callback method, setting the direction parameters
+    def on_dir_changed(self, widget):
+      refmode = widget.get_model()
+      self.dx = refmode.get_value(widget.get_active_iter(), 1)
+      self.dy = refmode.get_value(widget.get_active_iter(), 2)
+  
+  #methods of the outer class:
   #callback method, setting the coast type to the one in the combobox
   def on_type_changed(self, widget):
     refmode = widget.get_model()
@@ -772,10 +820,37 @@ class MaskProfile(TLSbase):
       elif (self.chtype > 1 and self.chtype < 5):
         if (self.chtype == 2): #to generate a coastline
           gradtype = 0 #linear
-          x1 = random.random() * (pdb.gimp_image_width(self.img) / self.fsg)
-          y1 = random.random() * (pdb.gimp_image_height(self.img) / self.fsg)
-          x2 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / self.fsg))
-          y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / self.fsg))
+          seldir = self.SettingDir(self.textes, "Set position", self, gtk.DIALOG_MODAL) #initializate an object of type nested class
+          rd = seldir.run()
+          if rd == gtk.RESPONSE_OK:
+            #setting the coordinates for gradient drawing
+            if seldir.dx == 0:
+              x1 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / self.fsg))
+              x2 = random.random() * (pdb.gimp_image_width(self.img) / self.fsg)
+            elif seldir.dx == 1:
+              x1 = pdb.gimp_image_height(self.img)/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.img) / self.fsg))
+              x2 = pdb.gimp_image_height(self.img)/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.img) / self.fsg))
+            elif seldir.dx == 2:
+              x1 = random.random() * (pdb.gimp_image_width(self.img) / self.fsg)
+              x2 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / self.fsg))
+              
+            if seldir.dy == 0:
+              y1 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / self.fsg))
+              y2 = random.random() * (pdb.gimp_image_height(self.img) / self.fsg)
+            elif seldir.dy == 1:
+              y1 = pdb.gimp_image_height(self.img)/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.img) / self.fsg))
+              y2 = pdb.gimp_image_height(self.img)/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.img) / self.fsg))
+            elif seldir.dy == 2:
+              y1 = random.random() * (pdb.gimp_image_height(self.img) / self.fsg)
+              y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / self.fsg))
+                          
+            seldir.destroy()
+
+          elif rd == gtk.RESPONSE_CANCEL:
+            #close the dialog and stop all
+            selir.destroy()
+            return
+          
         elif (self.chtype == 3 or self.chtype == 4): #to generate a circular island or lake
           gradtype = 2 #radial
           x1 = pdb.gimp_image_width(self.img)/2
@@ -998,7 +1073,8 @@ class BaseDetails(TLSbase):
       if addt != self.bgl.name:
         smtextes = {"baseln" : "small" + addt, \
         "namelist" : ["none", "random", "one side", "centered", "surroundings", "customized"], \
-        "toplab" : "In the final result: white represent where the new areas are located."}
+        "toplab" : "In the final result: white represent where the new areas are located.", \
+        "topnestedlab" : "Position of the new area in the image."}
         
         if addt == "grass":
           smtextes["labelext"] = "smaller green areas"
@@ -1181,7 +1257,14 @@ class BuildAddition(TLSbase):
   
   #empty method to draw stuffs. It will be overrided by child classes
   def drawadding(self):
-    pass
+    raise NotImplementedError("Subclass must implement drawadding method")
+  
+  #method to add a masked layer color
+  def addlayercol(self, fc):
+    lab = fc.keys()[0]
+    resl = self.makeunilayer(self.textes["baseln"] + fc.keys()[0], fc[lab])
+    self.addmaskp(resl, self.addingchannel)
+    pdb.gimp_layer_set_mode(resl, SOFTLIGHT_MODE)
   
   #callback method, close everything
   def on_butcanc_clicked(self, widget):
@@ -1322,7 +1405,7 @@ class AdditionalDetBuild(BuildAddition):
       pdb.plug_in_gauss(self.img, maskt, self.smoothval, self.smoothval, 0)
       
     self.on_job_done()
-  
+    
     
 #class to generate the mountains
 class MountainsBuild(BuildAddition):
@@ -1347,7 +1430,8 @@ class MountainsBuild(BuildAddition):
     self.textes = {"baseln" : "mountains", \
     "labelext" : "mountains", \
     "namelist" : ["no mountains", "sparse", "mountain chain", "central mountain mass", "central valley", "customized"], \
-    "toplab" : "In the final result: white represent where mountains are drawn."}
+    "toplab" : "In the final result: white represent where mountains are drawn.", \
+    "topnestedlab" : "Position of the mountains masses in the image."}
     
     #Designing the interface
     #new row
@@ -1502,6 +1586,10 @@ class MountainsBuild(BuildAddition):
     pdb.gimp_selection_invert(self.img) #inverting selection
     colfillayer(self.img, self.embosslayer, (128, 128, 128))
     
+    #drop shadow around the mountains
+    pdb.plug_in_colortoalpha(self.img, self.embosslayer, (128, 128, 128))
+    pdb.script_fu_drop_shadow(self.img, self.embosslayer, 2, 2, 15, (0, 0, 0), 75, False)      
+    
     #hiding not needed layers
     pdb.gimp_item_set_visible(self.bgl, False)
     pdb.gimp_item_set_visible(self.noisel, False)
@@ -1550,7 +1638,8 @@ class ForestBuild(BuildAddition):
     self.textes = {"baseln" : "forests", \
     "labelext" : "forests or woods", \
     "namelist" : ["no forests", "sparse woods", "big on one side", "big central wood", "surrounding", "customized"], \
-    "toplab" : "In the final result: white represent where forests are drawn."}
+    "toplab" : "In the final result: white represent where forests are drawn.", \
+    "topnestedlab" : "Position of the area covered by the forest in the image."}
     
     #Designing the interface
     #new row
@@ -1591,19 +1680,12 @@ class ForestBuild(BuildAddition):
   def on_smooth_changed(self, widget):
     refmode = widget.get_model()
     self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
-
-  #method to add a layer color to the forest
-  def forestaddcol(self, fc):
-    lab = fc.keys()[0]
-    resl = self.makeunilayer(self.textes["baseln"] + fc.keys()[0], fc[lab])
-    self.addmaskp(resl, self.addingchannel)
-    pdb.gimp_layer_set_mode(resl, SOFTLIGHT_MODE)
     
   #override method, drawing the forest in the selection (when the method is called, a selection channel for the forest should be already present)
   def drawadding(self):
     self.addingchannel.name = self.textes["baseln"] + "mask"
     
-    #creating noise base for the trees
+    #creating noise base for the trees, this will be used to create a detailed mask for the trees
     self.bgl = self.makenoisel(self.textes["baseln"] + "basicnoise", 16, NORMAL_MODE, True, True)
     treelev = self.bgl.copy()
     treelev.name = self.textes["baseln"] + "level"
@@ -1643,9 +1725,9 @@ class ForestBuild(BuildAddition):
     pdb.gimp_selection_none(self.img)
     
     #adding colors
-    self.forestaddcol(self.browncol)
-    self.forestaddcol(self.greencol)
-    self.forestaddcol(self.yellowcol)
+    self.addlayercol(self.browncol)
+    self.addlayercol(self.greencol)
+    self.addlayercol(self.yellowcol)
       
     self.on_job_done()
 
@@ -1691,7 +1773,8 @@ class MainApp(gtk.Window):
     landtextes = {"baseln" : "land", \
     "labelext" : "land", \
     "namelist" : ["no water", "archipelago/lakes", "simple coastline", "island", "big lake", "customized"], \
-    "toplab" : "In the final result: white represent land and black represent water."}
+    "toplab" : "In the final result: white represent land and black represent water.", \
+    "topnestedlab" : "Position of the landmass in the image."}
     
     land = MaskProfile(landtextes, self.img, self.drawab, None, "Building land mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     land.run()
