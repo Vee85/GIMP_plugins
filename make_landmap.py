@@ -27,6 +27,8 @@
 #This script must be placed in ~/.gimp-n.m/plug-ins
 #where n.m is the gimp version (e.g. 2.8)
 
+#@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
+
 import sys
 import os
 import math
@@ -410,8 +412,6 @@ class CCurveDialog(BDrawDial):
   def markerconvert(self, mm):
     mx = (mm.getx() - self.xfr) / self.xunit
     my = 255.0 - ((mm.gety() - self.yfr) / self.yunit)
-    #~ print "markerconvert", mx, my
-    #~ sys.stdout.flush()
     return mx, my
 
   #method, create the result layer
@@ -501,6 +501,8 @@ class TLSbase(gtk.Dialog):
     
     #internal arguments
     self.img = image
+    self.refwidth = image.width
+    self.refheight = image.height
     self.bgl = drawable
     self.noisel = None
     self.clipl = None
@@ -544,9 +546,28 @@ class TLSbase(gtk.Dialog):
         
     return startr
   
-  #method to generate a uniformly colored layer (typically the background layer
+  #method to use another function (such as makeunilayer, makenoisel, makeclipl) to generate a wider layer. In this case, full list of arguments except the final size must be provided as a tuple
+  def makerotatedlayer(self, centered, angle, makingf, args):
+    newsize = math.sqrt(math.pow(self.img.width, 2) + math.pow(self.img.height, 2))
+    self.refwidth = newsize
+    self.refheight = newsize
+    resl = makingf(*args)
+    self.refwidth = self.img.width
+    self.refheight = self.img.height
+
+    #aligning the centers (center of new layer equal to the center of the image
+    if centered:
+      xoff = self.img.width/2 - newsize/2
+      yoff = self.img.height/2 - newsize/2
+      pdb.gimp_layer_translate(resl, xoff, yoff)
+    
+    resl = pdb.gimp_item_transform_rotate(resl, angle, True, 0, 0) #0, 0, rotation center coordinates, negltected if autocenter is True
+    pdb.gimp_layer_resize_to_image_size(resl)
+    return resl
+  
+  #method to generate a uniformly colored layer (typically the background layer)
   def makeunilayer(self, lname, lcolor=None):
-    res = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, 0) #0 = normal mode
+    res = pdb.gimp_layer_new(self.img, self.refwidth, self.refheight, 0, lname, 100, 0) #0 = normal mode
     self.img.add_layer(res, 0)
     if lcolor is None:      
       lcolor = (255, 255, 255) #make layer color white
@@ -555,15 +576,11 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_displays_flush()
     return res
   
-  #method to generate the uniformly colored background layer
-  def makebgl(self, lcolor=None):
-    self.bgl = self.makeunilayer("bgl", lcolor)
-
   #method to generate the noise layer
-  def makenoisel(self, lname, pixsize, mode=NORMAL_MODE, turbulent=False, normalise=False):
-    noiselayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, mode)
+  def makenoisel(self, lname, xpix, ypix, mode=NORMAL_MODE, turbulent=False, normalise=False):
+    noiselayer = pdb.gimp_layer_new(self.img, self.refwidth, self.refheight, 0, lname, 100, mode)
     self.img.add_layer(noiselayer, 0)
-    pdb.plug_in_solid_noise(self.img, noiselayer, False, turbulent, random.random() * 9999999999, 15, pixsize, pixsize)
+    pdb.plug_in_solid_noise(self.img, noiselayer, False, turbulent, random.random() * 9999999999, 15, xpix, ypix)
     if normalise:
       pdb.plug_in_normalize(self.img, noiselayer)
       pdb.plug_in_gauss(self.img, noiselayer, 5, 5, 0)
@@ -571,8 +588,8 @@ class TLSbase(gtk.Dialog):
     return noiselayer
   
   #method to generate the clip layer
-  def makeclipl(self, lname, commtxt):
-    cliplayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, 10) #10 = lighten only mode
+  def makeclipl(self, lname, commtxt): 
+    cliplayer = pdb.gimp_layer_new(self.img, self.refwidth, self.refheight, 0, lname, 100, 10) #10 = lighten only mode
     self.img.add_layer(cliplayer, 0)
     colfillayer(self.img, cliplayer, (255, 255, 255)) #make layer color white
     
@@ -654,6 +671,54 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_context_set_foreground(oldfgcol)
     pdb.gimp_context_set_background(oldbgcol)
 
+  #method to improve mask shape and making it more detailed
+  def overdrawmask(self, basenoise, lname, smoothval=0, chmask=None, hideoriginal=False, hidefinal=False):
+    if chmask is None:
+      chmask = self.channelms
+
+    #make a copy of the basenoise layer, so that the original layer is not overwritten
+    copybn = basenoise.copy()
+    copybn.name = lname + "copy"
+    self.img.add_layer(copybn, 0)
+    if hideoriginal:
+      pdb.gimp_item_set_visible(basenoise, False)
+
+    extralev = copybn.copy()
+    extralev.name = lname + "level"
+    self.img.add_layer(extralev, 0)
+    pdb.gimp_levels(extralev, 0, 0, 255, 1, 80, 255) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    
+    shapelayer = self.makeunilayer(lname + "shape", (0, 0, 0))
+    pdb.gimp_image_select_item(self.img, 2, chmask)
+    if smoothval > 0:
+      pdb.gimp_selection_feather(self.img, smoothval)
+    
+    colfillayer(self.img, shapelayer, (255, 255, 255))
+    pdb.gimp_selection_none(self.img)
+    if smoothval > 0:
+      pdb.plug_in_gauss(self.img, shapelayer, smoothval, smoothval, 0)
+    
+    pdb.gimp_layer_set_mode(shapelayer, MULTIPLY_MODE)
+    shapelayer = pdb.gimp_image_merge_down(self.img, shapelayer, 0) #merging shapelayer with extralev
+    commtxt = "Set the threshold until you get a shape you like"
+    frshape = CLevDialog(self.img, shapelayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], "Set lower threshold", self, gtk.DIALOG_MODAL)
+    frshape.run()
+    
+    shapelayer = frshape.reslayer
+    pdb.gimp_image_select_color(self.img, 2, shapelayer, (255, 255, 255)) #2 = selection replace
+    resmask = pdb.gimp_selection_save(self.img) #replacing forest mask with this one.
+    resmask.name = lname + "defmask"
+    pdb.gimp_selection_none(self.img)
+    pdb.gimp_layer_set_mode(shapelayer, MULTIPLY_MODE)
+    shapelayer = pdb.gimp_image_merge_down(self.img, shapelayer, 0)
+    shapelayer.name = lname + "final"
+
+    if hidefinal:
+      pdb.gimp_item_set_visible(shapelayer, False)
+    else:
+      pdb.plug_in_colortoalpha(self.img, shapelayer, (0, 0, 0))      
+
+    return shapelayer, resmask
 
 #class to generate random mask profile
 class MaskProfile(TLSbase):  
@@ -845,7 +910,7 @@ class MaskProfile(TLSbase):
               y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / self.fsg))
                           
             seldir.destroy()
-            
+          
         elif (self.chtype == 3 or self.chtype == 4): #to generate a circular island or lake
           gradtype = 2 #radial
           x1 = pdb.gimp_image_width(self.img)/2
@@ -863,7 +928,7 @@ class MaskProfile(TLSbase):
         pass
       
       #making the other steps
-      self.noisel = self.makenoisel(self.textes["baseln"] + "noise", 5, OVERLAY_MODE, False, nn)
+      self.noisel = self.makenoisel(self.textes["baseln"] + "noise", 5, 5, OVERLAY_MODE, False, nn)
       cmm = "The lower the selected value, the wider the affected area."
       self.clipl = self.makeclipl(self.textes["baseln"] + "clip", cmm)
       self.makeprofilel(self.textes["baseln"] + "layer")
@@ -949,7 +1014,7 @@ class WaterProfile(TLSbase):
       pdb.plug_in_gauss(self.img, self.bgl, pix, pix, 0)
       pdb.gimp_displays_flush()
     
-    self.noisel = self.makenoisel("seanoise", 4, OVERLAY_MODE)
+    self.noisel = self.makenoisel("seanoise", 4, 4, OVERLAY_MODE)
     self.bgl = pdb.gimp_image_merge_down(self.img, self.noisel, 0)
 
     #copy noise layer into a new layer 
@@ -1088,11 +1153,11 @@ class BaseDetails(TLSbase):
         smallarea.run()
     
     #generating noise
-    self.noisel = self.makenoisel(self.bgl.name + "texture", 3, OVERLAY_MODE)
+    self.noisel = self.makenoisel(self.bgl.name + "texture", 3, 3, OVERLAY_MODE)
     self.addmaskp(self.noisel)
     
     #create an embossing effect using a bump map
-    self.bumpmapl = self.makenoisel(self.bgl.name + "bumpmap", 15, NORMAL_MODE, True)
+    self.bumpmapl = self.makenoisel(self.bgl.name + "bumpmap", 15, 15, NORMAL_MODE, True)
     pdb.gimp_item_set_visible(self.bumpmapl, False)
     self.basebumpsl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.bgl.name + "bumps", 100, OVERLAY_MODE)
     self.img.add_layer(self.basebumpsl, 0)
@@ -1143,13 +1208,13 @@ class DirtDetails(TLSbase):
       pdb.plug_in_gauss(self.img, masklcopy, self.smp, self.smp, 0)
     
       #adding the noise layer mixed with the copy mask
-      self.noisel = self.makenoisel(lname, pixsize, DIFFERENCE_MODE)
+      self.noisel = self.makenoisel(lname, pixsize, pixsize, DIFFERENCE_MODE)
       self.noisel = pdb.gimp_image_merge_down(self.img, self.noisel, 0)
       pdb.gimp_invert(self.noisel)
       
     else:
       #just generating a normal noise layer
-      self.noisel = self.makenoisel(lname, pixsize, NORMAL_MODE)
+      self.noisel = self.makenoisel(lname, pixsize, pixsize, NORMAL_MODE)
       
     self.noisel.name = "dirtnoisemask"
 
@@ -1168,7 +1233,7 @@ class DirtDetails(TLSbase):
 
   #callback method, generate the layers to create the dirt
   def on_butgendrt_clicked(self, widget):
-    self.makebgl(self.colordirt)
+    self.bgl = self.makeunilayer("bgl", self.colordirt)
     self.bgl.name = "dirt"
     
     #adding some effect to the layer to make it like dirt
@@ -1254,13 +1319,6 @@ class BuildAddition(TLSbase):
   def drawadding(self):
     raise NotImplementedError("Subclass must implement drawadding method")
   
-  #method to add a masked layer color
-  def addlayercol(self, fc):
-    lab = fc.keys()[0]
-    resl = self.makeunilayer(self.textes["baseln"] + fc.keys()[0], fc[lab])
-    self.addmaskp(resl, self.addingchannel)
-    pdb.gimp_layer_set_mode(resl, SOFTLIGHT_MODE)
-  
   #callback method, close everything
   def on_butcanc_clicked(self, widget):
     self.on_job_done()
@@ -1274,15 +1332,18 @@ class BuildAddition(TLSbase):
     newmp.run()
     self.addingchannel = newmp.channelms
     
-    #hiding not needed stuffs
-    pdb.gimp_item_set_visible(newmp.bgl, False)
-    pdb.gimp_item_set_visible(newmp.noisel, False)
-    pdb.gimp_item_set_visible(newmp.clipl, False)
-    pdb.gimp_item_set_visible(newmp.maskl, False)
-    
+    #hiding or deleting not needed stuffs
+    cht = newmp.chtype
     newmp.destroy()
-    self.drawadding()
-    
+    if cht > 0:
+      pdb.gimp_item_set_visible(newmp.bgl, False)
+      pdb.gimp_item_set_visible(newmp.noisel, False)
+      pdb.gimp_item_set_visible(newmp.clipl, False)
+      pdb.gimp_item_set_visible(newmp.maskl, False)
+      self.drawadding()
+    else:
+      pdb.gimp_image_remove_layer(self.img, newmp.bgl)
+      
   #callback method to let the user to select the area by hand and generate the mask profile.
   def on_butgenhnp_clicked(self, widget):
     #dialog telling to select the area where to place the mountains
@@ -1413,6 +1474,7 @@ class MountainsBuild(BuildAddition):
     self.embosslayer = None
     self.addsnow = True
     self.browncol = False
+    self.addshadow = True
     
     self.colormountslow = (75, 62, 43)
     self.colormountshigh = (167, 143, 107)
@@ -1475,12 +1537,69 @@ class MountainsBuild(BuildAddition):
     chbb.set_active(self.addsnow)
     chbb.connect("toggled", self.on_chbb_toggled)
     hbxb.add(chbb)
+
+    #new row
+    hbxe = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxe)
+    chbe = gtk.CheckButton("Add shadow at mountains' feet.")
+    chbe.set_active(self.addshadow)
+    chbe.connect("toggled", self.on_chbe_toggled)
+    hbxe.add(chbe)
     
     #button area inherited from parent class
 
     self.show_all()
     return mwin
   
+  #nested class to let the user control if the mountains mask should be improved and rotated
+  class ControlMask(gtk.Dialog):
+    #constructor
+    def __init__(self, *args):
+      swin = gtk.Dialog.__init__(self, *args)
+      self.set_border_width(10)
+      
+      self.rotangle = 0
+      
+      #new row
+      labtxt = "Overwrite mountain mask profile to create relatively narrow mountains chains in the selected area?\n"
+      labtxt += "Mountains chains are oriented in the direction of the angle (in degrees).\n"
+      labtxt += "0 is vertical, clockwise rotation up to 180 degrees allowed."
+      laba = gtk.Label(labtxt)
+      self.vbox.add(laba)
+      
+      #new row
+      hbx = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hbx)
+
+      angleadj = gtk.Adjustment(self.rotangle, 0, 180, 1, 10)
+      
+      labb = gtk.Label("Set angle (degrees)")
+      hbx.add(labb)
+      
+      scab = gtk.HScale(angleadj)
+      scab.connect("value-changed", self.on_angle_changed)
+      hbx.add(scab)
+      
+      spbutb = gtk.SpinButton(angleadj, 0, 2)
+      spbutb.connect("output", self.on_angle_changed)
+      hbx.add(spbutb)
+      
+      #button area
+      self.add_button("No", gtk.RESPONSE_CANCEL)
+      self.add_button("Yes", gtk.RESPONSE_OK)
+      
+      self.show_all()
+      return swin
+      
+    #callback method, set the angle value (degrees)
+    def on_angle_changed(self, widget):
+      self.rotangle = widget.get_value()
+    
+    #get angle in radians
+    def getanglerad(self):
+      return (self.rotangle/180.0)*math.pi
+  
+  #outer class methods:
   #callback method, set the adding snow variable
   def on_chbb_toggled(self, widget):
     self.addsnow = widget.get_active()
@@ -1488,6 +1607,10 @@ class MountainsBuild(BuildAddition):
   #callback method, set the brown color variable
   def on_chbd_toggled(self, widget):
     self.browncol = widget.get_active()
+
+  #callback method, set the adding shadow variable
+  def on_chbe_toggled(self, widget):
+    self.addshadow = widget.get_active()
 
   #callback method, set the smooth parameter
   def on_smooth_changed(self, widget):
@@ -1497,6 +1620,18 @@ class MountainsBuild(BuildAddition):
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def drawadding(self):
     self.addingchannel.name = self.textes["baseln"] + "mask"
+    
+    #improving the mask
+    ctrlm = self.ControlMask()
+    chrot = ctrlm.run()
+    
+    if chrot == gtk.RESPONSE_OK:
+      rang = ctrlm.getanglerad()
+      ctrlm.destroy()
+      noisemask = self.makerotatedlayer(True, rang, self.makenoisel, (self.textes["baseln"] + "basicnoise", 6, 2, NORMAL_MODE, True, True))
+      self.addingchannel = self.overdrawmask(noisemask, self.textes["baseln"], self.smoothval, self.addingchannel, True, True)[1] #getting only the mask
+    elif chrot == gtk.RESPONSE_CANCEL:
+      ctrlm.destroy()
     
     #creating blurred base
     self.bgl = self.makeunilayer(self.textes["baseln"] + "blur", (0, 0, 0))
@@ -1582,8 +1717,9 @@ class MountainsBuild(BuildAddition):
     colfillayer(self.img, self.embosslayer, (128, 128, 128))
     
     #drop shadow around the mountains
-    pdb.plug_in_colortoalpha(self.img, self.embosslayer, (128, 128, 128))
-    pdb.script_fu_drop_shadow(self.img, self.embosslayer, 2, 2, 15, (0, 0, 0), 75, False)      
+    if self.addshadow:
+      pdb.plug_in_colortoalpha(self.img, self.embosslayer, (128, 128, 128))
+      pdb.script_fu_drop_shadow(self.img, self.embosslayer, 2, 2, 15, (0, 0, 0), 75, False)
     
     #hiding not needed layers
     pdb.gimp_item_set_visible(self.bgl, False)
@@ -1676,44 +1812,26 @@ class ForestBuild(BuildAddition):
     refmode = widget.get_model()
     self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
     
+  #method to add a masked layer color
+  def addlayercol(self, fc):
+    lab = fc.keys()[0]
+    resl = self.makeunilayer(self.textes["baseln"] + fc.keys()[0], fc[lab])
+    self.addmaskp(resl, self.addingchannel)
+    pdb.gimp_layer_set_mode(resl, SOFTLIGHT_MODE)
+    
   #override method, drawing the forest in the selection (when the method is called, a selection channel for the forest should be already present)
   def drawadding(self):
     self.addingchannel.name = self.textes["baseln"] + "mask"
     
     #creating noise base for the trees, this will be used to create a detailed mask for the trees
-    self.bgl = self.makenoisel(self.textes["baseln"] + "basicnoise", 16, NORMAL_MODE, True, True)
-    treelev = self.bgl.copy()
-    treelev.name = self.textes["baseln"] + "level"
-    self.img.add_layer(treelev, 0)
-    pdb.gimp_levels(treelev, 0, 0, 255, 1, 80, 255) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    self.bgl = self.makenoisel(self.textes["baseln"] + "basicnoise", 16, 16, NORMAL_MODE, True, True)
+    self.shapelayer, self.addingchannel = self.overdrawmask(self.bgl, self.textes["baseln"], self.smoothval, self.addingchannel, True)
     
-    self.shapelayer = self.makeunilayer(self.textes["baseln"] + "shape", (0, 0, 0))
-    pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
-    pdb.gimp_selection_feather(self.img, self.smoothval)
-    colfillayer(self.img, self.shapelayer, (255, 255, 255))
-    pdb.gimp_selection_none(self.img)
-    pdb.plug_in_gauss(self.img, self.shapelayer, self.smoothval, self.smoothval, 0)
-    pdb.gimp_layer_set_mode(self.shapelayer, MULTIPLY_MODE)
-    self.shapelayer = pdb.gimp_image_merge_down(self.img, self.shapelayer, 0)
-    commtxt = "Set the threshold until you get a shape you like"
-    frshape = CLevDialog(self.img, self.shapelayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], "Set lower threshold", self, gtk.DIALOG_MODAL)
-    frshape.run()
-    
-    self.shapelayer = frshape.reslayer
-    pdb.gimp_image_select_color(self.img, 2, self.shapelayer, (255, 255, 255)) #2 = selection replace
-    self.addingchannel = pdb.gimp_selection_save(self.img) #replacing forest mask with this one.
-    self.addingchannel.name = self.textes["baseln"] + "defmask"
-    pdb.gimp_selection_none(self.img)
-    pdb.gimp_layer_set_mode(self.shapelayer, MULTIPLY_MODE)
-    self.shapelayer = pdb.gimp_image_merge_down(self.img, self.shapelayer, 0)
-    self.shapelayer.name = self.textes["baseln"] + "trees"
-    pdb.plug_in_colortoalpha(self.img, self.shapelayer, (0, 0, 0))
-
     #creating the bump needed to make the forest
     pdb.plug_in_hsv_noise(self.img, self.shapelayer, 2, 0, 0, 30)
     self.bumplayer = self.makeunilayer(self.textes["baseln"] + "bump", (127, 127, 127)) #50% gray color
     self.addmaskp(self.bumplayer, self.addingchannel)
-    pdb.plug_in_bump_map_tiled(self.img, self.bumplayer, self.shapelayer, 135, 30, 8, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
+    pdb.plug_in_bump_map_tiled(self.img, self.bumplayer, self.shapelayer, 135, 30, 8, 0, 0, 0, 0, True, False, 2) #2 (last) = sinusoidal
     
     pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
     pdb.script_fu_drop_shadow(self.img, self.bumplayer, 2, 2, 15, (0, 0, 0), 75, False)      
@@ -1723,7 +1841,7 @@ class ForestBuild(BuildAddition):
     self.addlayercol(self.browncol)
     self.addlayercol(self.greencol)
     self.addlayercol(self.yellowcol)
-      
+    
     self.on_job_done()
 
 
