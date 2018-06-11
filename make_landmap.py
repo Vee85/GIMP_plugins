@@ -28,6 +28,7 @@
 #where n.m is the gimp version (e.g. 2.8)
 
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
+#@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 
 import sys
 import os
@@ -1845,6 +1846,115 @@ class ForestBuild(BuildAddition):
     self.on_job_done()
 
 
+#class to drawing the rivers
+class RiversBuild(TLSbase):
+  #constructor
+  def __init__(self, image, tdraw, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
+    
+    self.riversmask = None
+    self.bumpsmap = None
+    self.bevels = None
+    self.watercol = (49, 64, 119)
+    
+    #new row
+    labtxt = "Click \"Draw Rivers\" to add rivers to the map.\nClick Delete rivers to delete drawn rivers to cancel or repeat the process.\n"
+    labtxt += "Rivers can not be added randomly, you must draw them.\nThe script will instruct you when you have to do it.\nClick \"Next\" to close the dialog." 
+    laba = gtk.Label(labtxt)
+    self.vbox.add(laba)
+    
+    #button area
+    butdel = gtk.Button("Delete rivers")
+    self.action_area.add(butdel)
+    butdel.connect("clicked", self.on_delete_clicked)
+    
+    butdraw = gtk.Button("Draw Rivers")
+    self.action_area.add(butdraw)
+    butdraw.connect("clicked", self.on_draw_clicked)
+
+    butconf = gtk.Button("Next")
+    self.action_area.add(butconf)
+    butconf.connect("clicked", self.closerivers)
+    
+    self.show_all()
+    return mwin
+    
+  #callback method, skip rivers step
+  def closerivers(self, widget):
+    self.on_job_done()
+    
+  #callback method, delete rivers layers
+  def on_delete_clicked(self, widget):
+    if self.bevels is not None:
+      pdb.gimp_image_remove_layer(self.img, self.bevels)
+      self.bevels = None
+    if self.bumpsmap is not None:
+      pdb.gimp_image_remove_layer(self.img, self.bumpsmap)
+      self.bumpsmap = None
+    if self.bgl is not None:
+      pdb.gimp_image_remove_layer(self.img, self.bgl)
+      self.bgl = None
+      
+  #callback method, do rivers step
+  def on_draw_clicked(self, widget):
+    #creating the color layer and applying masks
+    self.bgl = self.makeunilayer("rivers", self.watercol)
+    self.addmaskp(self.bgl, self.channelms, False, True)
+    maskdiff = self.addmaskp(self.bgl, self.channelms, True)
+    
+    #saving the difference mask in a layer for bevels
+    difflayer = self.makeunilayer("riversdiff")
+    pdb.gimp_edit_copy(maskdiff)
+    flsel = pdb.gimp_edit_paste(difflayer, False)
+    pdb.gimp_floating_sel_anchor(flsel)
+    pdb.gimp_item_set_visible(difflayer, False)
+
+    #setting stuffs for the user
+    pdb.gimp_image_set_active_layer(self.img, self.bgl)
+    oldfgcol = pdb.gimp_context_get_foreground()
+    pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color
+    pdb.gimp_pencil(self.bgl, 2, [-1, -1]) #will not draw anything, but set the pencil for the user
+    
+    #dialog to explain the user that is time to draw
+    infodial = gtk.Dialog(title="Drawing rivers", parent=self)
+    labtxt = "Draw the rivers on the map. Regulate the size of the pencil if needed.\n"
+    labtxt += "Use the pencil and do not worry of drawing on the sea.\n"
+    labtxt += "Do not change the foreground color (it has to be white as you are actually editing the layer mask).\n"
+    labtxt += "Press OK when you have finished to draw the rivers."
+    ilabel = gtk.Label(labtxt)
+    infodial.vbox.add(ilabel)
+    ilabel.show()
+    infodial.add_button("OK", gtk.RESPONSE_OK)
+    rr = infodial.run()
+    
+    #steps after the rivers have been drawn
+    if rr == gtk.RESPONSE_OK:
+      infodial.destroy()
+      pdb.gimp_context_set_foreground(oldfgcol)
+      
+      #saving the edited mask in a layer for bevels
+      self.bumpsmap = self.makeunilayer("riversbumps")
+      self.riversmask = pdb.gimp_layer_get_mask(self.bgl)
+      pdb.gimp_edit_copy(self.riversmask)
+      flsel = pdb.gimp_edit_paste(self.bumpsmap, False)
+      pdb.gimp_floating_sel_anchor(flsel)
+
+      #mergin the layer to have only the rivers for the bump map
+      pdb.gimp_item_set_visible(difflayer, True)
+      pdb.gimp_layer_set_mode(self.bumpsmap, DIFFERENCE_MODE)
+      self.bumpsmap = pdb.gimp_image_merge_down(self.img, self.bumpsmap, 0)
+      self.bumpsmap.name = "riversbumps"
+      pdb.gimp_invert(self.bumpsmap)
+      pdb.gimp_item_set_visible(self.bumpsmap, False)
+      
+      #making the bevels with a bump map
+      self.bevels = self.makeunilayer("riversbevels", (127, 127, 127))
+      pdb.plug_in_bump_map_tiled(self.img, self.bevels, self.bumpsmap, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
+      pdb.gimp_layer_set_mode(self.bevels, OVERLAY_MODE)
+
+    pdb.gimp_displays_flush()
+
+
 #class for the customized GUI
 class MainApp(gtk.Window):
   #constructor
@@ -1922,6 +2032,9 @@ class MainApp(gtk.Window):
     
     forest = ForestBuild(self.img, None, layermask, channelmask, "Building forests", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     forest.run()
+    
+    rivers = RiversBuild(self.img, None, layermask, channelmask, "Building rivers", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    rivers.run()
     
   #callback method to use current image as map
   def on_butusemap_clicked(self, widget):
