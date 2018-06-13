@@ -511,7 +511,8 @@ class TLSbase(gtk.Dialog):
     self.maskl = layermask
     self.channelms = channelmask
     self.thrc = 0 #will be selected later
-    
+    self.smoothprofile = 0
+     
     #nothing in the dialog: labels and buttons are created in the child classes
     
     return mwin
@@ -547,6 +548,25 @@ class TLSbase(gtk.Dialog):
         
     return startr
   
+  #method, set the smoothprofile parameter
+  def setsmoothprof(self, val):
+    self.smoothprofile = val
+  
+  #method, copy the pixel map of a layer into a channel selection
+  def layertochannel(self, llayer, pos, chname):
+    reschannel = pdb.gimp_channel_new(self.img, self.img.width, self.img.height, chname, 100, (0, 0, 0))
+    self.img.add_channel(reschannel, pos)
+    
+    pdb.gimp_selection_all(self.img)
+    if not pdb.gimp_edit_copy(llayer):
+      return
+      
+    flsel = pdb.gimp_edit_paste(reschannel, True)
+    pdb.gimp_floating_sel_anchor(flsel)
+    pdb.gimp_item_set_visible(reschannel, False)
+    pdb.gimp_selection_none(self.img)
+    return reschannel
+
   #method to use another function (such as makeunilayer, makenoisel, makeclipl) to generate a wider layer. In this case, full list of arguments except the final size must be provided as a tuple
   def makerotatedlayer(self, centered, angle, makingf, args):
     newsize = math.sqrt(math.pow(self.img.width, 2) + math.pow(self.img.height, 2))
@@ -617,18 +637,20 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_image_select_color(self.img, 2, self.clipl, (int(self.thrc), int(self.thrc), int(self.thrc))) #2 = selection replace
     pdb.gimp_context_set_sample_merged(False)
     pdb.gimp_selection_invert(self.img) #inverting selection
-    self.maskl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, lname, 100, 0) #0 (last) = normal mode
-    self.img.add_layer(self.maskl, 0)
-    colfillayer(self.img, self.maskl, (255, 255, 255)) #make layer color white
+    self.maskl = self.makeunilayer(lname)
     
-    #merging the mask with a previous mask
     if self.baseml is not None:
+      #merging the mask with a previous mask
       pdb.gimp_selection_none(self.img)
+      #smoothing new mask before merging
+      if self.smoothprofile > 0:
+        pdb.plug_in_gauss(self.img, self.maskl, self.smoothprofile, self.smoothprofile, 0)
+      
       self.mergemasks()
-      pdb.gimp_image_select_color(self.img, 2, self.maskl, (255, 255, 255)) #2 = selection replace
-    
-    self.channelms = pdb.gimp_selection_save(self.img)
-    pdb.gimp_selection_none(self.img)
+      self.channelms = self.layertochannel(self.maskl, 0, "copiedfromlayer")
+    else:
+      self.channelms = pdb.gimp_selection_save(self.img)
+      pdb.gimp_selection_none(self.img)
     
   #method to apply a channel mask to a layer 
   def addmaskp(self, layer, chmask=None, inverting=False, applying=False):
@@ -875,16 +897,16 @@ class MaskProfile(TLSbase):
         pdb.gimp_image_remove_channel(self.img, self.channelms)
       
     #Using the TSL tecnnique: shape layer
-    if (self.chtype == 0): #no need of a coast, skip everything
+    if (self.chtype == 0): #skip everything
       self.genonce = True
     else:
       nn = False
-      if (self.chtype == 1): #to generate archipelago
+      if (self.chtype == 1): #to generate multi-random area
         #setting the layer to a light gray color
         nn = True
         colfillayer(self.img, self.bgl, (128, 128, 128)) #rgb notation for a 50% gray
       elif (self.chtype > 1 and self.chtype < 5):
-        if (self.chtype == 2): #to generate a coastline
+        if (self.chtype == 2): #to generate one-side area
           gradtype = 0 #linear
           seldir = self.SettingDir(self.textes, "Set position", self, gtk.DIALOG_MODAL) #initializate an object of type nested class
           rd = seldir.run()
@@ -912,7 +934,7 @@ class MaskProfile(TLSbase):
                           
             seldir.destroy()
           
-        elif (self.chtype == 3 or self.chtype == 4): #to generate a circular island or lake
+        elif (self.chtype == 3 or self.chtype == 4): #to generate a circular area or corona
           gradtype = 2 #radial
           x1 = pdb.gimp_image_width(self.img)/2
           y1 = pdb.gimp_image_height(self.img)/2
@@ -1298,6 +1320,12 @@ class BuildAddition(TLSbase):
     mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
     self.addingchannel = None
     self.textes = None #this should be instantiated in child classes
+    self.smoothbeforecomb = True
+    
+    self.smoothbase = 0
+    self.smoothlist = ["None", "Small", "Medium", "Big"]
+    self.smoothvallist = None
+    self.smoothval = 0 #will be reinitialized by the dedicated method
     
     #No GUI here, it is buildt in the child classes as it may change from class to class. Only the button area is buildt here, which should be equal for all the children
     #button area
@@ -1316,6 +1344,53 @@ class BuildAddition(TLSbase):
     self.show_all()
     return mwin
   
+  #method, setting the smoothbeforecomb parameter
+  def setsmoothbeforecomb(self, val):
+    if isinstance(val, (bool)):
+      self.smoothbeforecomb = val
+  
+  #method, setting and adding the smooth parameters and drawing the relative combobox
+  def smoothdef(self, base, cblabtxt):
+    #base should be a 3 element list with floating numbers representing the smooth size in percentage
+    if len(base) != 3:
+      raise TypeError("Error, first argument of BuildAddiction.smoothdef method must be a 3 element list, with numerical values.")
+      
+    self.smoothbase = [0] + base
+    self.smoothvallist = [i * 0.5 * (self.img.width + self.img.height) for i in self.smoothbase]
+    
+    #adding first row to the GUI
+    self.hbxsm = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(self.hbxsm)
+    
+    labsm = gtk.Label(cblabtxt)
+    self.hbxsm.add(labsm)
+    
+    boxmodelsm = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
+    
+    #filling the model for the combobox
+    for i, j in zip(self.smoothlist, self.smoothvallist):
+      irow = boxmodelsm.append(None, [i, j])
+
+    self.smoothval = self.smoothvallist[2]
+
+    cboxsm = gtk.ComboBox(boxmodelsm)
+    rendtextsm = gtk.CellRendererText()
+    cboxsm.pack_start(rendtextsm, True)
+    cboxsm.add_attribute(rendtextsm, "text", 0)
+    cboxsm.set_entry_text_column(0)
+    cboxsm.set_active(2)
+    cboxsm.connect("changed", self.on_smooth_changed)
+    self.hbxsm.add(cboxsm)
+    
+    #adding second row to the GUI
+    self.hbxsc = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(self.hbxsc)
+    
+    self.chbsc = gtk.CheckButton("Prevent smoothing near the coast.")
+    self.chbsc.set_active(self.smoothbeforecomb)
+    self.chbsc.connect("toggled", self.on_chsc_toggled)
+    self.hbxsc.add(self.chbsc)
+    
   #empty method to draw stuffs. It will be overrided by child classes
   def drawadding(self):
     raise NotImplementedError("Subclass must implement drawadding method")
@@ -1324,19 +1399,27 @@ class BuildAddition(TLSbase):
   def on_butcanc_clicked(self, widget):
     self.on_job_done()
 
+  #callback method, set the smooth parameter
+  def on_smooth_changed(self, widget):
+    refmode = widget.get_model()
+    self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
+
+  #callback method, setting smooth_before parameter
+  def on_chsc_toggled(self, widget):
+    self.smoothbeforecomb = widget.get_active()
+
   #callback method to generate random selection (mask profile)
   def on_butgenrdn_clicked(self, widget):
-    baselayer = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.textes["baseln"] + "base", 100, 0) #0 = normal mode
-    self.img.add_layer(baselayer, 0)
-    colfillayer(self.img, baselayer, (255, 255, 255))
+    baselayer = self.makeunilayer(self.textes["baseln"] + "base")
     newmp = MaskProfile(self.textes, self.img, baselayer, self.maskl, "Building " + self.textes["baseln"] + " mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    if self.smoothbeforecomb and self.smoothval > 0:
+      newmp.setsmoothprof(self.smoothval)
+
     newmp.run()
     self.addingchannel = newmp.channelms
     
     #hiding or deleting not needed stuffs
-    cht = newmp.chtype
-    newmp.destroy()
-    if cht > 0:
+    if newmp.chtype > 0:
       pdb.gimp_item_set_visible(newmp.bgl, False)
       pdb.gimp_item_set_visible(newmp.noisel, False)
       pdb.gimp_item_set_visible(newmp.clipl, False)
@@ -1364,6 +1447,9 @@ class BuildAddition(TLSbase):
 
     if (diresp == gtk.RESPONSE_OK):
       if not pdb.gimp_selection_is_empty(self.img):
+        if self.smoothbeforecomb and self.smoothval > 0:
+          pdb.gimp_selection_feather(self.img, self.smoothval)
+          
         self.addingchannel = pdb.gimp_selection_save(self.img)
         pdb.gimp_selection_none(self.img)
         #combining the new mask with the land profile
@@ -1397,12 +1483,7 @@ class AdditionalDetBuild(BuildAddition):
     self.clight = colorlight
     self.cdeep = colordeep
     self.textes = textes
-    
-    smoothbase = [0, 0.01, 0.03, 0.06]
-    self.smoothlist = ["None", "Small", "Medium", "Big"]
-    self.smoothvallist = [i * (self.img.width + self.img.height) for i in smoothbase]
-    self.smoothval = 0 #will be reinitialized during construction
-    
+        
     #Designing the interface
     #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
@@ -1412,38 +1493,12 @@ class AdditionalDetBuild(BuildAddition):
     hbxa.add(laba)
     
     #new row
-    hbxb = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hbxb)
-    
-    labb = gtk.Label("Select smoothing range for the area,\nit helps the blending with the main color.")
-    hbxb.add(labb)
-    
-    boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
-    
-    #filling the model for the combobox
-    for i, j in zip(self.smoothlist, self.smoothvallist):
-      irow = boxmodelb.append(None, [i, j])
-
-    self.smoothval = self.smoothvallist[2]
-
-    cboxb = gtk.ComboBox(boxmodelb)
-    rendtextb = gtk.CellRendererText()
-    cboxb.pack_start(rendtextb, True)
-    cboxb.add_attribute(rendtextb, "text", 0)
-    cboxb.set_entry_text_column(0)
-    cboxb.set_active(2)
-    cboxb.connect("changed", self.on_smooth_changed)
-    hbxb.add(cboxb)
-    
+    self.smoothdef([0.03, 0.06, 0.1], "Select smoothing range for the area,\nit helps the blending with the main color.")
+        
     #button area inherited from parent class
 
     self.show_all()
     return mwin
-    
-  #callback method, set the smooth parameter
-  def on_smooth_changed(self, widget):
-    refmode = widget.get_model()
-    self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
     
   #override method, drawing the area
   def drawadding(self):
@@ -1458,7 +1513,7 @@ class AdditionalDetBuild(BuildAddition):
       pdb.gimp_layer_remove_mask(self.bgl, 1) #1 = MASK_DISCARD
 
     maskt = self.addmaskp(self.bgl, self.addingchannel)
-    if self.smoothval > 0:
+    if not self.smoothbeforecomb and self.smoothval > 0:
       pdb.plug_in_gauss(self.img, maskt, self.smoothval, self.smoothval, 0)
       
     self.on_job_done()
@@ -1479,11 +1534,7 @@ class MountainsBuild(BuildAddition):
     
     self.colormountslow = (75, 62, 43)
     self.colormountshigh = (167, 143, 107)
-    
-    smoothbase = [0, 0.03, 0.1, 0.2]
-    self.smoothlist = ["None", "Short", "Medium", "Long"]
-    self.smoothvallist = [0.5 * i * (self.img.width + self.img.height) for i in smoothbase]
-    self.smoothval = 0 #will be reinitialized during construction
+    self.setsmoothbeforecomb(False) #mountains should always be smoothed later 
     
     self.textes = {"baseln" : "mountains", \
     "labelext" : "mountains", \
@@ -1500,28 +1551,7 @@ class MountainsBuild(BuildAddition):
     hbxa.add(laba)
     
     #new row
-    hbxc = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hbxc)
-    
-    labc = gtk.Label("Select smoothing range for mountains feet")
-    hbxc.add(labc)
-    
-    boxmodelc = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
-    
-    #filling the model for the combobox
-    for i, j in zip(self.smoothlist, self.smoothvallist):
-      irow = boxmodelc.append(None, [i, j])
-
-    self.smoothval = self.smoothvallist[2]
-
-    cboxc = gtk.ComboBox(boxmodelc)
-    rendtextc = gtk.CellRendererText()
-    cboxc.pack_start(rendtextc, True)
-    cboxc.add_attribute(rendtextc, "text", 0)
-    cboxc.set_entry_text_column(0)
-    cboxc.set_active(2)
-    cboxc.connect("changed", self.on_smooth_changed)
-    hbxc.add(cboxc)
+    self.smoothdef([0.03, 0.1, 0.2], "Select smoothing for mountains feet.")
     
     #new row
     hbxd = gtk.HBox(spacing=10, homogeneous=True)
@@ -1612,11 +1642,6 @@ class MountainsBuild(BuildAddition):
   #callback method, set the adding shadow variable
   def on_chbe_toggled(self, widget):
     self.addshadow = widget.get_active()
-
-  #callback method, set the smooth parameter
-  def on_smooth_changed(self, widget):
-    refmode = widget.get_model()
-    self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
     
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def drawadding(self):
@@ -1630,7 +1655,12 @@ class MountainsBuild(BuildAddition):
       rang = ctrlm.getanglerad()
       ctrlm.destroy()
       noisemask = self.makerotatedlayer(True, rang, self.makenoisel, (self.textes["baseln"] + "basicnoise", 6, 2, NORMAL_MODE, True, True))
-      self.addingchannel = self.overdrawmask(noisemask, self.textes["baseln"], self.smoothval, self.addingchannel, True, True)[1] #getting only the mask
+      if self.smoothbeforecomb and self.smoothval > 0:
+        masksmooth = 0
+      else:
+        masksmooth = self.smoothval
+        
+      self.addingchannel = self.overdrawmask(noisemask, self.textes["baseln"], masksmooth, self.addingchannel, True, True)[1] #getting only the mask
     elif chrot == gtk.RESPONSE_CANCEL:
       ctrlm.destroy()
     
@@ -1646,7 +1676,7 @@ class MountainsBuild(BuildAddition):
     self.noisel = self.makeunilayer(self.textes["baseln"] + "widenoise", (0, 0, 0))
     pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
     if self.smoothval > 0:
-      pdb.gimp_selection_feather(self.img, self.smoothval/2)
+      pdb.gimp_selection_feather(self.img, self.smoothval)
     paramstr = str(random.random() * 9999999999)
     paramstr += " 10.0 10.0 8.0 2.0 0.30 1.0 0.0 planar lattice_noise NO ramp fbm smear 0.0 0.0 0.0 fg_bg"
     try:
@@ -1713,7 +1743,7 @@ class MountainsBuild(BuildAddition):
     #fixing outside selection
     pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
     if self.smoothval > 0:
-      pdb.gimp_selection_feather(self.img, self.smoothval/2)
+      pdb.gimp_selection_feather(self.img, self.smoothval)
     pdb.gimp_selection_invert(self.img) #inverting selection
     colfillayer(self.img, self.embosslayer, (128, 128, 128))
     
@@ -1757,12 +1787,7 @@ class ForestBuild(BuildAddition):
     mwin = BuildAddition.__init__(self, image, tdraw, layermask, channelmask, *args)
     self.shapelayer = None
     self.bumplayer = None
-    
-    smoothbase = [0, 0.03, 0.1, 0.2]
-    self.smoothlist = ["None", "Short", "Medium", "Long"]
-    self.smoothvallist = [0.25 * i * (self.img.width + self.img.height) for i in smoothbase]
-    self.smoothval = 0 #will be reinitialized during construction
-    
+   
     self.browncol = {"tcbrown" : (75, 66, 47)}
     self.greencol = {"tcgreen" : (59, 88, 14)}
     self.yellowcol = {"tcyellow" : (134, 159, 48)}
@@ -1781,37 +1806,8 @@ class ForestBuild(BuildAddition):
     laba = gtk.Label("Adding forests to the map.")
     hbxa.add(laba)
     
-    #new row
-    hbxb = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hbxb)
-    
-    labb = gtk.Label("Select smoothing range for forest borders")
-    hbxb.add(labb)
-    
-    boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
-    
-    #filling the model for the combobox
-    for i, j in zip(self.smoothlist, self.smoothvallist):
-      irow = boxmodelb.append(None, [i, j])
-
-    self.smoothval = self.smoothvallist[2]
-
-    cboxb = gtk.ComboBox(boxmodelb)
-    rendtextb = gtk.CellRendererText()
-    cboxb.pack_start(rendtextb, True)
-    cboxb.add_attribute(rendtextb, "text", 0)
-    cboxb.set_entry_text_column(0)
-    cboxb.set_active(2)
-    cboxb.connect("changed", self.on_smooth_changed)
-    hbxb.add(cboxb)
-    
     self.show_all()
     return mwin
-    
-  #method, set the smooth parameter
-  def on_smooth_changed(self, widget):
-    refmode = widget.get_model()
-    self.smoothval = refmode.get_value(widget.get_active_iter(), 1)
     
   #method to add a masked layer color
   def addlayercol(self, fc):
@@ -1826,7 +1822,7 @@ class ForestBuild(BuildAddition):
     
     #creating noise base for the trees, this will be used to create a detailed mask for the trees
     self.bgl = self.makenoisel(self.textes["baseln"] + "basicnoise", 16, 16, NORMAL_MODE, True, True)
-    self.shapelayer, self.addingchannel = self.overdrawmask(self.bgl, self.textes["baseln"], self.smoothval, self.addingchannel, True)
+    self.shapelayer, self.addingchannel = self.overdrawmask(self.bgl, self.textes["baseln"], 30, self.addingchannel, True)
     
     #creating the bump needed to make the forest
     pdb.plug_in_hsv_noise(self.img, self.shapelayer, 2, 0, 0, 30)
@@ -1859,7 +1855,7 @@ class RiversBuild(TLSbase):
     
     #new row
     labtxt = "Click \"Draw Rivers\" to add rivers to the map.\nClick Delete rivers to delete drawn rivers to cancel or repeat the process.\n"
-    labtxt += "Rivers can not be added randomly, you must draw them.\nThe script will instruct you when you have to do it.\nClick \"Next\" to close the dialog." 
+    labtxt += "Rivers can not be added randomly, you must draw them.\nThe script will instruct you when you have to do it.\nClick \"Close\" to close the dialog." 
     laba = gtk.Label(labtxt)
     self.vbox.add(laba)
     
@@ -1872,7 +1868,7 @@ class RiversBuild(TLSbase):
     self.action_area.add(butdraw)
     butdraw.connect("clicked", self.on_draw_clicked)
 
-    butconf = gtk.Button("Next")
+    butconf = gtk.Button("Close")
     self.action_area.add(butconf)
     butconf.connect("clicked", self.closerivers)
     
