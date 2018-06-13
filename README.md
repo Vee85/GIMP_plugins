@@ -2,6 +2,9 @@
 ### Plug-ins for GIMP (in python), released under GPL 3.
 #### On the Linux version of GIMP, these scripts must be placed in ~/.gimp-n.m/plug-ins where n.m is the gimp version (e.g. 2.8)
 
+* **copy_layer_to_channel.py**:
+  Copy a layer in a channel selection mask, converting the gray scale into a selection. Useful to create complex selection areas, an alternative way to the QuickMask.
+
 * **make_animation_blurring.py**:
   Set up the animation of the base image using the motion blur filter. A set of directions can be chosen, the animation can be performed by the script or by the user at a later time.
 
