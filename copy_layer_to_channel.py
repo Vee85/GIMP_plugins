@@ -22,7 +22,7 @@
 #  
 #  
 
-#This script save the content of a layer in a channel selection mask, converting the gray scale into a selection
+#This script save the content of a layer in a new channel selection mask, converting the gray scale into a selection
 #This script must be placed in ~/.gimp-n.m/plug-ins
 #where n.m is the gimp version (e.g. 2.8)
 
@@ -38,18 +38,19 @@ def python_copytochannel(img, tdraw, pos, name):
   
   pdb.gimp_selection_all(img)
   if not pdb.gimp_edit_copy(tdraw):
-    return
+    raise RuntimeError("An error as occurred while copying from the layer!")
     
   flsel = pdb.gimp_edit_paste(channel, True)
   pdb.gimp_floating_sel_anchor(flsel)
   pdb.gimp_item_set_visible(channel, False)
-
+  return channel
+  
 
 #The command to register the function
 register(
   "python-fu-copy-layer-to-channel",
   "python-fu-copy-layer-to-channel",
-  "Copy a layer in a channel selection mask, converting the gray scale into a selection",
+  "Copy a layer in a new channel selection mask, converting the gray scale into a selection",
   "Valentino Esposito",
   "Valentino Esposito",
   "2018",
@@ -59,7 +60,9 @@ register(
     (PF_INT32, "pos", "channel position in the list", 0),
     (PF_STRING, "name", "channel name", "channelmask"),
   ],
-  [],
+  [
+    (PF_CHANNEL, "channel", "The new created channel."),
+  ],
   python_copytochannel
   )
 

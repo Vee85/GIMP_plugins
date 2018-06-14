@@ -559,7 +559,7 @@ class TLSbase(gtk.Dialog):
     
     pdb.gimp_selection_all(self.img)
     if not pdb.gimp_edit_copy(llayer):
-      return
+      raise RuntimeError("An error as occurred while copying from the layer in TLSbase.layertochannel method!")
       
     flsel = pdb.gimp_edit_paste(reschannel, True)
     pdb.gimp_floating_sel_anchor(flsel)
