@@ -27,8 +27,6 @@
 #where n.m is the gimp version (e.g. 2.8)
 
 
-import sys
-import os
 from gimpfu import *
 
 #The function to be registered in gimp
