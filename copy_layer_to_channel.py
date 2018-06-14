@@ -22,7 +22,7 @@
 #  
 #  
 
-#This script save the content of a layer in a new channel selection mask, converting the gray scale into a selection
+#This script converts the content of a layer in a selection mask and save it in a new channel selection mask. An alternative way to the QuikMask to create a complex selection.
 #This script must be placed in ~/.gimp-n.m/plug-ins
 #where n.m is the gimp version (e.g. 2.8)
 
@@ -30,7 +30,7 @@
 from gimpfu import *
 
 #The function to be registered in gimp
-def python_copytochannel(img, tdraw, pos, name, delete_layer):
+def python_convtochannel(img, tdraw, pos, name, delete_layer):
   channel = pdb.gimp_channel_new(img, img.width, img.height, name, 100, (0, 0, 0))
   img.add_channel(channel, pos)
   
@@ -50,9 +50,9 @@ def python_copytochannel(img, tdraw, pos, name, delete_layer):
 
 #The command to register the function
 register(
-  "python-fu-copy-layer-to-channel",
-  "python-fu-copy-layer-to-channel",
-  "Copy a layer in a new channel selection mask, converting the gray scale into a selection",
+  "python-fu-convert-layer-to-channel",
+  "python-fu-convert-layer-to-channel",
+  "Convert the content of a layer in a selection mask and save it in a new channel selection mask. An alternative way to the QuikMask to create a complex selection.",
   "Valentino Esposito",
   "Valentino Esposito",
   "2018",
@@ -66,7 +66,7 @@ register(
   [
     (PF_CHANNEL, "channel", "The new created channel."),
   ],
-  python_copytochannel
+  python_convtochannel
   )
 
 #The main function to activate the script
