@@ -32,17 +32,21 @@ import os
 from gimpfu import *
 
 #The function to be registered in gimp
-def python_copytochannel(img, tdraw, pos, name):
+def python_copytochannel(img, tdraw, pos, name, delete_layer):
   channel = pdb.gimp_channel_new(img, img.width, img.height, name, 100, (0, 0, 0))
   img.add_channel(channel, pos)
   
   pdb.gimp_selection_all(img)
   if not pdb.gimp_edit_copy(tdraw):
+    pdb.gimp_image_remove_channel(img, channel)
     raise RuntimeError("An error as occurred while copying from the layer!")
     
   flsel = pdb.gimp_edit_paste(channel, True)
   pdb.gimp_floating_sel_anchor(flsel)
   pdb.gimp_item_set_visible(channel, False)
+  if delete_layer:
+    pdb.gimp_image_remove_layer(img, tdraw)
+    
   return channel
   
 
@@ -59,6 +63,7 @@ register(
   [
     (PF_INT32, "pos", "channel position in the list", 0),
     (PF_STRING, "name", "channel name", "channelmask"),
+    (PF_BOOL, "delete_layer", "Delete the original layer?", False),
   ],
   [
     (PF_CHANNEL, "channel", "The new created channel."),
