@@ -25,7 +25,7 @@
 mainscript="make_landmap.py"
 mainfolder="make_landmap_brushes"
 
-echo "$mainscript installation script.\n"
+echo "$mainscript installation script, working on linux systems.\n"
 echo "This script copies the main script and the other relevant files in the GIMP user directories."
 echo "It assumes that your GIMP user directory is in your home directory."
 
