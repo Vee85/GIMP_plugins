@@ -1084,10 +1084,6 @@ class BaseDetails(TLSbase):
     self.regionlist = ["grassland", "desert", "arctic"]
     self.regiontype = ["grass", "sand", "ice"]
     self.region = self.regiontype[0] #will be reinitialized in GUI costruction
-
-    #~ self.desertlist = ["no", "manually", "randomly"]
-    #~ self.deserttype = range(len(self.desertlist))
-    #~ self.desertdo = 0 #will be reinitialized in GUI costruction
     
     #color couples to generate gradients
     self.colorgrassdeep = (76, 83, 41) #a dark green color, known as ditch
@@ -1852,6 +1848,7 @@ class RiversBuild(TLSbase):
     self.bumpsmap = None
     self.bevels = None
     self.watercol = (49, 64, 119)
+    self.defsize = 0.01 * (self.img.width + self.img.height)
     
     #new row
     labtxt = "Click \"Draw Rivers\" to add rivers to the map.\nClick Delete rivers to delete drawn rivers to cancel or repeat the process.\n"
@@ -1859,7 +1856,7 @@ class RiversBuild(TLSbase):
     laba = gtk.Label(labtxt)
     self.vbox.add(laba)
     
-    #button area
+    #action area
     butdel = gtk.Button("Delete rivers")
     self.action_area.add(butdel)
     butdel.connect("clicked", self.on_delete_clicked)
@@ -1909,8 +1906,8 @@ class RiversBuild(TLSbase):
     pdb.gimp_image_set_active_layer(self.img, self.bgl)
     oldfgcol = pdb.gimp_context_get_foreground()
     pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color
-    pdb.gimp_pencil(self.bgl, 2, [-1, -1]) #will not draw anything, but set the pencil for the user
-    
+    pdb.gimp_context_set_brush_size(self.defsize)
+
     #dialog to explain the user that is time to draw
     infodial = gtk.Dialog(title="Drawing rivers", parent=self)
     labtxt = "Draw the rivers on the map. Regulate the size of the pencil if needed.\n"
@@ -1935,7 +1932,7 @@ class RiversBuild(TLSbase):
       flsel = pdb.gimp_edit_paste(self.bumpsmap, False)
       pdb.gimp_floating_sel_anchor(flsel)
 
-      #mergin the layer to have only the rivers for the bump map
+      #merging the layer to have only the rivers for the bump map
       pdb.gimp_item_set_visible(difflayer, True)
       pdb.gimp_layer_set_mode(self.bumpsmap, DIFFERENCE_MODE)
       self.bumpsmap = pdb.gimp_image_merge_down(self.img, self.bumpsmap, 0)
@@ -1949,6 +1946,172 @@ class RiversBuild(TLSbase):
       pdb.gimp_layer_set_mode(self.bevels, OVERLAY_MODE)
 
     pdb.gimp_displays_flush()
+
+
+#class to add symbols (towns, capital towns, and so on)
+class SymbolsBuild(TLSbase):
+  #constructor
+  def __init__(self, image, tdraw, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
+
+    self.basepath = os.path.dirname(os.path.abspath(__file__)) + "/make_landmap_brushes/"
+    self.defsize = 0.025 * (self.img.width + self.img.height)
+    self.bgcol = (223, 223, 83)
+    self.brushnames = ["Town", "Capital", "Port", "Wallfort"]
+    
+    self.bgl = self.makeunilayer("symbols outline")
+    pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
+    
+    self.symbols = self.makeunilayer("symbols")
+    pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
+    
+    pdb.gimp_displays_flush()
+
+    #Designing the interface
+    #new row
+    hbxa = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxa)
+    
+    labatxt = "Adding symbols for towns and similars. Click on the button to select the brush with the proper symbol.\n"
+    labatxt += "Use the pencil and set the pencil size as appropriate if you wish bigger or smaller symbols.\n"
+    labatxt += "You must have a copy of the brushes which come with this plug-in saved in the GIMP brushes directory." 
+    laba = gtk.Label(labatxt)
+    hbxa.add(laba)
+    
+    #new row
+    hbxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxb)
+
+    buttown = self.addbuttonimage(self.brushnames[0], self. basepath + "brushtown.png")
+    hbxb.add(buttown)
+    
+    butcap = self.addbuttonimage(self.brushnames[1], self. basepath + "brushcapital.png")
+    hbxb.add(butcap)
+    
+    butport = self.addbuttonimage(self.brushnames[2], self. basepath + "brushport.png")
+    hbxb.add(butport)
+    
+    butfort = self.addbuttonimage(self.brushnames[3], self. basepath + "brushwallfort.png")
+    hbxb.add(butfort)
+
+    #action area
+    butcanc = gtk.Button("Cancel")
+    self.action_area.add(butcanc)
+    butcanc.connect("clicked", self.on_cancel_clicked)
+    
+    butrand = gtk.Button("Add randomly")
+    self.action_area.add(butrand)
+    butrand.connect("clicked", self.on_random_clicked)
+    
+    butfix = gtk.Button("Fix Symbols")
+    self.action_area.add(butfix)
+    butfix.connect("clicked", self.on_fix_clicked)
+  
+    self.show_all()
+    return mwin
+
+  #nested class, controlling random displacement of symbols
+  class RandomSymbols(gtk.Dialog):
+    #constructor
+    def __init__(self, *args):
+      swin = gtk.Dialog.__init__(self, *args)
+      self.set_border_width(10)
+      
+      self.nsym = 1
+      
+      #new row
+      hbxa = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hbxa)
+      
+      laba = gtk.Label("How many symbols do you want to add?")
+      hbxa.add(laba)
+      
+      nsymadj = gtk.Adjustment(self.nsym, 1, 10, 1, 10)
+      spbuta = gtk.SpinButton(nsymadj, 0, 0)
+      spbuta.connect("output", self.on_nsym_changed)
+      hbxa.add(spbuta)
+      
+      #button area
+      self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+      self.add_button("OK", gtk.RESPONSE_OK)
+      
+      self.show_all()
+      return swin
+      
+    #callback method, set the number of symbols to be added
+    def on_nsym_changed(self, widget):
+      self.nsym = widget.get_value()
+
+  #outer class methods
+  #method, adding a selecting brush button with image and label in the button area
+  def addbuttonimage(self, brname, iconfile):
+    butres = gtk.Button()
+    vbx = gtk.VBox(spacing=0, homogeneous=True)
+
+    img = gtk.Image()
+    img.set_from_file(iconfile)
+    vbx.add(img)
+
+    lab = gtk.Label(brname)
+    vbx.add(lab)
+
+    butres.add(vbx)
+    butres.connect("clicked", self.on_brush_chosen, brname)
+
+    return butres
+
+  #callback method to select the proper brush
+  def on_brush_chosen(self, widget, brushstr):
+    pdb.gimp_plugin_set_pdb_error_handler(1)
+    try:
+      pdb.gimp_context_set_brush('make_landmap brush ' + brushstr)
+    except RuntimeError, errtxt:
+      #dialog explaining the occurred error
+      errdi = gtk.Dialog(title="Error", parent=self)
+      elabtxt = "Error message: " + errtxt.message + "\nDid you add the make_landmap brushes to the GIMP brushes folder?"
+      elabel = gtk.Label(elabtxt)
+      errdi.vbox.add(elabel)
+      elabel.show()
+      errdi.add_button("Ok", gtk.RESPONSE_OK)
+      rr = errdi.run()
+      if rr == gtk.RESPONSE_OK:
+        errdi.destroy()
+
+    pdb.gimp_context_set_brush_size(self.defsize)
+    pdb.gimp_plugin_set_pdb_error_handler(0)
+
+  #callback method, add randomly a given number of symbols.
+  def on_random_clicked(self, widget):
+    rnds = self.RandomSymbols("Adding symbols randomly", self, gtk.DIALOG_MODAL)
+    rr = rnds.run()
+    if rr == gtk.RESPONSE_OK:
+      for i in range(int(rnds.nsym)):
+        xc = random.random() * self.img.width
+        yc = random.random() * self.img.height
+        pdb.gimp_paintbrush_default(self.symbols, 2, [xc, yc])
+    
+      pdb.gimp_displays_flush()
+    
+    rnds.destroy()
+
+  #callback method, cancel symbols and close step
+  def on_cancel_clicked(self, widget):
+    if self.bgl is not None:
+      pdb.gimp_image_remove_layer(self.img, self.bgl)
+    if self.symbols is not None:
+      pdb.gimp_image_remove_layer(self.img, self.symbols)
+
+    self.on_job_done()
+    
+  #callback method, fix symbols, add finishing touches and close
+  def on_fix_clicked(self, widget):
+    pdb.gimp_image_select_item(self.img, 2, self.symbols) #2 = replace selection, this select everything in the layer which is not transparent
+    pdb.gimp_selection_grow(self.img, 2)
+    pdb.gimp_selection_feather(self.img, 5)
+    colfillayer(self.img, self.bgl, self.bgcol)
+    pdb.gimp_selection_none(self.img)
+    
+    self.on_job_done()
 
 
 #class for the customized GUI
@@ -2031,6 +2194,9 @@ class MainApp(gtk.Window):
     
     rivers = RiversBuild(self.img, None, layermask, channelmask, "Building rivers", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     rivers.run()
+
+    symbols = SymbolsBuild(self.img, None, layermask, channelmask, "Adding symbols", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    symbols.run()
     
   #callback method to use current image as map
   def on_butusemap_clicked(self, widget):
@@ -2043,7 +2209,7 @@ def python_make_landmap(img, tdraw):
   nummfelimg, procedure_names = pdb.gimp_procedural_db_query("plug-in-fimg-noise", ".*", ".*", ".*", ".*", ".*", ".*")
   if nummfelimg == 0:
     pdb.gimp_message("Warning: you need to install the felimage plugin to use all the features of this plugin properly.\nWithout the felimage plugin, the mountains will be of poor quality.")  
-
+    
   mapp = MainApp(img, tdraw)
   gtk.main()
 
