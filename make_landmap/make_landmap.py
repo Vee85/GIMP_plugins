@@ -29,6 +29,7 @@
 
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
+#@@@ add way to delete the full step, deleting all layers created by the object and start again. Or going back to previous step.
 
 import sys
 import os
@@ -492,19 +493,28 @@ class CCurveDialog(BDrawDial):
 #base class to implement the TSL tecnnique. This class is inherited by the GUI-provided classes.
 #it works as a sort of abstract class, but python does not have the concecpt of abstract classes, so it's just a normal class. 
 class TLSbase(gtk.Dialog):
+  #class constants
+  PREVIOUS = 0
+  NEXT = 1
+  
   #constructor
-  def __init__(self, image, drawable, basemask, layermask, channelmask, *args):
+  def __init__(self, image, basemask, layermask, channelmask, *args):
     mwin = gtk.Dialog.__init__(self, *args)
     self.set_border_width(10)
     
     #Obey the window manager quit signal:
     self.connect("destroy", gtk.main_quit)
     
+    #internal argument for navigation (these are other TLSbase child)
+    self.prevd = None
+    self.nextd = None
+    self.chosen = None
+    
     #internal arguments
     self.img = image
     self.refwidth = image.width
     self.refheight = image.height
-    self.bgl = drawable
+    self.bgl = None
     self.noisel = None
     self.clipl = None
     self.baseml = basemask
@@ -512,16 +522,90 @@ class TLSbase(gtk.Dialog):
     self.channelms = channelmask
     self.thrc = 0 #will be selected later
     self.smoothprofile = 0
-     
+    self.genonce = False
+    
     #nothing in the dialog: labels and buttons are created in the child classes
     
     return mwin
+    
+  #method to set the references to other TLSbase child instances
+  def setreferences(self, p, n):
+    self.prevd = p
+    self.nextd = n
     
   #method to close the dialog at the end
   def on_job_done(self):
     pdb.gimp_displays_flush()
     self.hide()
-      
+    
+  #callback method to quit from the dialog looping
+  def on_quit(self, widget):
+    self.chosen = None
+    self.on_job_done()
+
+  #callback method
+  def on_butgen_clicked(self, widget):
+    raise NotImplementedError("child class must implement on_butgen_clicked method")
+  
+  #callback method, set the next or previous instance which will be called by another method
+  def on_setting_np(self, widget, pp):
+    if pp == TLSbase.PREVIOUS:
+      self.chosen = self.prevd
+    elif pp == TLSbase.NEXT:
+      self.chosen = self.nextd
+    self.on_job_done()
+    
+  #method, adding the cancel button to the button area 
+  def add_button_quit(self):
+    self.butquit = gtk.Button("Quit")
+    self.action_area.add(self.butquit)
+    self.butquit.connect("clicked", self.on_quit)
+    
+  #method, adding the button to generate the profile of the current step
+  def add_button_generate(self, label):
+    self.butgenpr = gtk.Button(label)
+    self.action_area.add(self.butgenpr)
+    self.butgenpr.connect("clicked", self.on_butgen_clicked)
+     
+  #method, adding the previous and next button to the button area
+  def add_button_nextprev(self): 
+    self.butprev = gtk.Button("Previous")
+    self.action_area.add(self.butprev)
+    self.butprev.connect("clicked", self.on_setting_np, TLSbase.PREVIOUS)
+
+    self.butnext = gtk.Button("Next")
+    self.action_area.add(self.butnext)
+    self.butnext.connect("clicked", self.on_setting_np, TLSbase.NEXT)
+  
+  #method to copy the background layer from an already existing layer
+  def copybgl(self, blayer, blname):
+    self.bgl = blayer.copy()
+    self.bgl.name = blname
+    self.img.add_layer(self.bgl, 0)
+    
+  #method to set some stuffs before a run() call. To be overridden by the child classes if needed, but not mandatory
+  def setbeforerun(self):
+    pass
+  
+  #method to delete drawable (layers and channel masks) associated to the TLSbase child instance. Drawable of TLSbase are deleted, drawable of childs must be given as arguments
+  def deletedrawables(self, *drawables):
+    basetuple = (self.bgl, self.noisel, self.clipl, self.baseml) #not deleting self.maskl and self.channelms as they are shared by various instances
+    deltuple = basetuple + drawables
+    
+    #deleting the list
+    pdb.gimp_plugin_set_pdb_error_handler(1)
+    for dr, i in zip(deltuple, range(len(deltuple))):
+      if dr is not None:
+        try:
+          if isinstance(dr, gimp.Layer):
+            pdb.gimp_image_remove_layer(self.img, dr)
+          elif isinstance(dr, gimp.Channel):
+            pdb.gimp_image_remove_channel(self.img, dr)
+        except RuntimeError, e:   #catching runtime errors due to not valid ID, likely due to merged layers which do not exist anymore
+          pass
+    
+    pdb.gimp_plugin_set_pdb_error_handler(0)
+
   #method to get the maximum brightness from the pixel histogram of a layer
   def get_brightness_max(self, layer, channel=HISTOGRAM_VALUE):
     endr = 255
@@ -747,12 +831,13 @@ class TLSbase(gtk.Dialog):
 class MaskProfile(TLSbase):  
   #constructor
   def __init__(self, textes, image, tdraw, basemask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, basemask, None, None, *args)
+    mwin = TLSbase.__init__(self, image, basemask, None, None, *args)
+    
+    self.bgl = tdraw
     
     #internal arguments
     self.fsg = 10
     self.textes = textes
-    self.genonce = False
     self.namelist = self.textes["namelist"]
     self.typelist = range(len(self.namelist))
     self.chtype = 0 #will be reinitialized in GUI costruction
@@ -794,10 +879,8 @@ class MaskProfile(TLSbase):
     self.vbox.add(labc)
     
     #button area
-    butgenpr = gtk.Button("Generate profile")
-    self.action_area.add(butgenpr)
-    butgenpr.connect("clicked", self.on_butgenpr_clicked)
-    
+    self.add_button_generate("Generate profile")
+     
     butnext = gtk.Button("Next step")
     self.action_area.add(butnext)
     butnext.connect("clicked", self.on_butnext_clicked)
@@ -879,22 +962,13 @@ class MaskProfile(TLSbase):
       self.on_job_done()
   
   #callback method, generate the profile
-  def on_butgenpr_clicked(self, widget):
+  def on_butgen_clicked(self, widget):
     #removing previous layers if we are regenerating
     if (self.genonce):
-      if self.bgl is not None:
-        pdb.gimp_image_remove_layer(self.img, self.bgl)
-        self.bgl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.textes["baseln"] + "bg", 100, 0) #0 = normal mode
-        self.img.add_layer(self.bgl, 0)
-        colfillayer(self.img, self.bgl, (255, 255, 255)) #make layer full white
-      if self.noisel is not None:
-        pdb.gimp_image_remove_layer(self.img, self.noisel)
-      if self.clipl is not None:
-        pdb.gimp_image_remove_layer(self.img, self.clipl)
-      if self.maskl is not None:
-        pdb.gimp_image_remove_layer(self.img, self.maskl)
-      if self.channelms is not None:
-        pdb.gimp_image_remove_channel(self.img, self.channelms)
+      self.deletedrawables(self.maskl, self.channelms)
+      self.bgl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.textes["baseln"] + "bg", 100, 0) #0 = normal mode
+      self.img.add_layer(self.bgl, 0)
+      colfillayer(self.img, self.bgl, (255, 255, 255)) #make layer full white
       
     #Using the TSL tecnnique: shape layer
     if (self.chtype == 0): #skip everything
@@ -963,14 +1037,15 @@ class MaskProfile(TLSbase):
 #class to generate the water mass profile (sea, ocean, lakes)
 class WaterProfile(TLSbase):
   #constructor
-  def __init__(self, image, tdraw, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
+  def __init__(self, image, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
     self.seal = None
     self.shorel = None
 
     #internal parameters
     self.smoothnamelist = ["none", "small", "medium", "large"]
-    self.smoothtypelist = [0, 20, 40, 60] #is a percentage
+    self.smoothvallist = [0, 0.20, 0.40, 0.60] #is a percentage
+    self.smoothpixlist = [i * 0.5 * (self.img.width + self.img.height) for i in self.smoothvallist]
     self.smooth = 0 #will be reinitialized in GUI costruction
     self.addshore = True
     
@@ -986,10 +1061,10 @@ class WaterProfile(TLSbase):
     
     boxmodela = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
     #filling the model for the combobox
-    for i, j in zip(self.smoothnamelist, self.smoothtypelist):
+    for i, j in zip(self.smoothnamelist, self.smoothpixlist):
       irow = boxmodela.append(None, [i, j])
 
-    self.smooth = self.smoothtypelist[1]
+    self.smooth = self.smoothpixlist[1]
 
     cboxa = gtk.ComboBox(boxmodela)
     rendtexta = gtk.CellRendererText()
@@ -1010,13 +1085,9 @@ class WaterProfile(TLSbase):
     hbxb.add(chbb)
 
     #button area
-    butcanc = gtk.Button("Cancel")
-    self.action_area.add(butcanc)
-    butcanc.connect("clicked", gtk.main_quit)
-    
-    butgenpr = gtk.Button("Generate water profile")
-    self.action_area.add(butgenpr)
-    butgenpr.connect("clicked", self.on_butgenpr_clicked)
+    self.add_button_quit()
+    self.add_button_generate("Generate water profile")
+    self.add_button_nextprev()
 
     self.show_all()
     return mwin
@@ -1031,23 +1102,27 @@ class WaterProfile(TLSbase):
     self.addshore = widget.get_active()
   
   #callback method, generate water profile
-  def on_butgenpr_clicked(self, widget):
+  def on_butgen_clicked(self, widget):
+    self.deletedrawables(self.seal, self.shorel)
+
+    #getting bgl as copy of land mask
+    self.copybgl(self.maskl, "seashape")
+
     if (self.smooth > 0):
-      pix = (self.smooth / 100.0) * ((self.img.width + self.img.height) / 2.0)
-      pdb.plug_in_gauss(self.img, self.bgl, pix, pix, 0)
+      pdb.plug_in_gauss(self.img, self.bgl, self.smooth, self.smooth, 0)
       pdb.gimp_displays_flush()
     
     self.noisel = self.makenoisel("seanoise", 4, 4, OVERLAY_MODE)
     self.bgl = pdb.gimp_image_merge_down(self.img, self.noisel, 0)
 
-    #copy noise layer into a new layer 
+    #copy bgl layer into a new layer 
     self.seal = self.bgl.copy()
     self.seal.name = "sea"
     self.img.add_layer(self.seal, 0)
     
     self.addmaskp(self.seal, self.channelms, True, True)
     pdb.plug_in_normalize(self.img, self.seal)
-    pdb.gimp_image_select_item(self.img, 2, self.seal) #this selects the transparent region of the layer, #2 = replace selection
+    pdb.gimp_image_select_item(self.img, 2, self.seal) #this selects the non transparent region of the layer, #2 = replace selection
     pdb.gimp_selection_invert(self.img) #inverting the selection
     colfillayer(self.img, self.seal, (255, 255, 255)) #filling selected area with white
     pdb.gimp_selection_none(self.img)
@@ -1068,16 +1143,28 @@ class WaterProfile(TLSbase):
       
       pdb.plug_in_gauss(self.img, maskshore, pxpar, pxpar, 0)
     
-    self.on_job_done()
+    self.genonce = True
+    pdb.gimp_displays_flush()
+    
+  #override callback for next/previous button
+  def on_setting_np(self, widget, pp):
+    if pp == TLSbase.PREVIOUS:
+      return
+    elif pp == TLSbase.NEXT:
+      if self.genonce:
+        TLSbase.on_setting_np(self, widget, pp)
 
 
 #class to generate the base land (color and mask of the terrain)
 class BaseDetails(TLSbase):
   #constructor
-  def __init__(self, image, tdraw, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
+  def __init__(self, image, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
     self.bumpmapl = None
     self.basebumpsl = None
+    self.refbg = None
+    
+    self.smallareas = []
     
     #internal parameters
     #@@@ ideally all of these: grassland, desert, arctic, underdark || these should be smaller regions rendered in other ways: forest, mountain, swamp, coast 
@@ -1117,13 +1204,9 @@ class BaseDetails(TLSbase):
     hbxa.add(cboxa)
     
     #button area
-    butcanc = gtk.Button("Cancel")
-    self.action_area.add(butcanc)
-    butcanc.connect("clicked", gtk.main_quit)
-    
-    butgenpr = gtk.Button("Generate land details")
-    self.action_area.add(butgenpr)
-    butgenpr.connect("clicked", self.on_butgendet_clicked)
+    self.add_button_quit()
+    self.add_button_generate("Generate land details")
+    self.add_button_nextprev()
 
     self.show_all()
     return mwin
@@ -1134,7 +1217,19 @@ class BaseDetails(TLSbase):
     self.region = refmode.get_value(widget.get_active_iter(), 1)
     
   #callback method, generate land details
-  def on_butgendet_clicked(self, widget):
+  def on_butgen_clicked(self, widget):
+    #deleting stuffs if we are regenerating
+    self.deletedrawables(self.bumpmapl, self.basebumpsl)
+    for el in self.smallareas:
+      el.deletedrawables(*el.getdrawablechild())
+    del self.smallareas[:]
+    
+    #getting bgl as copy of water bgl (we have a WaterProfile instance) or the first background layer
+    if isinstance(self.refbg, WaterProfile):
+      self.copybgl(self.refbg.bgl, "base")
+    else:
+      self.copybgl(self.refbg, "base")
+
     #setting base color
     self.addmaskp(self.bgl)
     self.bgl.name = self.region    
@@ -1168,8 +1263,8 @@ class BaseDetails(TLSbase):
           cdeep = self.colorarcticdeep
           clight = self.colorarcticlight
         
-        smallarea = AdditionalDetBuild(smtextes, self.img, self.bgl, self.maskl, self.channelms, cdeep, clight, "Building smaller areas", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-        smallarea.run()
+        self.smallareas.append(AdditionalDetBuild(smtextes, self.img, self.bgl, self.maskl, self.channelms, cdeep, clight, "Building smaller areas", self, gtk.DIALOG_MODAL)) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+        self.smallareas[-1].run()
     
     #generating noise
     self.noisel = self.makenoisel(self.bgl.name + "texture", 3, 3, OVERLAY_MODE)
@@ -1184,17 +1279,34 @@ class BaseDetails(TLSbase):
 
     pdb.plug_in_bump_map_tiled(self.img, self.basebumpsl, self.bumpmapl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
     self.addmaskp(self.basebumpsl)
-    
-    self.on_job_done()
 
+    self.genonce = True
+    pdb.gimp_displays_flush()
+
+  #override callback for next/previous button
+  def on_setting_np(self, widget, pp):
+    close = True
+    if pp == TLSbase.PREVIOUS:
+      self.deletedrawables(self.bumpmapl, self.basebumpsl)
+      for el in self.smallareas:
+        el.deletedrawables(*el.getdrawablechild())
+      del self.smallareas[:]
+      
+    elif pp == TLSbase.NEXT:
+      if not self.genonce:
+        close = False
+    
+    if close:
+      TLSbase.on_setting_np(self, widget, pp)
 
 #class to generate the dirt on the terrain
 class DirtDetails(TLSbase):
   #constructor
-  def __init__(self, image, tdraw, layermask, channelmask, regtype, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
+  def __init__(self, image, layermask, channelmask, landbuilder, *args):
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
     self.smp = 50
-    self.regtype = regtype
+    self.regtype = None
+    self.landbuilder = landbuilder
     
     #colors
     self.colordirt = (128, 107, 80) #med dirt, a moderate brown
@@ -1203,17 +1315,13 @@ class DirtDetails(TLSbase):
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxa)
     
-    laba = gtk.Label("Adding dirt to the map?")
+    laba = gtk.Label("Adding dirt to the map. If you do not want to draw dirt, just press Next.")
     hbxa.add(laba)
     
     #button area
-    butcanc = gtk.Button("No")
-    self.action_area.add(butcanc)
-    butcanc.connect("clicked", self.on_butcanc_clicked)
-    
-    butgendrt = gtk.Button("Yes")
-    self.action_area.add(butgendrt)
-    butgendrt.connect("clicked", self.on_butgendrt_clicked)
+    self.add_button_quit()
+    self.add_button_generate("Generate dirt")
+    self.add_button_nextprev()
 
     self.show_all()
     return mwin
@@ -1246,12 +1354,11 @@ class DirtDetails(TLSbase):
     cld.destroy()
     return resl
 
-  #callback method, skipping the dirt adding
-  def on_butcanc_clicked(self, widget):
-    self.on_job_done()
-
   #callback method, generate the layers to create the dirt
-  def on_butgendrt_clicked(self, widget):
+  def on_butgen_clicked(self, widget):
+    self.deletedrawables()
+    self.regtype = self.landbuilder.region
+    
     self.bgl = self.makeunilayer("bgl", self.colordirt)
     self.bgl.name = "dirt"
     
@@ -1259,25 +1366,7 @@ class DirtDetails(TLSbase):
     pdb.plug_in_hsv_noise(self.img, self.bgl, 4, 11, 10, 22)
     pdb.plug_in_bump_map_tiled(self.img, self.bgl, self.bgl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
     
-    oknoise = True
-    while oknoise:
-      self.noisel = self.makedirtnoisel("dirtnoise", 16)
-      
-      #dialog checking that the user is satisfied with the result
-      infodi = gtk.Dialog(title="Checking dialod", parent=self)
-      ilabel = gtk.Label("Press OK if you are satisfied with the current mask.\nPress Cancel to generate a new mask for the dirt.")
-      infodi.vbox.add(ilabel)
-      ilabel.show()
-      infodi.add_button("Cancel", gtk.RESPONSE_CANCEL)
-      infodi.add_button("OK", gtk.RESPONSE_OK)
-      useransw = infodi.run()
-      
-      if (useransw == gtk.RESPONSE_OK):
-        oknoise = False
-      elif (useransw == gtk.RESPONSE_CANCEL):
-        pdb.gimp_image_remove_layer(self.img, self.noisel)
-
-      infodi.destroy()
+    self.noisel = self.makedirtnoisel("dirtnoise", 16)
     
     #applying some masks
     self.addmaskp(self.bgl, self.channelms, False, True)
@@ -1305,18 +1394,28 @@ class DirtDetails(TLSbase):
       dirtopa = 35
     
     pdb.gimp_layer_set_opacity(self.bgl, dirtopa)
+    pdb.gimp_displays_flush()
     
-    self.on_job_done()
+  #override callback for next/previous button
+  def on_setting_np(self, widget, pp):
+    if pp == TLSbase.PREVIOUS:
+      self.deletedrawables()
+    elif pp == TLSbase.NEXT:
+      pass
+      
+    TLSbase.on_setting_np(self, widget, pp)
 
 
 #class for building stuffs in ristrected selected areas. Intented to be used as an abstract class and providing common methods.
 class BuildAddition(TLSbase):
   #constructor
-  def __init__(self, image, tdraw, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
+  def __init__(self, image, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
     self.addingchannel = None
     self.textes = None #this should be instantiated in child classes
     self.smoothbeforecomb = True
+    
+    self.drawablechild = []
     
     self.smoothbase = 0
     self.smoothlist = ["None", "Small", "Medium", "Big"]
@@ -1325,9 +1424,7 @@ class BuildAddition(TLSbase):
     
     #No GUI here, it is buildt in the child classes as it may change from class to class. Only the button area is buildt here, which should be equal for all the children
     #button area
-    butcanc = gtk.Button("Cancel")
-    self.action_area.add(butcanc)
-    butcanc.connect("clicked", self.on_butcanc_clicked)
+    self.add_button_quit()
     
     butgenrnd = gtk.Button("Random")
     self.action_area.add(butgenrnd)
@@ -1387,14 +1484,18 @@ class BuildAddition(TLSbase):
     self.chbsc.connect("toggled", self.on_chsc_toggled)
     self.hbxsc.add(self.chbsc)
     
+  #empty method to clean layer during regeneration. It will be overrided by child classes
+  def cleandrawables(self):
+    raise NotImplementedError("Child class must implement cleandrawables method")
+  
   #empty method to draw stuffs. It will be overrided by child classes
   def drawadding(self):
-    raise NotImplementedError("Subclass must implement drawadding method")
+    raise NotImplementedError("Child class must implement drawadding method")
+    
+  #return drawable generated by instances of this class.
+  def getdrawablechild(self):
+    return self.drawablechild
   
-  #callback method, close everything
-  def on_butcanc_clicked(self, widget):
-    self.on_job_done()
-
   #callback method, set the smooth parameter
   def on_smooth_changed(self, widget):
     refmode = widget.get_model()
@@ -1406,6 +1507,7 @@ class BuildAddition(TLSbase):
 
   #callback method to generate random selection (mask profile)
   def on_butgenrdn_clicked(self, widget):
+    self.cleandrawables() #to be overrided
     baselayer = self.makeunilayer(self.textes["baseln"] + "base")
     newmp = MaskProfile(self.textes, self.img, baselayer, self.maskl, "Building " + self.textes["baseln"] + " mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     if self.smoothbeforecomb and self.smoothval > 0:
@@ -1414,18 +1516,20 @@ class BuildAddition(TLSbase):
     newmp.run()
     self.addingchannel = newmp.channelms
     
-    #hiding or deleting not needed stuffs
+    #hiding or removing not needed stuffs
     if newmp.chtype > 0:
       pdb.gimp_item_set_visible(newmp.bgl, False)
       pdb.gimp_item_set_visible(newmp.noisel, False)
       pdb.gimp_item_set_visible(newmp.clipl, False)
       pdb.gimp_item_set_visible(newmp.maskl, False)
+      self.drawablechild = [newmp.bgl, newmp.noisel, newmp.clipl, newmp.maskl, self.addingchannel]
       self.drawadding()
     else:
       pdb.gimp_image_remove_layer(self.img, newmp.bgl)
       
   #callback method to let the user to select the area by hand and generate the mask profile.
   def on_butgenhnp_clicked(self, widget):
+    self.cleandrawables() #to be overrided
     #dialog telling to select the area where to place the mountains
     infodi = gtk.Dialog(title="Info", parent=self)
     imess = "Select the area where you want to place the "+ self.textes["labelext"] + " with the lazo tool or another selection tool.\n"
@@ -1452,6 +1556,7 @@ class BuildAddition(TLSbase):
         if self.channelms is not None and ichb.get_active():
           pdb.gimp_channel_combine_masks(self.addingchannel, self.channelms, 3, 0, 0)
         infodi.destroy()
+        self.drawablechild = [self.addingchannel]
         self.drawadding()
       else:
         infodib = gtk.Dialog(title="Warning", parent=infodi)
@@ -1474,8 +1579,10 @@ class BuildAddition(TLSbase):
 #class to generate small area of a different land type than the main one
 class AdditionalDetBuild(BuildAddition):
   #constructor
-  def __init__(self, textes, image, tdraw, layermask, channelmask, colorlight, colordeep, *args):
-    mwin = BuildAddition.__init__(self, image, tdraw, layermask, channelmask, *args)
+  def __init__(self, textes, image, basel, layermask, channelmask, colorlight, colordeep, *args):
+    mwin = BuildAddition.__init__(self, image, layermask, channelmask, *args)
+
+    self.bgl = basel
     self.clight = colorlight
     self.cdeep = colordeep
     self.textes = textes
@@ -1495,7 +1602,11 @@ class AdditionalDetBuild(BuildAddition):
 
     self.show_all()
     return mwin
-    
+  
+  #override method, clean previous drawables for regeneration. Not needed by this class
+  def cleandrawables(self):
+    pass
+  
   #override method, drawing the area
   def drawadding(self):
     self.addingchannel.name = self.textes["baseln"] + "mask"
@@ -1504,8 +1615,7 @@ class AdditionalDetBuild(BuildAddition):
     self.bgl.name = self.textes["baseln"]
     
     self.cgradmap(self.bgl, self.cdeep, self.clight)
-    checkmask = pdb.gimp_layer_get_mask(self.bgl)
-    if checkmask is not None:
+    if pdb.gimp_layer_get_mask(self.bgl) is not None:
       pdb.gimp_layer_remove_mask(self.bgl, 1) #1 = MASK_DISCARD
 
     maskt = self.addmaskp(self.bgl, self.addingchannel)
@@ -1518,23 +1628,29 @@ class AdditionalDetBuild(BuildAddition):
 #class to generate the mountains
 class MountainsBuild(BuildAddition):
   #constructor
-  def __init__(self, image, tdraw, layermask, channelmask, regtype, *args):
-    mwin = BuildAddition.__init__(self, image, tdraw, layermask, channelmask, *args)
-    self.regtype = regtype
+  def __init__(self, image, layermask, channelmask, landbuilder, *args):
+    mwin = BuildAddition.__init__(self, image, layermask, channelmask, *args)
+    self.regtype = None
     self.mountainsangular = None
     self.cpvlayer = None
     self.embosslayer = None
+    self.noisemask = None
+    self.finalmaskl = None
+    self.mntcolorl = None
+    self.mntshadow = None
+    
     self.addsnow = True
     self.browncol = False
     self.addshadow = True
     
+    self.landbuilder = landbuilder
     self.colormountslow = (75, 62, 43)
     self.colormountshigh = (167, 143, 107)
     self.setsmoothbeforecomb(False) #mountains should always be smoothed later 
     
     self.textes = {"baseln" : "mountains", \
     "labelext" : "mountains", \
-    "namelist" : ["no mountains", "sparse", "mountain chain", "central mountain mass", "central valley", "customized"], \
+    "namelist" : ["no mountains", "sparse", "mountain border", "central mountain mass", "central valley", "customized"], \
     "toplab" : "In the final result: white represent where mountains are drawn.", \
     "topnestedlab" : "Position of the mountains masses in the image."}
     
@@ -1543,7 +1659,7 @@ class MountainsBuild(BuildAddition):
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxa)
     
-    laba = gtk.Label("Adding mountains to the map.")
+    laba = gtk.Label("Adding mountains to the map. If you do not want to draw mountains, just press Next.")
     hbxa.add(laba)
     
     #new row
@@ -1574,6 +1690,7 @@ class MountainsBuild(BuildAddition):
     hbxe.add(chbe)
     
     #button area inherited from parent class
+    self.add_button_nextprev()
 
     self.show_all()
     return mwin
@@ -1638,9 +1755,15 @@ class MountainsBuild(BuildAddition):
   #callback method, set the adding shadow variable
   def on_chbe_toggled(self, widget):
     self.addshadow = widget.get_active()
+  
+  #override method, clean previous drawables for regeneration.
+  def cleandrawables(self):
+    #here repeating self.addingchannel, because it may be reassigned after its reference is saved in the drawablechild list
+    self.deletedrawables(self.mountainsangular, self.cpvlayer, self.embosslayer, self.noisemask, self.finalmaskl, self.mntcolorl, self.mntshadow, self.addingchannel, *self.getdrawablechild())
     
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def drawadding(self):
+    self.regtype = self.landbuilder.region
     self.addingchannel.name = self.textes["baseln"] + "mask"
     
     #improving the mask
@@ -1650,13 +1773,13 @@ class MountainsBuild(BuildAddition):
     if chrot == gtk.RESPONSE_OK:
       rang = ctrlm.getanglerad()
       ctrlm.destroy()
-      noisemask = self.makerotatedlayer(True, rang, self.makenoisel, (self.textes["baseln"] + "basicnoise", 6, 2, NORMAL_MODE, True, True))
+      self.noisemask = self.makerotatedlayer(True, rang, self.makenoisel, (self.textes["baseln"] + "basicnoise", 6, 2, NORMAL_MODE, True, True))
       if self.smoothbeforecomb and self.smoothval > 0:
         masksmooth = 0
       else:
         masksmooth = self.smoothval
         
-      self.addingchannel = self.overdrawmask(noisemask, self.textes["baseln"], masksmooth, self.addingchannel, True, True)[1] #getting only the mask
+      self.finalmaskl, self.addingchannel = self.overdrawmask(self.noisemask, self.textes["baseln"], masksmooth, self.addingchannel, True, True) #[1] #getting only the mask
     elif chrot == gtk.RESPONSE_CANCEL:
       ctrlm.destroy()
     
@@ -1711,23 +1834,23 @@ class MountainsBuild(BuildAddition):
     
     #changing mountains color
     if self.browncol:
-      coloringl = cddb.reslayer.copy()
-      coloringl.name = self.textes["baseln"] + "colors"
-      self.img.add_layer(coloringl, 0)
-      self.cgradmap(coloringl, self.colormountshigh, self.colormountslow)
-      maskcol = self.addmaskp(coloringl, self.addingchannel)
+      self.mntcolorl = cddb.reslayer.copy()
+      self.mntcolorl.name = self.textes["baseln"] + "colors"
+      self.img.add_layer(self.mntcolorl, 0)
+      self.cgradmap(self.mntcolorl, self.colormountshigh, self.colormountslow)
+      maskcol = self.addmaskp(self.mntcolorl, self.addingchannel)
       if self.smoothval > 0:
         pdb.plug_in_gauss(self.img, maskcol, self.smoothval, self.smoothval, 0)
       else:
         pdb.plug_in_gauss(self.img, maskcol, self.smoothvallist[1], self.smoothvallist[1], 0) #here always setting a bit of smooth on the map
       
-      pdb.gimp_item_set_visible(coloringl, False)
+      pdb.gimp_item_set_visible(self.mntcolorl, False)
       
       if self.regtype == "grass" or self.regtype == "sand":
         monopa = 60
       elif self.regtype == "ice":
         monopa = 40
-      pdb.gimp_layer_set_opacity(coloringl, monopa)
+      pdb.gimp_layer_set_opacity(self.mntcolorl, monopa)
 
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
@@ -1747,6 +1870,8 @@ class MountainsBuild(BuildAddition):
     if self.addshadow:
       pdb.plug_in_colortoalpha(self.img, self.embosslayer, (128, 128, 128))
       pdb.script_fu_drop_shadow(self.img, self.embosslayer, 2, 2, 15, (0, 0, 0), 75, False)
+      self.mntshadow = [i for i in self.img.layers if i.name == "Drop Shadow"][0]
+      self.mntshadow.name = self.textes["baseln"] + "shadow"
     
     #hiding not needed layers
     pdb.gimp_item_set_visible(self.bgl, False)
@@ -1771,19 +1896,30 @@ class MountainsBuild(BuildAddition):
         pdb.gimp_image_raise_item(self.img, self.cpvlayer)
     
     if self.browncol:
-      pdb.gimp_item_set_visible(coloringl, True)
+      pdb.gimp_item_set_visible(self.mntcolorl, True)
 
-    self.on_job_done()
+    pdb.gimp_displays_flush()
+    
+  #override callback for next/previous button
+  def on_setting_np(self, widget, pp):
+    if pp == TLSbase.PREVIOUS:
+      self.cleandrawables()
+    elif pp == TLSbase.NEXT:
+      pass
+      
+    TLSbase.on_setting_np(self, widget, pp)
 
 
 #class to generate the forests
 class ForestBuild(BuildAddition):
   #constructor
-  def __init__(self, image, tdraw, layermask, channelmask, *args):
-    mwin = BuildAddition.__init__(self, image, tdraw, layermask, channelmask, *args)
+  def __init__(self, image, layermask, channelmask, *args):
+    mwin = BuildAddition.__init__(self, image, layermask, channelmask, *args)
     self.shapelayer = None
     self.bumplayer = None
-   
+    self.forestshadow = None
+    self.colorlayers = []
+    
     self.browncol = {"tcbrown" : (75, 66, 47)}
     self.greencol = {"tcgreen" : (59, 88, 14)}
     self.yellowcol = {"tcyellow" : (134, 159, 48)}
@@ -1799,19 +1935,28 @@ class ForestBuild(BuildAddition):
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxa)
     
-    laba = gtk.Label("Adding forests to the map.")
+    laba = gtk.Label("Adding forests to the map. If you do not want to draw forests, just press Next.")
     hbxa.add(laba)
+    
+    #button area inherited from parent class
+    self.add_button_nextprev()
     
     self.show_all()
     return mwin
     
   #method to add a masked layer color
-  def addlayercol(self, fc):
+  def addforestcol(self, fc):
     lab = fc.keys()[0]
-    resl = self.makeunilayer(self.textes["baseln"] + fc.keys()[0], fc[lab])
+    resl = self.makeunilayer(self.textes["baseln"] + lab, fc[lab])
     self.addmaskp(resl, self.addingchannel)
     pdb.gimp_layer_set_mode(resl, SOFTLIGHT_MODE)
+    return resl
     
+  #override method, clean previous drawables for regeneration.
+  def cleandrawables(self):
+    fuldr = self.colorlayers + self.getdrawablechild()
+    self.deletedrawables(self.shapelayer, self.bumplayer, self.forestshadow, *fuldr)
+  
   #override method, drawing the forest in the selection (when the method is called, a selection channel for the forest should be already present)
   def drawadding(self):
     self.addingchannel.name = self.textes["baseln"] + "mask"
@@ -1827,22 +1972,32 @@ class ForestBuild(BuildAddition):
     pdb.plug_in_bump_map_tiled(self.img, self.bumplayer, self.shapelayer, 135, 30, 8, 0, 0, 0, 0, True, False, 2) #2 (last) = sinusoidal
     
     pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
-    pdb.script_fu_drop_shadow(self.img, self.bumplayer, 2, 2, 15, (0, 0, 0), 75, False)      
+    pdb.script_fu_drop_shadow(self.img, self.bumplayer, 2, 2, 15, (0, 0, 0), 75, False)
+    self.forestshadow = [i for i in self.img.layers if i.name == "Drop Shadow"][0]
+    self.forestshadow.name = self.textes["baseln"] + "shadow"
     pdb.gimp_selection_none(self.img)
     
     #adding colors
-    self.addlayercol(self.browncol)
-    self.addlayercol(self.greencol)
-    self.addlayercol(self.yellowcol)
+    self.colorlayers.append(self.addforestcol(self.browncol))
+    self.colorlayers.append(self.addforestcol(self.greencol))
+    self.colorlayers.append(self.addforestcol(self.yellowcol))
     
-    self.on_job_done()
+    pdb.gimp_displays_flush()
 
+  #override callback for next/previous button
+  def on_setting_np(self, widget, pp):
+    if pp == TLSbase.PREVIOUS:
+      self.cleandrawables()
+    elif pp == TLSbase.NEXT:
+      pass
+      
+    TLSbase.on_setting_np(self, widget, pp)
 
 #class to drawing the rivers
 class RiversBuild(TLSbase):
   #constructor
-  def __init__(self, image, tdraw, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
+  def __init__(self, image, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
     
     self.riversmask = None
     self.bumpsmap = None
@@ -1851,45 +2006,23 @@ class RiversBuild(TLSbase):
     self.defsize = 0.01 * (self.img.width + self.img.height)
     
     #new row
-    labtxt = "Click \"Draw Rivers\" to add rivers to the map.\nClick Delete rivers to delete drawn rivers to cancel or repeat the process.\n"
-    labtxt += "Rivers can not be added randomly, you must draw them.\nThe script will instruct you when you have to do it.\nClick \"Close\" to close the dialog." 
+    labtxt = "Adding rivers to the map. If you do not want to draw rivers, just press Next.\n"
+    labtxt += "Rivers can not be added randomly, you must draw them.\nThe script will instruct you when you have to do it." 
     laba = gtk.Label(labtxt)
     self.vbox.add(laba)
     
     #action area
-    butdel = gtk.Button("Delete rivers")
-    self.action_area.add(butdel)
-    butdel.connect("clicked", self.on_delete_clicked)
-    
-    butdraw = gtk.Button("Draw Rivers")
-    self.action_area.add(butdraw)
-    butdraw.connect("clicked", self.on_draw_clicked)
-
-    butconf = gtk.Button("Close")
-    self.action_area.add(butconf)
-    butconf.connect("clicked", self.closerivers)
+    self.add_button_quit()
+    self.add_button_generate("Draw Rivers")
+    self.add_button_nextprev()
     
     self.show_all()
     return mwin
-    
-  #callback method, skip rivers step
-  def closerivers(self, widget):
-    self.on_job_done()
-    
-  #callback method, delete rivers layers
-  def on_delete_clicked(self, widget):
-    if self.bevels is not None:
-      pdb.gimp_image_remove_layer(self.img, self.bevels)
-      self.bevels = None
-    if self.bumpsmap is not None:
-      pdb.gimp_image_remove_layer(self.img, self.bumpsmap)
-      self.bumpsmap = None
-    if self.bgl is not None:
-      pdb.gimp_image_remove_layer(self.img, self.bgl)
-      self.bgl = None
       
-  #callback method, do rivers step
-  def on_draw_clicked(self, widget):
+  #override callback method, do rivers step
+  def on_butgen_clicked(self, widget):
+    self.deletedrawables(self.bevels, self.bumpsmap)
+    
     #creating the color layer and applying masks
     self.bgl = self.makeunilayer("rivers", self.watercol)
     self.addmaskp(self.bgl, self.channelms, False, True)
@@ -1947,25 +2080,27 @@ class RiversBuild(TLSbase):
 
     pdb.gimp_displays_flush()
 
+  #override callback for next/previous button
+  def on_setting_np(self, widget, pp):
+    if pp == TLSbase.PREVIOUS:
+      self.deletedrawables(self.bevels, self.bumpsmap)
+    elif pp == TLSbase.NEXT:
+      pass
+      
+    TLSbase.on_setting_np(self, widget, pp)
 
 #class to add symbols (towns, capital towns, and so on)
 class SymbolsBuild(TLSbase):
   #constructor
-  def __init__(self, image, tdraw, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, tdraw, None, layermask, channelmask, *args)
+  def __init__(self, image, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
+
+    self.symbols = None
 
     self.basepath = os.path.dirname(os.path.abspath(__file__)) + "/make_landmap_brushes/"
     self.defsize = 0.025 * (self.img.width + self.img.height)
     self.bgcol = (223, 223, 83)
     self.brushnames = ["Town", "Capital", "Port", "Wallfort"]
-    
-    self.bgl = self.makeunilayer("symbols outline")
-    pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
-    
-    self.symbols = self.makeunilayer("symbols")
-    pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
-    
-    pdb.gimp_displays_flush()
 
     #Designing the interface
     #new row
@@ -1995,7 +2130,9 @@ class SymbolsBuild(TLSbase):
     hbxb.add(butfort)
 
     #action area
-    butcanc = gtk.Button("Cancel")
+    self.add_button_quit()
+    
+    butcanc = gtk.Button("Cancel Symbols")
     self.action_area.add(butcanc)
     butcanc.connect("clicked", self.on_cancel_clicked)
     
@@ -2003,9 +2140,7 @@ class SymbolsBuild(TLSbase):
     self.action_area.add(butrand)
     butrand.connect("clicked", self.on_random_clicked)
     
-    butfix = gtk.Button("Fix Symbols")
-    self.action_area.add(butfix)
-    butfix.connect("clicked", self.on_fix_clicked)
+    self.add_button_nextprev()
   
     self.show_all()
     return mwin
@@ -2060,6 +2195,18 @@ class SymbolsBuild(TLSbase):
 
     return butres
 
+  #overriding parent class method to prepare the symbols drawing 
+  def setbeforerun(self):
+    self.deletedrawables(self.symbols)
+    
+    self.bgl = self.makeunilayer("symbols outline")
+    pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
+    
+    self.symbols = self.makeunilayer("symbols")
+    pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
+    
+    pdb.gimp_displays_flush()
+
   #callback method to select the proper brush
   def on_brush_chosen(self, widget, brushstr):
     pdb.gimp_plugin_set_pdb_error_handler(1)
@@ -2096,23 +2243,26 @@ class SymbolsBuild(TLSbase):
 
   #callback method, cancel symbols and close step
   def on_cancel_clicked(self, widget):
-    if self.bgl is not None:
-      pdb.gimp_image_remove_layer(self.img, self.bgl)
-    if self.symbols is not None:
-      pdb.gimp_image_remove_layer(self.img, self.symbols)
-
-    self.on_job_done()
+    self.setbeforerun()
     
   #callback method, fix symbols, add finishing touches and close
-  def on_fix_clicked(self, widget):
+  def on_next_clicked(self):    
     pdb.gimp_image_select_item(self.img, 2, self.symbols) #2 = replace selection, this select everything in the layer which is not transparent
     pdb.gimp_selection_grow(self.img, 2)
     pdb.gimp_selection_feather(self.img, 5)
     colfillayer(self.img, self.bgl, self.bgcol)
     pdb.gimp_selection_none(self.img)
     
-    self.on_job_done()
-
+    pdb.gimp_displays_flush()
+    
+  #override callback for next/previous button
+  def on_setting_np(self, widget, pp):
+    if pp == TLSbase.PREVIOUS:
+      self.deletedrawables(self.symbols)
+    elif pp == TLSbase.NEXT:
+      self.on_next_clicked()
+      
+    TLSbase.on_setting_np(self, widget, pp)
 
 #class for the customized GUI
 class MainApp(gtk.Window):
@@ -2151,53 +2301,73 @@ class MainApp(gtk.Window):
   def on_butgenmap_clicked(self, widget):
     pdb.gimp_context_set_foreground((0, 0, 0)) #set foreground color to black
     pdb.gimp_context_set_background((255, 255, 255)) #set background to white
-
+    
     landtextes = {"baseln" : "land", \
     "labelext" : "land", \
     "namelist" : ["no water", "archipelago/lakes", "simple coastline", "island", "big lake", "customized"], \
     "toplab" : "In the final result: white represent land and black represent water.", \
     "topnestedlab" : "Position of the landmass in the image."}
     
-    land = MaskProfile(landtextes, self.img, self.drawab, None, "Building land mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    land.run()
-    layermask = land.maskl
-    channelmask = land.channelms
+    self.land = MaskProfile(landtextes, self.img, self.drawab, None, "Building land mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    self.land.run()
+    
+    layermask = self.land.maskl
+    channelmask = self.land.channelms
     if channelmask is not None:
       channelmask.name = landtextes["baseln"] + "mask"
-    
-    landbg = self.drawab
-    if (land.chtype > 0):
-      #create a copy of the landmass to use as base layer for the watermass
-      waterbg = land.maskl.copy()
-      waterbg.name = "seashape"
-      self.img.add_layer(waterbg, 0)
-            
-      water = WaterProfile(self.img, waterbg, layermask, channelmask, "Building water mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-      water.run()
 
-      #create a copy of the landmass to use as base layer for the landmass decoration      
-      landbg = water.bgl.copy()
-      self.img.add_layer(landbg, 0)
+    self.landdet = BaseDetails(self.img, layermask, channelmask, "Building land details", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    self.landdet.hide()
+      
+    if self.land.chtype > 0:
+      self.water = WaterProfile(self.img, layermask, channelmask, "Building water mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+      self.water.hide()
+      self.landdet.refbg = self.water
+      firstbuilder = self.water
+    else:
+      self.landdet.refbg = self.drawab
+      firstbuilder = self.landdet
+    
+    self.dirtd = DirtDetails(self.img, layermask, channelmask, self.landdet, "Building dirt", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    self.dirtd.hide()
+    
+    self.mount = MountainsBuild(self.img, layermask, channelmask, self.landdet, "Building mountains", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    self.mount.hide()
+    
+    self.forest = ForestBuild(self.img, layermask, channelmask, "Building forests", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    self.forest.hide()
+    
+    self.rivers = RiversBuild(self.img, layermask, channelmask, "Building rivers", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    self.rivers.hide()
 
-    landbg.name = "base"
-    landdet = BaseDetails(self.img, landbg, layermask, channelmask, "Building land details", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    landdet.run()
-    
-    dirtd = DirtDetails(self.img, None, layermask, channelmask, landdet.region, "Building dirt", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    dirtd.run()
-    
-    mount = MountainsBuild(self.img, None, layermask, channelmask, landdet.region, "Building mountains", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    mount.run()
-    
-    forest = ForestBuild(self.img, None, layermask, channelmask, "Building forests", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    forest.run()
-    
-    rivers = RiversBuild(self.img, None, layermask, channelmask, "Building rivers", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    rivers.run()
+    self.symbols = SymbolsBuild(self.img, layermask, channelmask, "Adding symbols", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    self.symbols.hide()
 
-    symbols = SymbolsBuild(self.img, None, layermask, channelmask, "Adding symbols", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    symbols.run()
+    #setting stuffs
+    if self.land.chtype > 0:
+      self.water.setreferences(None, self.landdet)
+      self.landdet.setreferences(self.water, self.dirtd)
+    else:
+      self.landdet.setreferences(None, self.dirtd)
+    self.dirtd.setreferences(self.landdet, self.mount)
+    self.mount.setreferences(self.dirtd, self.forest)
+    self.forest.setreferences(self.mount, self.rivers)
+    self.rivers.setreferences(self.forest, self.symbols)
+    self.symbols.setreferences(self.rivers, None)
     
+    self.buildingmap(firstbuilder)
+    
+  #method calling the object builder, listening to the response, and recursively calling itself
+  def buildingmap(self, builder):
+    builder.setbeforerun()
+    builder.run()
+    proxb = builder.chosen
+    if proxb is not None:
+      self.buildingmap(proxb)
+    else:
+      print "proxb is None!"
+      sys.stdout.flush()
+  
   #callback method to use current image as map
   def on_butusemap_clicked(self, widget):
     pass
