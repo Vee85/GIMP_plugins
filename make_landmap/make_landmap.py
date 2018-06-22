@@ -29,7 +29,6 @@
 
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
-#@@@ add way to delete the full step, deleting all layers created by the object and start again. Or going back to previous step.
 
 import sys
 import os
