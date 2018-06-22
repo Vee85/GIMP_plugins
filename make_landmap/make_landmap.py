@@ -497,7 +497,7 @@ class TLSbase(gtk.Dialog):
   NEXT = 1
   
   #constructor
-  def __init__(self, image, basemask, layermask, channelmask, *args):
+  def __init__(self, image, basemask, layermask, channelmask, mandst, *args):
     mwin = gtk.Dialog.__init__(self, *args)
     self.set_border_width(10)
     
@@ -505,6 +505,7 @@ class TLSbase(gtk.Dialog):
     self.connect("destroy", gtk.main_quit)
     
     #internal argument for navigation (these are other TLSbase child)
+    self.mandatorystep = mandst #this should be set during object instance creation
     self.prevd = None
     self.nextd = None
     self.chosen = None
@@ -521,7 +522,7 @@ class TLSbase(gtk.Dialog):
     self.channelms = channelmask
     self.thrc = 0 #will be selected later
     self.smoothprofile = 0
-    self.genonce = False
+    self.generated = not self.mandatorystep
     
     #nothing in the dialog: labels and buttons are created in the child classes
     
@@ -532,6 +533,28 @@ class TLSbase(gtk.Dialog):
     self.prevd = p
     self.nextd = n
     
+    #safety tests to avoid errors in case self.butprev/self.butnext have not been created by calling the add_button_nextprev method
+    try:
+      if self.prevd is None:
+        self.butprev.set_sensitive(False)
+    except AttributeError:
+      pass
+    
+    try:
+      if self.mandatorystep:
+        self.butnext.set_sensitive(False)
+    except AttributeError:
+      pass
+  
+  #method, setting internal variable 'generated'
+  def setgenerated(self, b):
+    self.generated = b
+    if self.mandatorystep:
+      try:
+        self.butnext.set_sensitive(self.generated)
+      except AttributeError:
+        pass
+        
   #method to close the dialog at the end
   def on_job_done(self):
     pdb.gimp_displays_flush()
@@ -542,17 +565,37 @@ class TLSbase(gtk.Dialog):
     self.chosen = None
     self.on_job_done()
 
-  #callback method
+  #callback method acting on the generate button
   def on_butgen_clicked(self, widget):
+    if self.generated:
+      self.cleandrawables()
+    self.generatestep()
+    self.setgenerated(True)
+    
+  #method, generate the stuffs. To be overridden by child classes
+  def generatestep(self):
     raise NotImplementedError("child class must implement on_butgen_clicked method")
   
   #callback method, set the next or previous instance which will be called by another method
   def on_setting_np(self, widget, pp):
+    close = True
     if pp == TLSbase.PREVIOUS:
+      self.cleandrawables()
+      self.setgenerated(False)
       self.chosen = self.prevd
     elif pp == TLSbase.NEXT:
-      self.chosen = self.nextd
-    self.on_job_done()
+      if self.mandatorystep and not self.generated:
+        close = False
+        self.chosen = None
+      else:
+        self.chosen = self.nextd
+
+    if close:
+      self.on_job_done()
+  
+  #empty method to clean layer during regeneration. It will be overrided by child classes
+  def cleandrawables(self):
+    raise NotImplementedError("Child class must implement cleandrawables method")
     
   #method, adding the cancel button to the button area 
   def add_button_quit(self):
@@ -830,7 +873,7 @@ class TLSbase(gtk.Dialog):
 class MaskProfile(TLSbase):  
   #constructor
   def __init__(self, textes, image, tdraw, basemask, *args):
-    mwin = TLSbase.__init__(self, image, basemask, None, None, *args)
+    mwin = TLSbase.__init__(self, image, basemask, None, None, True, *args)
     
     self.bgl = tdraw
     
@@ -880,9 +923,9 @@ class MaskProfile(TLSbase):
     #button area
     self.add_button_generate("Generate profile")
      
-    butnext = gtk.Button("Next step")
-    self.action_area.add(butnext)
-    butnext.connect("clicked", self.on_butnext_clicked)
+    butn = gtk.Button("Next")
+    self.action_area.add(butn)
+    butn.connect("clicked", self.on_butnext_clicked)
     
     self.show_all()
     return mwin
@@ -944,7 +987,7 @@ class MaskProfile(TLSbase):
   
   #callback method, regenerate the land profile
   def on_butnext_clicked(self, widget):
-    if not self.genonce:
+    if not self.generated:
       if (self.chtype == 0):
         self.on_job_done()
       else:
@@ -960,18 +1003,20 @@ class MaskProfile(TLSbase):
     else:
       self.on_job_done()
   
-  #callback method, generate the profile
-  def on_butgen_clicked(self, widget):
-    #removing previous layers if we are regenerating
-    if (self.genonce):
-      self.deletedrawables(self.maskl, self.channelms)
+  #override cleaning method
+  def cleandrawables(self):
+    self.deletedrawables(self.maskl, self.channelms)
+  
+  #override method, generate the profile
+  def generatestep(self):
+    if self.generated:
       self.bgl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.textes["baseln"] + "bg", 100, 0) #0 = normal mode
       self.img.add_layer(self.bgl, 0)
       colfillayer(self.img, self.bgl, (255, 255, 255)) #make layer full white
       
     #Using the TSL tecnnique: shape layer
     if (self.chtype == 0): #skip everything
-      self.genonce = True
+      pass
     else:
       nn = False
       if (self.chtype == 1): #to generate multi-random area
@@ -1028,7 +1073,6 @@ class MaskProfile(TLSbase):
       cmm = "The lower the selected value, the wider the affected area."
       self.clipl = self.makeclipl(self.textes["baseln"] + "clip", cmm)
       self.makeprofilel(self.textes["baseln"] + "layer")
-      self.genonce = True
       
       pdb.gimp_displays_flush()
 
@@ -1037,7 +1081,7 @@ class MaskProfile(TLSbase):
 class WaterProfile(TLSbase):
   #constructor
   def __init__(self, image, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, True, *args)
     self.seal = None
     self.shorel = None
 
@@ -1100,10 +1144,12 @@ class WaterProfile(TLSbase):
   def on_chb_toggled(self, widget):
     self.addshore = widget.get_active()
   
-  #callback method, generate water profile
-  def on_butgen_clicked(self, widget):
-    self.deletedrawables(self.seal, self.shorel)
-
+  #override cleaning method
+  def cleandrawables(self):
+    self.deletedrawables(self.seal, self.shorel)    
+  
+  #override method, generate water profile
+  def generatestep(self):
     #getting bgl as copy of land mask
     self.copybgl(self.maskl, "seashape")
 
@@ -1142,23 +1188,14 @@ class WaterProfile(TLSbase):
       
       pdb.plug_in_gauss(self.img, maskshore, pxpar, pxpar, 0)
     
-    self.genonce = True
     pdb.gimp_displays_flush()
-    
-  #override callback for next/previous button
-  def on_setting_np(self, widget, pp):
-    if pp == TLSbase.PREVIOUS:
-      return
-    elif pp == TLSbase.NEXT:
-      if self.genonce:
-        TLSbase.on_setting_np(self, widget, pp)
 
 
 #class to generate the base land (color and mask of the terrain)
 class BaseDetails(TLSbase):
   #constructor
   def __init__(self, image, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, True, *args)
     self.bumpmapl = None
     self.basebumpsl = None
     self.refbg = None
@@ -1214,15 +1251,16 @@ class BaseDetails(TLSbase):
   def on_region_changed(self, widget):
     refmode = widget.get_model()
     self.region = refmode.get_value(widget.get_active_iter(), 1)
-    
-  #callback method, generate land details
-  def on_butgen_clicked(self, widget):
-    #deleting stuffs if we are regenerating
+  
+  #override cleaning method
+  def cleandrawables(self):
     self.deletedrawables(self.bumpmapl, self.basebumpsl)
     for el in self.smallareas:
       el.deletedrawables(*el.getdrawablechild())
     del self.smallareas[:]
     
+  #override method, generate land details
+  def generatestep(self):    
     #getting bgl as copy of water bgl (we have a WaterProfile instance) or the first background layer
     if isinstance(self.refbg, WaterProfile):
       self.copybgl(self.refbg.bgl, "base")
@@ -1279,30 +1317,14 @@ class BaseDetails(TLSbase):
     pdb.plug_in_bump_map_tiled(self.img, self.basebumpsl, self.bumpmapl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
     self.addmaskp(self.basebumpsl)
 
-    self.genonce = True
     pdb.gimp_displays_flush()
-
-  #override callback for next/previous button
-  def on_setting_np(self, widget, pp):
-    close = True
-    if pp == TLSbase.PREVIOUS:
-      self.deletedrawables(self.bumpmapl, self.basebumpsl)
-      for el in self.smallareas:
-        el.deletedrawables(*el.getdrawablechild())
-      del self.smallareas[:]
-      
-    elif pp == TLSbase.NEXT:
-      if not self.genonce:
-        close = False
     
-    if close:
-      TLSbase.on_setting_np(self, widget, pp)
 
 #class to generate the dirt on the terrain
 class DirtDetails(TLSbase):
   #constructor
   def __init__(self, image, layermask, channelmask, landbuilder, *args):
-    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, False, *args)
     self.smp = 50
     self.regtype = None
     self.landbuilder = landbuilder
@@ -1353,9 +1375,12 @@ class DirtDetails(TLSbase):
     cld.destroy()
     return resl
 
-  #callback method, generate the layers to create the dirt
-  def on_butgen_clicked(self, widget):
+  #override callback method
+  def cleandrawables(self):
     self.deletedrawables()
+
+  #override method, generate the layers to create the dirt
+  def generatestep(self):
     self.regtype = self.landbuilder.region
     
     self.bgl = self.makeunilayer("bgl", self.colordirt)
@@ -1395,21 +1420,12 @@ class DirtDetails(TLSbase):
     pdb.gimp_layer_set_opacity(self.bgl, dirtopa)
     pdb.gimp_displays_flush()
     
-  #override callback for next/previous button
-  def on_setting_np(self, widget, pp):
-    if pp == TLSbase.PREVIOUS:
-      self.deletedrawables()
-    elif pp == TLSbase.NEXT:
-      pass
-      
-    TLSbase.on_setting_np(self, widget, pp)
-
 
 #class for building stuffs in ristrected selected areas. Intented to be used as an abstract class and providing common methods.
 class BuildAddition(TLSbase):
   #constructor
   def __init__(self, image, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, False, *args)
     self.addingchannel = None
     self.textes = None #this should be instantiated in child classes
     self.smoothbeforecomb = True
@@ -1483,14 +1499,6 @@ class BuildAddition(TLSbase):
     self.chbsc.connect("toggled", self.on_chsc_toggled)
     self.hbxsc.add(self.chbsc)
     
-  #empty method to clean layer during regeneration. It will be overrided by child classes
-  def cleandrawables(self):
-    raise NotImplementedError("Child class must implement cleandrawables method")
-  
-  #empty method to draw stuffs. It will be overrided by child classes
-  def drawadding(self):
-    raise NotImplementedError("Child class must implement drawadding method")
-    
   #return drawable generated by instances of this class.
   def getdrawablechild(self):
     return self.drawablechild
@@ -1506,7 +1514,7 @@ class BuildAddition(TLSbase):
 
   #callback method to generate random selection (mask profile)
   def on_butgenrdn_clicked(self, widget):
-    self.cleandrawables() #to be overrided
+    self.cleandrawables()
     baselayer = self.makeunilayer(self.textes["baseln"] + "base")
     newmp = MaskProfile(self.textes, self.img, baselayer, self.maskl, "Building " + self.textes["baseln"] + " mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     if self.smoothbeforecomb and self.smoothval > 0:
@@ -1522,13 +1530,13 @@ class BuildAddition(TLSbase):
       pdb.gimp_item_set_visible(newmp.clipl, False)
       pdb.gimp_item_set_visible(newmp.maskl, False)
       self.drawablechild = [newmp.bgl, newmp.noisel, newmp.clipl, newmp.maskl, self.addingchannel]
-      self.drawadding()
+      self.generatestep()
     else:
       pdb.gimp_image_remove_layer(self.img, newmp.bgl)
       
   #callback method to let the user to select the area by hand and generate the mask profile.
   def on_butgenhnp_clicked(self, widget):
-    self.cleandrawables() #to be overrided
+    self.cleandrawables()
     #dialog telling to select the area where to place the mountains
     infodi = gtk.Dialog(title="Info", parent=self)
     imess = "Select the area where you want to place the "+ self.textes["labelext"] + " with the lazo tool or another selection tool.\n"
@@ -1556,7 +1564,7 @@ class BuildAddition(TLSbase):
           pdb.gimp_channel_combine_masks(self.addingchannel, self.channelms, 3, 0, 0)
         infodi.destroy()
         self.drawablechild = [self.addingchannel]
-        self.drawadding()
+        self.generatestep()
       else:
         infodib = gtk.Dialog(title="Warning", parent=infodi)
         ilabelb = gtk.Label("You have to create a selection!")
@@ -1602,12 +1610,12 @@ class AdditionalDetBuild(BuildAddition):
     self.show_all()
     return mwin
   
-  #override method, clean previous drawables for regeneration. Not needed by this class
+  #override method, clean previous drawables for regeneration. Not needed by this class as this process is done by BaseDetails
   def cleandrawables(self):
     pass
   
   #override method, drawing the area
-  def drawadding(self):
+  def generatestep(self):
     self.addingchannel.name = self.textes["baseln"] + "mask"
     self.bgl = self.bgl.copy()
     self.img.add_layer(self.bgl, 0)
@@ -1761,7 +1769,7 @@ class MountainsBuild(BuildAddition):
     self.deletedrawables(self.mountainsangular, self.cpvlayer, self.embosslayer, self.noisemask, self.finalmaskl, self.mntcolorl, self.mntshadow, self.addingchannel, *self.getdrawablechild())
     
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
-  def drawadding(self):
+  def generatestep(self):
     self.regtype = self.landbuilder.region
     self.addingchannel.name = self.textes["baseln"] + "mask"
     
@@ -1898,15 +1906,6 @@ class MountainsBuild(BuildAddition):
       pdb.gimp_item_set_visible(self.mntcolorl, True)
 
     pdb.gimp_displays_flush()
-    
-  #override callback for next/previous button
-  def on_setting_np(self, widget, pp):
-    if pp == TLSbase.PREVIOUS:
-      self.cleandrawables()
-    elif pp == TLSbase.NEXT:
-      pass
-      
-    TLSbase.on_setting_np(self, widget, pp)
 
 
 #class to generate the forests
@@ -1957,7 +1956,7 @@ class ForestBuild(BuildAddition):
     self.deletedrawables(self.shapelayer, self.bumplayer, self.forestshadow, *fuldr)
   
   #override method, drawing the forest in the selection (when the method is called, a selection channel for the forest should be already present)
-  def drawadding(self):
+  def generatestep(self):
     self.addingchannel.name = self.textes["baseln"] + "mask"
     
     #creating noise base for the trees, this will be used to create a detailed mask for the trees
@@ -1983,20 +1982,12 @@ class ForestBuild(BuildAddition):
     
     pdb.gimp_displays_flush()
 
-  #override callback for next/previous button
-  def on_setting_np(self, widget, pp):
-    if pp == TLSbase.PREVIOUS:
-      self.cleandrawables()
-    elif pp == TLSbase.NEXT:
-      pass
-      
-    TLSbase.on_setting_np(self, widget, pp)
 
 #class to drawing the rivers
 class RiversBuild(TLSbase):
   #constructor
   def __init__(self, image, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, False, *args)
     
     self.riversmask = None
     self.bumpsmap = None
@@ -2017,11 +2008,13 @@ class RiversBuild(TLSbase):
     
     self.show_all()
     return mwin
-      
-  #override callback method, do rivers step
-  def on_butgen_clicked(self, widget):
+    
+  #override cleaning method
+  def cleandrawables(self):
     self.deletedrawables(self.bevels, self.bumpsmap)
     
+  #override method, do rivers step
+  def generatestep(self):    
     #creating the color layer and applying masks
     self.bgl = self.makeunilayer("rivers", self.watercol)
     self.addmaskp(self.bgl, self.channelms, False, True)
@@ -2079,20 +2072,12 @@ class RiversBuild(TLSbase):
 
     pdb.gimp_displays_flush()
 
-  #override callback for next/previous button
-  def on_setting_np(self, widget, pp):
-    if pp == TLSbase.PREVIOUS:
-      self.deletedrawables(self.bevels, self.bumpsmap)
-    elif pp == TLSbase.NEXT:
-      pass
-      
-    TLSbase.on_setting_np(self, widget, pp)
 
 #class to add symbols (towns, capital towns, and so on)
 class SymbolsBuild(TLSbase):
   #constructor
   def __init__(self, image, layermask, channelmask, *args):
-    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, *args)
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, False, *args)
 
     self.symbols = None
 
@@ -2100,6 +2085,8 @@ class SymbolsBuild(TLSbase):
     self.defsize = 0.025 * (self.img.width + self.img.height)
     self.bgcol = (223, 223, 83)
     self.brushnames = ["Town", "Capital", "Port", "Wallfort"]
+    self.prevbrush = None
+    self.prevbrushsize = None
 
     #Designing the interface
     #new row
@@ -2194,10 +2181,12 @@ class SymbolsBuild(TLSbase):
 
     return butres
 
-  #overriding parent class method to prepare the symbols drawing 
-  def setbeforerun(self):
+  #override cleaning method
+  def cleandrawables(self):
     self.deletedrawables(self.symbols)
-    
+
+  #override method to prepare the symbols drawing 
+  def setbeforerun(self):    
     self.bgl = self.makeunilayer("symbols outline")
     pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
     
@@ -2209,6 +2198,11 @@ class SymbolsBuild(TLSbase):
   #callback method to select the proper brush
   def on_brush_chosen(self, widget, brushstr):
     pdb.gimp_plugin_set_pdb_error_handler(1)
+    if self.prevbrush is None:
+      self.prevbrush = pdb.gimp_context_get_brush()
+    if self.prevbrushsize is None:
+      self.prevbrushsize = pdb.gimp_context_get_brush_size()
+    
     try:
       pdb.gimp_context_set_brush('make_landmap brush ' + brushstr)
     except RuntimeError, errtxt:
@@ -2251,14 +2245,14 @@ class SymbolsBuild(TLSbase):
     pdb.gimp_selection_feather(self.img, 5)
     colfillayer(self.img, self.bgl, self.bgcol)
     pdb.gimp_selection_none(self.img)
+    pdb.gimp_context_set_brush(self.prevbrush)
+    pdb.gimp_context_set_brush_size(self.prevbrushsize)
     
     pdb.gimp_displays_flush()
     
-  #override callback for next/previous button
+  #override callback for next/previous button, in order to add a call to on_next_clicked
   def on_setting_np(self, widget, pp):
-    if pp == TLSbase.PREVIOUS:
-      self.deletedrawables(self.symbols)
-    elif pp == TLSbase.NEXT:
+    if pp == TLSbase.NEXT:
       self.on_next_clicked()
       
     TLSbase.on_setting_np(self, widget, pp)
