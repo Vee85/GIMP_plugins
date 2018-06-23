@@ -572,7 +572,7 @@ class TLSbase(gtk.Dialog):
     self.generatestep()
     self.setgenerated(True)
     
-  #method, generate the stuffs. To be overridden by child classes
+  #method, generate the stuffs. To be overrided by child classes
   def generatestep(self):
     raise NotImplementedError("child class must implement on_butgen_clicked method")
   
@@ -625,7 +625,7 @@ class TLSbase(gtk.Dialog):
     self.bgl.name = blname
     self.img.add_layer(self.bgl, 0)
     
-  #method to set some stuffs before a run() call. To be overridden by the child classes if needed, but not mandatory
+  #method to set some stuffs before a run() call. To be overrided by the child classes if needed, but not mandatory
   def setbeforerun(self):
     pass
   
@@ -2084,7 +2084,7 @@ class SymbolsBuild(TLSbase):
     self.basepath = os.path.dirname(os.path.abspath(__file__)) + "/make_landmap_brushes/"
     self.defsize = 0.025 * (self.img.width + self.img.height)
     self.bgcol = (223, 223, 83)
-    self.brushnames = ["Town", "Capital", "Port", "Wallfort"]
+    self.brushnames = ["Town", "Capital", "Port", "Wallfort", "Ruin"]
     self.prevbrush = None
     self.prevbrushsize = None
 
@@ -2114,6 +2114,9 @@ class SymbolsBuild(TLSbase):
     
     butfort = self.addbuttonimage(self.brushnames[3], self. basepath + "brushwallfort.png")
     hbxb.add(butfort)
+    
+    butruin = self.addbuttonimage(self.brushnames[4], self. basepath + "brushruin.png")
+    hbxb.add(butruin)
 
     #action area
     self.add_button_quit()

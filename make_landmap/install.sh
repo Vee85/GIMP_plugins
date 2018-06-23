@@ -27,7 +27,7 @@ mainfolder="make_landmap_brushes"
 
 echo "$mainscript installation script, working on linux systems.\n"
 echo "This script copies the main script and the other relevant files in the GIMP user directories."
-echo "It assumes that your GIMP user directory is in your home directory."
+echo "It assumes that your GIMP user directory is in your home."
 
 #looking for GIMP version
 gimpv=`gimp --version` 
@@ -41,8 +41,14 @@ echo "Your GIMP user folder is: $instdir"
 echo "Copying $mainscript..."
 cp $mainscript $instdir/plug-ins
 
-echo "Creating $mainfolder directory..."
-mkdir $instdir/plug-ins/$mainfolder
+
+if [ ! -d "$instdir/plug-ins/$mainfolder" ]; then
+  echo "Creating $mainfolder directory..."
+  mkdir $instdir/plug-ins/$mainfolder
+else
+  echo "$mainfolder directory already present. Files will be overwritten."
+fi
+
 
 cd $mainfolder
 echo "Copying png icons..."
