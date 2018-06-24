@@ -59,6 +59,7 @@ class CLevDialog(gtk.Dialog):
   #class constants (used as a sort of enumeration)
   LEVELS = 0
   THRESHOLD = 1
+  OPACITY = 2
   
   GAMMA = 0
   INPUT_MIN = 1
@@ -91,8 +92,9 @@ class CLevDialog(gtk.Dialog):
     self.outhigh = 255 #threshold color set to maximum (if used in the three channel (RGB) is white)
     self.thrmin = 127 #threshold color set to middle 
     self.thrmax = 255 #threshold color set to max
+    self.opa = 50
     
-    if self.ctype != CLevDialog.LEVELS and self.ctype != CLevDialog.THRESHOLD:
+    if self.ctype not in [CLevDialog.LEVELS, CLevDialog.THRESHOLD, CLevDialog.OPACITY]:
       sys.stderr.write("Error, ctype value not allowed")
       sys.stderr.flush()
       return
@@ -115,6 +117,8 @@ class CLevDialog(gtk.Dialog):
     elif self.ctype == CLevDialog.THRESHOLD:
       if self.modes[0] == CLevDialog.THR_ALL:
         self.modes = [CLevDialog.THR_MIN, CLevDialog.THR_MAX]
+    elif self.ctype == CLevDialog.OPACITY:
+      self.modes = [0]
     
     #creating the necessary adjustments
     if self.ctype == CLevDialog.LEVELS:
@@ -142,6 +146,9 @@ class CLevDialog(gtk.Dialog):
         if (m == CLevDialog.THR_MAX):
           adjlist.append(gtk.Adjustment(self.thrmax, 0, 255, 1, 10))
           labtxt.append("Max Threshold")
+    elif self.ctype == CLevDialog.OPACITY:
+      adjlist.append(gtk.Adjustment(self.opa, 0, 100, 1, 10))
+      labtxt.append("Opacity")
           
     #making the scale and spinbuttons for the adjustments
     for adj, ww, lt in zip(adjlist, self.modes, labtxt):
@@ -153,6 +160,7 @@ class CLevDialog(gtk.Dialog):
       hboxes[-1].add(labb[-1])
       
       scab.append(gtk.HScale(adj))
+      scab[-1].set_size_request(120, 45)
       scab[-1].connect("value-changed", self.on_value_changed, ww)
       hboxes[-1].add(scab[-1])
       
@@ -181,9 +189,8 @@ class CLevDialog(gtk.Dialog):
   
   #callback method, apply the new value
   def on_value_changed(self, widget, m):
-    self.make_reslayer()
-
     if self.ctype == CLevDialog.LEVELS:
+      self.make_reslayer()
       if (m == CLevDialog.GAMMA):
         self.gamma = widget.get_value()
       if (m == CLevDialog.INPUT_MIN):
@@ -198,6 +205,7 @@ class CLevDialog(gtk.Dialog):
       pdb.gimp_levels(self.reslayer, 0, self.inlow, self.inhigh, self.gamma, self.outlow, self.outhigh) #regulating color levels, channel = #0 (second parameter) is for histogram value
 
     elif self.ctype == CLevDialog.THRESHOLD:
+      self.make_reslayer()
       if (m == CLevDialog.THR_MIN):
         self.thrmin = widget.get_value()
       if (m == CLevDialog.THR_MAX):
@@ -205,13 +213,21 @@ class CLevDialog(gtk.Dialog):
       
       pdb.gimp_threshold(self.reslayer, self.thrmin, self.thrmax) #regulating threshold levels
     
+    elif self.ctype == CLevDialog.OPACITY:
+      self.opa = widget.get_value()
+      pdb.gimp_layer_set_opacity(self.origlayer, self.opa)
+    
     pdb.gimp_displays_flush()
 
   #callback method for ok button
   def on_butok_clicked(self, widget):
-    rname = self.origlayer.name
-    pdb.gimp_image_remove_layer(self.img, self.origlayer)
-    self.reslayer.name = rname
+    if self.ctype in [CLevDialog.LEVELS, CLevDialog.THRESHOLD]:
+      rname = self.origlayer.name
+      pdb.gimp_image_remove_layer(self.img, self.origlayer)
+      self.reslayer.name = rname
+    elif self.ctype == CLevDialog.OPACITY:
+      pass
+      
     self.hide()
     
 
@@ -652,9 +668,12 @@ class TLSbase(gtk.Dialog):
   def get_brightness_max(self, layer, channel=HISTOGRAM_VALUE):
     endr = 255
     found = False
+    _, _, _, _, chk, _ = pdb.gimp_histogram(layer, channel, 0, endr)
+    if chk == 0:
+      return -1
     while not found:
-      mean, std_dev, median, pixels, count, percentile = pdb.gimp_histogram(layer, channel, 0, endr)
-      if (count < pixels):
+      _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, 0, endr)
+      if count < pixels or endr == 0:
         found = True
       else:
         endr = endr - 1
@@ -665,9 +684,12 @@ class TLSbase(gtk.Dialog):
   def get_brightness_min(self, layer, channel=HISTOGRAM_VALUE):
     startr = 0
     found = False
+    _, _, _, _, chk, _ = pdb.gimp_histogram(layer, channel, startr, 255)
+    if chk == 0:
+      return -1
     while not found:
-      mean, std_dev, median, pixels, count, percentile = pdb.gimp_histogram(layer, channel, startr, 255)
-      if (count < pixels):
+      _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, startr, 255)
+      if count < pixels or startr == 255:
         found = True
       else:
         startr = startr + 1
@@ -1323,11 +1345,10 @@ class BaseDetails(TLSbase):
 #class to generate the dirt on the terrain
 class DirtDetails(TLSbase):
   #constructor
-  def __init__(self, image, layermask, channelmask, landbuilder, *args):
+  def __init__(self, image, layermask, channelmask, *args):
     mwin = TLSbase.__init__(self, image, None, layermask, channelmask, False, *args)
     self.smp = 50
     self.regtype = None
-    self.landbuilder = landbuilder
     
     #colors
     self.colordirt = (128, 107, 80) #med dirt, a moderate brown
@@ -1381,8 +1402,6 @@ class DirtDetails(TLSbase):
 
   #override method, generate the layers to create the dirt
   def generatestep(self):
-    self.regtype = self.landbuilder.region
-    
     self.bgl = self.makeunilayer("bgl", self.colordirt)
     self.bgl.name = "dirt"
     
@@ -1412,12 +1431,10 @@ class DirtDetails(TLSbase):
     pdb.gimp_floating_sel_anchor(flsel)
 
     pdb.gimp_item_set_visible(self.noisel, False)
-    if self.regtype == "grass" or self.regtype == "sand":
-      dirtopa = 55
-    elif self.regtype == "ice":
-      dirtopa = 35
+    cldo = CLevDialog(self.img, self.bgl, "Set dirt opacity", CLevDialog.OPACITY, [], "Set opacity", self, gtk.DIALOG_MODAL)
+    cldo.run()
+    cldo.destroy()
     
-    pdb.gimp_layer_set_opacity(self.bgl, dirtopa)
     pdb.gimp_displays_flush()
     
 
@@ -1635,9 +1652,8 @@ class AdditionalDetBuild(BuildAddition):
 #class to generate the mountains
 class MountainsBuild(BuildAddition):
   #constructor
-  def __init__(self, image, layermask, channelmask, landbuilder, *args):
+  def __init__(self, image, layermask, channelmask, *args):
     mwin = BuildAddition.__init__(self, image, layermask, channelmask, *args)
-    self.regtype = None
     self.mountainsangular = None
     self.cpvlayer = None
     self.embosslayer = None
@@ -1650,7 +1666,6 @@ class MountainsBuild(BuildAddition):
     self.browncol = False
     self.addshadow = True
     
-    self.landbuilder = landbuilder
     self.colormountslow = (75, 62, 43)
     self.colormountshigh = (167, 143, 107)
     self.setsmoothbeforecomb(False) #mountains should always be smoothed later 
@@ -1770,7 +1785,6 @@ class MountainsBuild(BuildAddition):
     
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def generatestep(self):
-    self.regtype = self.landbuilder.region
     self.addingchannel.name = self.textes["baseln"] + "mask"
     
     #improving the mask
@@ -1853,11 +1867,10 @@ class MountainsBuild(BuildAddition):
       
       pdb.gimp_item_set_visible(self.mntcolorl, False)
       
-      if self.regtype == "grass" or self.regtype == "sand":
-        monopa = 60
-      elif self.regtype == "ice":
-        monopa = 40
-      pdb.gimp_layer_set_opacity(self.mntcolorl, monopa)
+      cldo = CLevDialog(self.img, self.mntcolorl, "Set mountains color opacity", CLevDialog.OPACITY, [], "Set opacity", self, gtk.DIALOG_MODAL)
+      cldo.run()
+      cldo.destroy()
+      #~ pdb.gimp_layer_set_opacity(self.mntcolorl, monopa)
 
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
@@ -2243,14 +2256,20 @@ class SymbolsBuild(TLSbase):
     
   #callback method, fix symbols, add finishing touches and close
   def on_next_clicked(self):    
-    pdb.gimp_image_select_item(self.img, 2, self.symbols) #2 = replace selection, this select everything in the layer which is not transparent
-    pdb.gimp_selection_grow(self.img, 2)
-    pdb.gimp_selection_feather(self.img, 5)
-    colfillayer(self.img, self.bgl, self.bgcol)
-    pdb.gimp_selection_none(self.img)
-    pdb.gimp_context_set_brush(self.prevbrush)
-    pdb.gimp_context_set_brush_size(self.prevbrushsize)
-    
+    if self.get_brightness_max(self.symbols) != -1:
+      pdb.gimp_image_select_item(self.img, 2, self.symbols) #2 = replace selection, this select everything in the layer which is not transparent
+      pdb.gimp_selection_grow(self.img, 2)
+      pdb.gimp_selection_feather(self.img, 5)
+      colfillayer(self.img, self.bgl, self.bgcol)
+      pdb.gimp_selection_none(self.img)
+      if self.prevbrush is not None:
+        pdb.gimp_context_set_brush(self.prevbrush)
+      if self.prevbrushsize is not None:
+        pdb.gimp_context_set_brush_size(self.prevbrushsize)
+    else:
+      pdb.gimp_image_remove_layer(self.img, self.bgl)
+      pdb.gimp_image_remove_layer(self.img, self.symbols)
+      
     pdb.gimp_displays_flush()
     
   #override callback for next/previous button, in order to add a call to on_next_clicked
@@ -2297,6 +2316,7 @@ class MainApp(gtk.Window):
   def on_butgenmap_clicked(self, widget):
     pdb.gimp_context_set_foreground((0, 0, 0)) #set foreground color to black
     pdb.gimp_context_set_background((255, 255, 255)) #set background to white
+    pdb.gimp_selection_none(self.img) #unselect if there is an active selection
     
     landtextes = {"baseln" : "land", \
     "labelext" : "land", \
@@ -2324,10 +2344,10 @@ class MainApp(gtk.Window):
       self.landdet.refbg = self.drawab
       firstbuilder = self.landdet
     
-    self.dirtd = DirtDetails(self.img, layermask, channelmask, self.landdet, "Building dirt", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    self.dirtd = DirtDetails(self.img, layermask, channelmask, "Building dirt", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     self.dirtd.hide()
     
-    self.mount = MountainsBuild(self.img, layermask, channelmask, self.landdet, "Building mountains", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    self.mount = MountainsBuild(self.img, layermask, channelmask, "Building mountains", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     self.mount.hide()
     
     self.forest = ForestBuild(self.img, layermask, channelmask, "Building forests", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
