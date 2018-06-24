@@ -695,6 +695,18 @@ class TLSbase(gtk.Dialog):
         startr = startr + 1
         
     return startr
+
+  #method to check if a pixel belongs to the area which would be selected using the given channel selection mask.
+  def checkpixel(self, x, y, chmask=None, threshold=0.5):
+    if chmask is None:
+      chmask = self.channelms
+
+    if chmask is not None:
+      color = pdb.gimp_image_pick_color(self.img, chmask, x, y, False, False, 0)
+      if color.red > threshold and color.green > threshold and color.blue > threshold:
+        return True
+
+    return False
   
   #method, set the smoothprofile parameter
   def setsmoothprof(self, val):
@@ -2155,6 +2167,7 @@ class SymbolsBuild(TLSbase):
       self.set_border_width(10)
       
       self.nsym = 1
+      self.landonly = True
       
       #new row
       hbxa = gtk.HBox(spacing=10, homogeneous=True)
@@ -2167,6 +2180,15 @@ class SymbolsBuild(TLSbase):
       spbuta = gtk.SpinButton(nsymadj, 0, 0)
       spbuta.connect("output", self.on_nsym_changed)
       hbxa.add(spbuta)
+
+      #new row
+      hbxb = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hbxb)
+
+      chbb = gtk.CheckButton("Adding symbols on land only")
+      chbb.set_active(self.landonly)
+      chbb.connect("toggled", self.on_landonly_toggled)
+      hbxb.add(chbb)
       
       #button area
       self.add_button("Cancel", gtk.RESPONSE_CANCEL)
@@ -2178,6 +2200,10 @@ class SymbolsBuild(TLSbase):
     #callback method, set the number of symbols to be added
     def on_nsym_changed(self, widget):
       self.nsym = widget.get_value()
+
+    #callback method, set if symbols have to be added on land only
+    def on_landonly_toggled(self, widget):
+      self.landonly = widget.get_active()
 
   #outer class methods
   #method, adding a selecting brush button with image and label in the button area
@@ -2241,11 +2267,18 @@ class SymbolsBuild(TLSbase):
     rnds = self.RandomSymbols("Adding symbols randomly", self, gtk.DIALOG_MODAL)
     rr = rnds.run()
     if rr == gtk.RESPONSE_OK:
-      for i in range(int(rnds.nsym)):
+      i = 0
+      while i < int(rnds.nsym):
         xc = random.random() * self.img.width
         yc = random.random() * self.img.height
-        pdb.gimp_paintbrush_default(self.symbols, 2, [xc, yc])
-    
+        if rnds.landonly:
+          if self.checkpixel(xc, yc):
+            pdb.gimp_paintbrush_default(self.symbols, 2, [xc, yc])
+            i = i + 1
+        else:
+          pdb.gimp_paintbrush_default(self.symbols, 2, [xc, yc])
+          i = i + 1
+          
       pdb.gimp_displays_flush()
     
     rnds.destroy()
@@ -2255,8 +2288,8 @@ class SymbolsBuild(TLSbase):
     self.setbeforerun()
     
   #callback method, fix symbols, add finishing touches and close
-  def on_next_clicked(self):    
-    if self.get_brightness_max(self.symbols) != -1:
+  def on_next_clicked(self):
+    if self.get_brightness_max(self.symbols) != -1: #check the histogram, verify that is not a fully transparent layer.
       pdb.gimp_image_select_item(self.img, 2, self.symbols) #2 = replace selection, this select everything in the layer which is not transparent
       pdb.gimp_selection_grow(self.img, 2)
       pdb.gimp_selection_feather(self.img, 5)
