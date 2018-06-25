@@ -305,7 +305,6 @@ class BDrawDial(gtk.Dialog):
 
     #action area empty
 
-    self.show_all()
     return dwin
 
   #callback method, draw stuffs when the drawing area appears
@@ -697,7 +696,7 @@ class TLSbase(gtk.Dialog):
     return startr
 
   #method to check if a pixel belongs to the area which would be selected using the given channel selection mask.
-  def checkpixel(self, x, y, chmask=None, threshold=0.5):
+  def checkpixelcoord(self, x, y, chmask=None, threshold=0.5):
     if chmask is None:
       chmask = self.channelms
 
@@ -1166,7 +1165,6 @@ class WaterProfile(TLSbase):
     self.add_button_generate("Generate water profile")
     self.add_button_nextprev()
 
-    self.show_all()
     return mwin
     
   #callback method, setting smooth parameter
@@ -1278,7 +1276,6 @@ class BaseDetails(TLSbase):
     self.add_button_generate("Generate land details")
     self.add_button_nextprev()
 
-    self.show_all()
     return mwin
     
   #callback method, setting base region parameter 
@@ -1377,7 +1374,6 @@ class DirtDetails(TLSbase):
     self.add_button_generate("Generate dirt")
     self.add_button_nextprev()
 
-    self.show_all()
     return mwin
 
   #method to make the more complex noise for dirt: should be combined with the land profile to have dirt close to the coast if a coast is present
@@ -1478,7 +1474,6 @@ class BuildAddition(TLSbase):
     self.action_area.add(self.butgenhnp)
     self.butgenhnp.connect("clicked", self.on_butgenhnp_clicked)
     
-    self.show_all()
     return mwin
   
   #method, setting the smoothbeforecomb parameter
@@ -1726,7 +1721,6 @@ class MountainsBuild(BuildAddition):
     #button area inherited from parent class
     self.add_button_nextprev()
 
-    self.show_all()
     return mwin
   
   #nested class to let the user control if the mountains mask should be improved and rotated
@@ -1879,10 +1873,6 @@ class MountainsBuild(BuildAddition):
       
       pdb.gimp_item_set_visible(self.mntcolorl, False)
       
-      cldo = CLevDialog(self.img, self.mntcolorl, "Set mountains color opacity", CLevDialog.OPACITY, [], "Set opacity", self, gtk.DIALOG_MODAL)
-      cldo.run()
-      cldo.destroy()
-      #~ pdb.gimp_layer_set_opacity(self.mntcolorl, monopa)
 
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
@@ -1929,6 +1919,9 @@ class MountainsBuild(BuildAddition):
     
     if self.browncol:
       pdb.gimp_item_set_visible(self.mntcolorl, True)
+      cldo = CLevDialog(self.img, self.mntcolorl, "Set mountains color opacity", CLevDialog.OPACITY, [], "Set opacity", self, gtk.DIALOG_MODAL)
+      cldo.run()
+      cldo.destroy()
 
     pdb.gimp_displays_flush()
 
@@ -1964,7 +1957,6 @@ class ForestBuild(BuildAddition):
     #button area inherited from parent class
     self.add_button_nextprev()
     
-    self.show_all()
     return mwin
     
   #method to add a masked layer color
@@ -2031,7 +2023,6 @@ class RiversBuild(TLSbase):
     self.add_button_generate("Draw Rivers")
     self.add_button_nextprev()
     
-    self.show_all()
     return mwin
     
   #override cleaning method
@@ -2156,7 +2147,6 @@ class SymbolsBuild(TLSbase):
     
     self.add_button_nextprev()
   
-    self.show_all()
     return mwin
 
   #nested class, controlling random displacement of symbols
@@ -2272,7 +2262,7 @@ class SymbolsBuild(TLSbase):
         xc = random.random() * self.img.width
         yc = random.random() * self.img.height
         if rnds.landonly:
-          if self.checkpixel(xc, yc):
+          if self.checkpixelcoord(xc, yc):
             pdb.gimp_paintbrush_default(self.symbols, 2, [xc, yc])
             i = i + 1
         else:
@@ -2312,6 +2302,7 @@ class SymbolsBuild(TLSbase):
       
     TLSbase.on_setting_np(self, widget, pp)
 
+    
 #class for the customized GUI
 class MainApp(gtk.Window):
   #constructor
@@ -2366,11 +2357,9 @@ class MainApp(gtk.Window):
       channelmask.name = landtextes["baseln"] + "mask"
 
     self.landdet = BaseDetails(self.img, layermask, channelmask, "Building land details", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    self.landdet.hide()
       
     if self.land.chtype > 0:
       self.water = WaterProfile(self.img, layermask, channelmask, "Building water mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-      self.water.hide()
       self.landdet.refbg = self.water
       firstbuilder = self.water
     else:
@@ -2378,20 +2367,11 @@ class MainApp(gtk.Window):
       firstbuilder = self.landdet
     
     self.dirtd = DirtDetails(self.img, layermask, channelmask, "Building dirt", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    self.dirtd.hide()
-    
     self.mount = MountainsBuild(self.img, layermask, channelmask, "Building mountains", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    self.mount.hide()
-    
     self.forest = ForestBuild(self.img, layermask, channelmask, "Building forests", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    self.forest.hide()
-    
     self.rivers = RiversBuild(self.img, layermask, channelmask, "Building rivers", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    self.rivers.hide()
-
     self.symbols = SymbolsBuild(self.img, layermask, channelmask, "Adding symbols", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
-    self.symbols.hide()
-
+    
     #setting stuffs
     if self.land.chtype > 0:
       self.water.setreferences(None, self.landdet)
@@ -2408,6 +2388,7 @@ class MainApp(gtk.Window):
     
   #method calling the object builder, listening to the response, and recursively calling itself
   def buildingmap(self, builder):
+    builder.show_all()
     builder.setbeforerun()
     builder.run()
     proxb = builder.chosen
