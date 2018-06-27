@@ -147,14 +147,14 @@ class VectorStroker:
 
 
 #The function to be registered in gimp
-def python_strokevectors_str(img, tdraw, vector, pixsize, tstroke):
+def python_strokevectors(img, tdraw, vector, pixsize, tstroke):
   vs = VectorStroker(img, tdraw, vector, pixsize, tstroke)
   vs.stroking()
 
 
 #The command to register the function
 register(
-  "python-fu-stroke-vectors"
+  "python-fu-stroke-vectors",
   "python-fu-stroke-vectors",
   "Stroke a path by using a list of arguments, similar to what the GIMP command stroke path can do. \
 This script is intended to be used mainly by other scripts which need to repplicate those features.",
@@ -166,11 +166,11 @@ This script is intended to be used mainly by other scripts which need to repplic
   [
     (PF_VECTORS, "vector", "The path to be stroked", None),
     (PF_INT, "pixsize", "Size in pixel of the stroke", 5),
-    (PF_SPINNER, "tstroke", "Line: Solid (0); Long dashed (1); Medium dashed (2); Short dashed (3); Sparse dotted (4);\n\
+    (PF_SPINNER, "tstroke", "Line: Solid (0); Long dashed (1); Medium dashed (2); Short dashed (3); Sparse dotted (4);\n \
 Normal dotted (5); Dense dotted (6); Stipples (7); Dash dotted (8); Dash dot dotted (9)", 0, (0, 9, 1)),
   ],
   [ ],
-  python_strokevectors_str
+  python_strokevectors
   )
 
 #The main function to activate the script
