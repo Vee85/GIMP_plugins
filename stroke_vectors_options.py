@@ -29,8 +29,6 @@
 
 import sys
 import os
-import gtk
-import gobject
 from gimpfu import *
 
 
