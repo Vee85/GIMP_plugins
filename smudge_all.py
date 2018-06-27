@@ -34,6 +34,8 @@ from gimpfu import *
 
 #The function to be registered in gimp
 def python_smudgeall(img, tdraw, smudgefreq):
+  pdb.gimp_image_undo_group_start(img)
+  
   brs = int(pdb.gimp_context_get_brush_size())
   gimp.progress_init("python-fu-smudgeall")
   
@@ -44,8 +46,8 @@ def python_smudgeall(img, tdraw, smudgefreq):
     yll = [y for y in range(y1+(brs/4), y2-(brs/4), brs/2)]
   #if there is no active selection, go for the full image
   else:
-    xll = [x for x in range(0+(brs/4), img.width-(brs/4), brs/2)]
-    yll = [y for y in range(0+(brs/4), img.height-(brs/4), brs/2)]
+    xll = [x for x in range(brs/4, img.width-(brs/4), brs/2)]
+    yll = [y for y in range(brs/4, img.height-(brs/4), brs/2)]
 
   #apply smudge to all the coordinates
   gimp.progress_update(0.0)
@@ -58,6 +60,8 @@ def python_smudgeall(img, tdraw, smudgefreq):
     
     #Updating percentage bar
     gimp.progress_update(float(i)/len(xll))
+
+  pdb.gimp_image_undo_group_end(img)
 
 
 #The command to register the function
