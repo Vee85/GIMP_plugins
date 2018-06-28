@@ -537,7 +537,7 @@ class TLSbase(gtk.Dialog):
     self.channelms = channelmask
     self.thrc = 0 #will be selected later
     self.smoothprofile = 0
-    self.generated = not self.mandatorystep
+    self.generated = False
     
     #nothing in the dialog: labels and buttons are created in the child classes
     
@@ -651,15 +651,16 @@ class TLSbase(gtk.Dialog):
     
     #deleting the list
     pdb.gimp_plugin_set_pdb_error_handler(1)
-    for dr, i in zip(deltuple, range(len(deltuple))):
-      if dr is not None:
-        try:
-          if isinstance(dr, gimp.Layer):
-            pdb.gimp_image_remove_layer(self.img, dr)
-          elif isinstance(dr, gimp.Channel):
-            pdb.gimp_image_remove_channel(self.img, dr)
-        except RuntimeError, e:   #catching runtime errors due to not valid ID, likely due to merged layers which do not exist anymore
-          pass
+    for dr in deltuple:
+      try:
+        if isinstance(dr, gimp.Layer):
+          pdb.gimp_image_remove_layer(self.img, dr)
+        elif isinstance(dr, gimp.Channel):
+          pdb.gimp_image_remove_channel(self.img, dr)
+        elif isinstance(dr, gimp.Vectors):
+          pdb.gimp_image_remove_vectors(self.img, dr)
+      except RuntimeError, e:   #catching and neglecting runtime errors due to not valid ID, likely due to merged layers which do not exist anymore
+        pass
     
     pdb.gimp_plugin_set_pdb_error_handler(0)
 
@@ -898,7 +899,7 @@ class TLSbase(gtk.Dialog):
     if hidefinal:
       pdb.gimp_item_set_visible(shapelayer, False)
     else:
-      pdb.plug_in_colortoalpha(self.img, shapelayer, (0, 0, 0))      
+      pdb.plug_in_colortoalpha(self.img, shapelayer, (0, 0, 0))
 
     return shapelayer, resmask
 
@@ -2218,12 +2219,14 @@ class SymbolsBuild(TLSbase):
     self.deletedrawables(self.symbols)
 
   #override method to prepare the symbols drawing 
-  def setbeforerun(self):    
-    self.bgl = self.makeunilayer("symbols outline")
-    pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
-    
-    self.symbols = self.makeunilayer("symbols")
-    pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
+  def setbeforerun(self):
+    if self.bgl is None:
+      self.bgl = self.makeunilayer("symbols outline")
+      pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
+
+    if self.symbols is None:
+      self.symbols = self.makeunilayer("symbols")
+      pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
     
     pdb.gimp_displays_flush()
 
@@ -2275,16 +2278,19 @@ class SymbolsBuild(TLSbase):
 
   #callback method, cancel symbols and close step
   def on_cancel_clicked(self, widget):
+    self.cleandrawables()
+    self.setgenerated(False)
     self.setbeforerun()
     
-  #callback method, fix symbols, add finishing touches and close
-  def on_next_clicked(self):
+  #method to fix symbols, add finishing touches and close
+  def fixsymbols(self):
     if self.get_brightness_max(self.symbols) != -1: #check the histogram, verify that is not a fully transparent layer.
       pdb.gimp_image_select_item(self.img, 2, self.symbols) #2 = replace selection, this select everything in the layer which is not transparent
       pdb.gimp_selection_grow(self.img, 2)
       pdb.gimp_selection_feather(self.img, 5)
       colfillayer(self.img, self.bgl, self.bgcol)
       pdb.gimp_selection_none(self.img)
+      self.setgenerated(True)
       if self.prevbrush is not None:
         pdb.gimp_context_set_brush(self.prevbrush)
       if self.prevbrushsize is not None:
@@ -2295,14 +2301,156 @@ class SymbolsBuild(TLSbase):
       
     pdb.gimp_displays_flush()
     
-  #override callback for next/previous button, in order to add a call to on_next_clicked
+  #override callback for next/previous button, in order to add a call to fixsymbols
   def on_setting_np(self, widget, pp):
     if pp == TLSbase.NEXT:
-      self.on_next_clicked()
+      self.fixsymbols()
       
     TLSbase.on_setting_np(self, widget, pp)
 
+
+#class to add roads
+class RoadBuild(TLSbase):
+  #constructor
+  def __init__(self, image, layermask, channelmask, *args):
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, False, *args)
+
+    self.paths = []
+    self.roadlinelist = ["Solid", "Long dashed", "Medium dashed", "Short dashed", "Sparse dotted", \
+    "Normal dotted", "Dense dotted", "Stipples", "Dash dotted", "Dash dot dotted"]
+    self.typelist = range(len(self.roadlinelist))
+    self.chtype = 0 #will be reinitialized in GUI costruction
+    self.roadcolor = (0, 0, 0)
+    self.roadsize = 5
+
+    #Designing the interface
+    #new row
+    hboxa = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxa)
     
+    labatxt = "Adding roads. You are going to use paths. Click on the top path in the Paths panel to activate the path tool.\n"
+    labatxt += "Place paths between cities, place nodes and curves. The roads will be drawn on the paths you are going to place by clicking the 'Draw Roads' button.\n"
+    labatxt += "You can repeat this step: just select the new Path that is created each time the roads are drawn and place new paths.\n"
+    labatxt += "Change color, size or type line if you wish and click again the 'Draw Roads' button."
+    laba = gtk.Label(labatxt)
+    hboxa.add(laba)
+
+    #new row
+    hboxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxb)
+    
+    labb = gtk.Label("Choose type of line")
+    hboxb.add(labb)
+    
+    boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
+    
+    #filling the model for the combobox
+    for i, j in zip(self.roadlinelist, self.typelist):
+      irow = boxmodelb.append(None, [i, j])
+
+    self.chtype = self.typelist[1]
+
+    cboxb = gtk.ComboBox(boxmodelb)
+    rendtextb = gtk.CellRendererText()
+    cboxb.pack_start(rendtextb, True)
+    cboxb.add_attribute(rendtextb, "text", 0)
+    cboxb.set_entry_text_column(0)
+    cboxb.set_active(1)
+    cboxb.connect("changed", self.on_line_changed)
+    hboxb.add(cboxb)
+
+    #new row
+    hboxc = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxc)
+    
+    labc = gtk.Label("Road colors")
+    hboxc.add(labc)
+
+    butcolor = gtk.ColorButton()
+    butcolor.set_title("Select road colors")
+    hboxc.add(butcolor)
+    butcolor.connect("color-set", self.on_butcolor_clicked)
+
+    labcc = gtk.Label("Road size (pixels)")
+    hboxc.add(labcc)
+
+    rsizadj = gtk.Adjustment(self.roadsize, 2, 30, 1, 5)
+    spbutc = gtk.SpinButton(rsizadj, 0, 0)
+    spbutc.connect("output", self.on_rsize_changed)
+    hboxc.add(spbutc)
+    
+    #action area
+    self.add_button_quit()
+
+    butcanc = gtk.Button("Cancel all Roads")
+    self.action_area.add(butcanc)
+    butcanc.connect("clicked", self.on_cancel_clicked)
+    
+    butdraw = gtk.Button("Draw Roads")
+    self.action_area.add(butdraw)
+    butdraw.connect("clicked", self.on_drawroads_clicked)
+
+    self.add_button_nextprev()
+
+    return mwin
+
+  #callback method, setting the type line
+  def on_line_changed(self, widget):
+    refmode = widget.get_model()
+    self.chtype = refmode.get_value(widget.get_active_iter(), 1)
+
+  #callback method, setting the road color
+  def on_butcolor_clicked(self, widget):
+    self.roadcolor = gdkcoltorgb(widget.get_color())
+
+  #callback method, setting the road size
+  def on_rsize_changed(self, widget):
+    self.roadsize = widget.get_value()
+    
+  #override method to prepare the road drawing 
+  def setbeforerun(self):
+    #adding a transparent layer
+    if self.bgl is None:
+      self.bgl = self.makeunilayer("roads")
+      pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
+      pdb.gimp_layer_set_mode(self.bgl, OVERLAY_MODE)
+
+    #adding an empty path
+    self.paths.append(pdb.gimp_vectors_new(self.img, "roads" + str(len(self.paths))))
+    pdb.gimp_image_insert_vectors(self.img, self.paths[-1], None, 0)
+    pdb.gimp_image_set_active_vectors(self.img, self.paths[-1])
+    pdb.gimp_displays_flush()
+    
+  #override cleaning method 
+  def cleandrawables(self):
+    self.deletedrawables(*self.paths)
+
+  #callback method to cancel all roads
+  def on_cancel_clicked(self, widget):
+    self.cleandrawables()
+    self.setbeforerun()
+    
+  #callback method to draw roads
+  def on_drawroads_clicked(self, widget):
+    oldfgcol = pdb.gimp_context_get_foreground()
+    pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color to white
+
+    pdb.python_fu_stroke_vectors(self.img, self.bgl, self.paths[-1], self.roadsize, 0)
+
+    pdb.gimp_context_set_foreground(self.roadcolor) #set foreground color to black
+    pdb.python_fu_stroke_vectors(self.img, self.bgl, self.paths[-1], self.roadsize/2, self.chtype)
+
+    pdb.gimp_context_set_foreground(oldfgcol)
+    self.setbeforerun()
+
+  #override callback for next/previous button, in order to delete the last vectors drawable
+  def on_setting_np(self, widget, pp):
+    if pp == TLSbase.NEXT:
+      pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
+      
+    TLSbase.on_setting_np(self, widget, pp)
+
+
 #class for the customized GUI
 class MainApp(gtk.Window):
   #constructor
@@ -2371,6 +2519,7 @@ class MainApp(gtk.Window):
     self.forest = ForestBuild(self.img, layermask, channelmask, "Building forests", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     self.rivers = RiversBuild(self.img, layermask, channelmask, "Building rivers", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     self.symbols = SymbolsBuild(self.img, layermask, channelmask, "Adding symbols", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    self.roads = RoadBuild(self.img, layermask, channelmask, "Adding roads", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     
     #setting stuffs
     if self.land.chtype > 0:
@@ -2382,8 +2531,9 @@ class MainApp(gtk.Window):
     self.mount.setreferences(self.dirtd, self.forest)
     self.forest.setreferences(self.mount, self.rivers)
     self.rivers.setreferences(self.forest, self.symbols)
-    self.symbols.setreferences(self.rivers, None)
-    
+    self.symbols.setreferences(self.rivers, self.roads)
+    self.roads.setreferences(self.symbols, None)
+        
     self.buildingmap(firstbuilder)
     
   #method calling the object builder, listening to the response, and recursively calling itself
@@ -2394,9 +2544,6 @@ class MainApp(gtk.Window):
     proxb = builder.chosen
     if proxb is not None:
       self.buildingmap(proxb)
-    else:
-      print "proxb is None!"
-      sys.stdout.flush()
   
   #callback method to use current image as map
   def on_butusemap_clicked(self, widget):
@@ -2406,9 +2553,18 @@ class MainApp(gtk.Window):
 #The function to be registered in GIMP
 def python_make_landmap(img, tdraw):
   #query the procedure database
-  nummfelimg, procedure_names = pdb.gimp_procedural_db_query("plug-in-fimg-noise", ".*", ".*", ".*", ".*", ".*", ".*")
-  if nummfelimg == 0:
-    pdb.gimp_message("Warning: you need to install the felimage plugin to use all the features of this plugin properly.\nWithout the felimage plugin, the mountains will be of poor quality.")  
+  numfelimg, _ = pdb.gimp_procedural_db_query("plug-in-fimg-noise", ".*", ".*", ".*", ".*", ".*", ".*")
+  if numfelimg == 0:
+    messtxt = "Warning: you need to install the felimage plugin to use all the features of this plugin properly.\n"
+    messtxt += "Without the felimage plugin, the mountains will be of poor quality."  
+    pdb.gimp_message(messtxt)
+
+  #query the procedure database
+  numstrokevect, _ = pdb.gimp_procedural_db_query("python-fu-stroke-vectors", ".*", ".*", ".*", ".*", ".*", ".*")
+  if numstrokevect == 0:
+    messtxt = "Warning: you need to install the stroke_vector_options.py plugin to use all the features of this plugin.\n"
+    messtxt += "Without the stroke_vector_options.py plugin, roads cannot be drawn. If you try the plugin will crash."
+    pdb.gimp_message(messtxt)
     
   mapp = MainApp(img, tdraw)
   gtk.main()
