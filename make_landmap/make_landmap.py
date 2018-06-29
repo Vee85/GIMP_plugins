@@ -2435,10 +2435,16 @@ class RoadBuild(TLSbase):
     oldfgcol = pdb.gimp_context_get_foreground()
     pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color to white
 
-    pdb.python_fu_stroke_vectors(self.img, self.bgl, self.paths[-1], self.roadsize, 0)
+    try:
+      pdb.python_fu_stroke_vectors(self.img, self.bgl, self.paths[-1], self.roadsize, 0)
+    except:
+      pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
 
     pdb.gimp_context_set_foreground(self.roadcolor) #set foreground color to black
-    pdb.python_fu_stroke_vectors(self.img, self.bgl, self.paths[-1], self.roadsize/2, self.chtype)
+    try:
+      pdb.python_fu_stroke_vectors(self.img, self.bgl, self.paths[-1], self.roadsize/2, self.chtype)
+    except:
+      pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
 
     pdb.gimp_context_set_foreground(oldfgcol)
     self.setbeforerun()
@@ -2563,7 +2569,7 @@ def python_make_landmap(img, tdraw):
   numstrokevect, _ = pdb.gimp_procedural_db_query("python-fu-stroke-vectors", ".*", ".*", ".*", ".*", ".*", ".*")
   if numstrokevect == 0:
     messtxt = "Warning: you need to install the stroke_vector_options.py plugin to use all the features of this plugin.\n"
-    messtxt += "Without the stroke_vector_options.py plugin, roads cannot be drawn. If you try the plugin will crash."
+    messtxt += "Without the stroke_vector_options.py plugin, roads will be always solid lines and brush sized, whatever options you select."
     pdb.gimp_message(messtxt)
     
   mapp = MainApp(img, tdraw)
