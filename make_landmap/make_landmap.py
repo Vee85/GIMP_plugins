@@ -1329,7 +1329,7 @@ class BaseDetails(TLSbase):
         self.bumpmapl = ll
       elif ll.name in self.namelist[3]:
         self.basebumpsl = ll
-      elif any([i in ll.name for i in self.namechildlist]): #any: logical or between all the elements of the list
+      elif any([i in ll.name for i in self.namechildlist]): #any: logical 'or' between all the elements of the list
         self.allchildsdraw.append(ll)
 
     return self.loaded()
@@ -2346,6 +2346,8 @@ class SymbolsBuild(TLSbase):
   #override cleaning method
   def cleandrawables(self):
     self.deletedrawables(self.symbols)
+    self.bgl = None
+    self.symbols = None
 
   #override loading method
   def loaddrawables(self):
@@ -2565,6 +2567,8 @@ class RoadBuild(TLSbase):
   #override cleaning method 
   def cleandrawables(self):
     self.deletedrawables(*self.paths)
+    self.bgl = None
+    del self.paths[:]
 
   #override loading method
   def loaddrawables(self):
