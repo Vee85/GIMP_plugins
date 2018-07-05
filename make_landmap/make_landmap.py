@@ -28,6 +28,7 @@
 
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
+#@@@ mountains improvements: add more control on smooth: possibility to better regulate smooth parameter. How?
 
 import sys
 import os
@@ -578,6 +579,7 @@ class TLSbase(gtk.Dialog):
   #callback method to quit from the dialog looping
   def on_quit(self, widget):
     self.chosen = None
+    self.cleandrawables()
     self.on_job_done()
 
   #callback method acting on the generate button
@@ -1262,9 +1264,9 @@ class BaseDetails(TLSbase):
     self.allchildsdraw = []
     
     #internal parameters
-    #@@@ ideally all of these: grassland, desert, arctic, underdark || these should be smaller regions rendered in other ways: forest, mountain, swamp, coast 
-    self.regionlist = ["grassland", "desert", "arctic"]
-    self.regiontype = ["grass", "sand", "ice"]
+    #@@@ ideally all of these: grassland, terrain, desert, arctic, underdark || these should be smaller regions rendered in other ways: forest, mountain, swamp
+    self.regionlist = ["grassland", "terrain", "desert", "arctic"]
+    self.regiontype = ["grass", "ground", "sand", "ice"]
     self.region = self.regiontype[0] #will be reinitialized in GUI costruction
 
     self.namelist = [self.regiontype, [n + "texture" for n in self.regiontype], [n + "bumpmap" for n in self.regiontype], [n + "bumps" for n in self.regiontype]]
@@ -1273,6 +1275,8 @@ class BaseDetails(TLSbase):
     #color couples to generate gradients
     self.colorgrassdeep = (76, 83, 41) #a dark green color, known as ditch
     self.colorgrasslight = (149, 149, 89) #a light green color, known as high grass
+    self.colorgrounddeep = (75, 62, 44) #a dark brown color, lowest dirt
+    self.colorgroundlight = (167, 143, 107) #a light brown color, high dirt
     self.colordesertdeep = (150, 113, 23) #a relatively dark brown, known as sand dune
     self.colordesertlight = (244, 164, 96) #a light brown almost yellow, known as sandy brown
     self.colorarcticdeep = (128, 236, 217) #a clear blue
@@ -1347,6 +1351,8 @@ class BaseDetails(TLSbase):
     self.bgl.name = self.region    
     if (self.bgl.name == "grass"):
       self.cgradmap(self.bgl, self.colorgrassdeep, self.colorgrasslight)
+    if (self.bgl.name == "ground"):
+      self.cgradmap(self.bgl, self.colorgrounddeep, self.colorgroundlight)
     elif (self.bgl.name == "sand"):
       self.cgradmap(self.bgl, self.colordesertdeep, self.colordesertlight)
     elif (self.bgl.name == "ice"):
@@ -1366,6 +1372,10 @@ class BaseDetails(TLSbase):
           smtextes["labelext"] = "smaller green areas"
           cdeep = self.colorgrassdeep
           clight = self.colorgrasslight
+        elif addt == "ground":
+          smtextes["labelext"] = "smaller terrain areas"
+          cdeep = self.colorgrounddeep
+          clight = self.colorgroundlight
         elif addt == "sand":
           smtextes["labelext"] = "smaller desertic areas"
           cdeep = self.colordesertdeep
@@ -1617,7 +1627,7 @@ class BuildAddition(TLSbase):
   #callback method to let the user to select the area by hand and generate the mask profile.
   def on_butgenhnp_clicked(self, widget):
     self.cleandrawables()
-    #dialog telling to select the area where to place the mountains
+    #dialog telling to select the area where to place the stuff
     infodi = gtk.Dialog(title="Info", parent=self)
     imess = "Select the area where you want to place the "+ self.textes["labelext"] + " with the lazo tool or another selection tool.\n"
     imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
@@ -2287,7 +2297,7 @@ class SymbolsBuild(TLSbase):
       self.set_border_width(10)
       
       self.nsym = 1
-      self.landonly = True
+      self.rsymbplace = 0
       
       #new row
       hbxa = gtk.HBox(spacing=10, homogeneous=True)
@@ -2302,13 +2312,18 @@ class SymbolsBuild(TLSbase):
       hbxa.add(spbuta)
 
       #new row
-      hbxb = gtk.HBox(spacing=10, homogeneous=True)
-      self.vbox.add(hbxb)
+      vbxb = gtk.VBox(spacing=10, homogeneous=True)
+      self.vbox.add(vbxb)
 
-      chbb = gtk.CheckButton("Adding symbols on land only")
-      chbb.set_active(self.landonly)
-      chbb.connect("toggled", self.on_landonly_toggled)
-      hbxb.add(chbb)
+      self.raba = gtk.RadioButton(None, "Adding symbols on land only")
+      self.raba.connect("toggled", self.on_radiob_toggled, 0)
+      vbxb.add(self.raba)
+      self.rabb = gtk.RadioButton(self.raba, "Adding symbols in the full image")
+      self.rabb.connect("toggled", self.on_radiob_toggled, 1)
+      vbxb.add(self.rabb)
+      self.rabc = gtk.RadioButton(self.raba, "Adding symbols in a hand-made selection")
+      self.rabc.connect("toggled", self.on_radiob_toggled, 2)
+      vbxb.add(self.rabc)
       
       #button area
       self.add_button("Cancel", gtk.RESPONSE_CANCEL)
@@ -2322,8 +2337,8 @@ class SymbolsBuild(TLSbase):
       self.nsym = widget.get_value()
 
     #callback method, set if symbols have to be added on land only
-    def on_landonly_toggled(self, widget):
-      self.landonly = widget.get_active()
+    def on_radiob_toggled(self, widget, vv):
+      self.rsymbplace = vv
 
   #outer class methods
   #method, adding a selecting brush button with image and label in the button area
@@ -2401,17 +2416,42 @@ class SymbolsBuild(TLSbase):
     rr = rnds.run()
     if rr == gtk.RESPONSE_OK:
       i = 0
+      tempchannel = None
       while i < int(rnds.nsym):
         xc = random.random() * self.img.width
         yc = random.random() * self.img.height
-        if rnds.landonly:
+        if rnds.rsymbplace == 0:
           if self.checkpixelcoord(xc, yc):
             pdb.gimp_paintbrush_default(self.symbols, 2, [xc, yc])
             i = i + 1
-        else:
+        elif rnds.rsymbplace == 1:
           pdb.gimp_paintbrush_default(self.symbols, 2, [xc, yc])
           i = i + 1
-          
+        elif rnds.rsymbplace == 2:
+          #check if a selection is present or the temporary channel mask has been created
+          if not pdb.gimp_selection_is_empty(self.img) or tempchannel is not None:
+            if tempchannel is None:
+              tempchannel = pdb.gimp_selection_save(self.img)
+              tempchannel.name = "temporarymask"
+              pdb.gimp_selection_none(self.img)
+            if self.checkpixelcoord(xc, yc, tempchannel):
+              pdb.gimp_paintbrush_default(self.symbols, 2, [xc, yc])
+              i = i + 1
+          else:
+            infodi = gtk.Dialog(title="Info", parent=self)
+            imess = "Select the area where you want to place the symbols with the lazo tool or another selection tool first!\n"
+            ilabel = gtk.Label(imess)
+            infodi.vbox.add(ilabel)
+            ilabel.show()
+            infodi.add_button("Ok", gtk.RESPONSE_OK)
+            diresp = infodi.run()
+            if (diresp == gtk.RESPONSE_OK):
+              infodi.destroy()
+              break
+
+      if tempchannel is not None:
+        pdb.gimp_image_remove_channel(self.img, tempchannel)
+
       pdb.gimp_displays_flush()
     
     rnds.destroy()
