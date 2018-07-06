@@ -29,6 +29,7 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ mountains improvements: add more control on smooth: possibility to better regulate smooth parameter. How?
+#@@@ allow possibility to import path for roads from SVG file
 
 import sys
 import os
@@ -2491,13 +2492,6 @@ class SymbolsBuild(TLSbase):
       pdb.gimp_image_remove_layer(self.img, self.symbols)
       
     pdb.gimp_displays_flush()
-    
-  #override callback for next/previous button, in order to add a call to fixsymbols
-  #~ def on_setting_np(self, widget, pp):
-    #~ if pp == TLSbase.NEXT:
-      #~ self.fixsymbols()
-      
-    #~ TLSbase.on_setting_np(self, widget, pp)
 
 
 #class to add roads
@@ -2524,6 +2518,7 @@ class RoadBuild(TLSbase):
     labatxt = "Adding roads. You are going to use paths. Click on the top path in the Paths panel to activate the path tool.\n"
     labatxt += "Place paths between cities, place nodes and curves. The roads will be drawn on the paths you are going to place by clicking the 'Draw Roads' button.\n"
     labatxt += "You can repeat this step: just select the new Path that is created each time the roads are drawn and place new paths.\n"
+    labatxt += "If you have a svg file with paths that you wish to import to use as roads, import it through the 'Import from SVG file' button.\n"
     labatxt += "Change color, size or type line if you wish and click again the 'Draw Roads' button."
     laba = gtk.Label(labatxt)
     hboxa.add(laba)
@@ -2578,6 +2573,10 @@ class RoadBuild(TLSbase):
     butcanc = gtk.Button("Cancel all Roads")
     self.action_area.add(butcanc)
     butcanc.connect("clicked", self.on_cancel_clicked)
+
+    butimpo = gtk.Button("Import from SVG file")
+    self.action_area.add(butimpo)
+    butimpo.connect("clicked", self.on_import_clicked)
     
     butdraw = gtk.Button("Draw Roads")
     self.action_area.add(butdraw)
@@ -2622,12 +2621,13 @@ class RoadBuild(TLSbase):
 
   #override loading method
   def loaddrawables(self):
-    for ll in self.img.layers + self.img.vectors:
+    for ll in self.img.layers:
       if ll.name == self.namelist[0]:
         self.bgl = ll
-      elif self.namelist[0] in ll.name:
-        self.paths.append(ll)
-      
+    for pl in self.img.vectors:
+      if self.namelist[0] in pl.name:
+        self.paths.append(pl)
+        
     return self.loaded()
     
   #callback method to cancel all roads
@@ -2656,20 +2656,31 @@ class RoadBuild(TLSbase):
     self.setgenerated(True)
     self.setbeforerun()
 
+  #callback method to draw roads
+  def on_import_clicked(self, widget):
+    filechooser = gtk.FileChooserDialog ("Choose SVG file", self, gtk.FILE_CHOOSER_ACTION_OPEN, (gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL, gtk.STOCK_OPEN, gtk.RESPONSE_OK), None)
+    swf_filter = gtk.FileFilter()
+    swf_filter.set_name("SVG (*.svg)")
+    swf_filter.add_pattern("*.[Ss][Vv][Gg]")
+    filechooser.add_filter(swf_filter)
+    rr = filechooser.run()
+
+    #importing e substituting the new vector drawable to the last element in paths
+    if rr == gtk.RESPONSE_OK:
+      fn = filechooser.get_filename()
+      pname = self.paths[-1].name
+      pdb.gimp_vectors_import_from_file(self.img, fn, True, True)
+      pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
+      self.paths[-1] = self.img.vectors[-1]
+      self.paths[-1].name = pname
+
+    filechooser.destroy()
+
   #override method to delete the last vectors drawable
   def afterclosing(self, who):
     pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
     if not self.generated:
       pdb.gimp_image_remove_layer(self.img, self.bgl)
-
-  #override callback for next/previous button, in order to delete the last vectors drawable
-  #~ def on_setting_np(self, widget, pp):
-    #~ if pp == TLSbase.NEXT:
-      #~ pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
-      #~ if self.get_brightness_max(self.bgl) == -1: #check the histogram, verify if is a fully transparent layer.
-        #~ pdb.gimp_image_remove_layer(self.img, self.bgl)
-      
-    #~ TLSbase.on_setting_np(self, widget, pp)
 
 
 #class for the customized GUI
