@@ -579,7 +579,9 @@ class TLSbase(gtk.Dialog):
   #callback method to quit from the dialog looping
   def on_quit(self, widget):
     self.chosen = None
-    self.cleandrawables()
+    self.afterclosing(0)
+    if not self.generated:
+      self.cleandrawables()
     self.on_job_done()
 
   #callback method acting on the generate button
@@ -606,6 +608,7 @@ class TLSbase(gtk.Dialog):
         self.chosen = None
       else:
         self.chosen = self.nextd
+      self.afterclosing(1)
 
     if close:
       self.on_job_done()
@@ -625,7 +628,7 @@ class TLSbase(gtk.Dialog):
       return True
     else:
       return False
-      
+    
   #method, adding the cancel button to the button area 
   def add_button_quit(self):
     self.butquit = gtk.Button("Quit")
@@ -656,6 +659,10 @@ class TLSbase(gtk.Dialog):
     
   #method to set some stuffs before a run() call. To be overrided by the child classes if needed, but not mandatory
   def setbeforerun(self):
+    pass
+
+  #method to perform any action at the pressing of the next or quit button (even if the step has not been generated). To be overrided by the child classes if needed, but not mandatory
+  def afterclosing(self, who):
     pass
   
   #method to delete drawable (layers and channel masks) associated to the TLSbase child instance. Drawable of TLSbase are deleted, drawable of childs must be given as arguments
@@ -1621,6 +1628,7 @@ class BuildAddition(TLSbase):
       pdb.gimp_item_set_visible(newmp.maskl, False)
       self.drawablechild = [newmp.bgl, newmp.noisel, newmp.clipl, newmp.maskl, self.addingchannel]
       self.generatestep()
+      self.setgenerated(True)
     else:
       pdb.gimp_image_remove_layer(self.img, newmp.bgl)
       
@@ -1655,6 +1663,7 @@ class BuildAddition(TLSbase):
         infodi.destroy()
         self.drawablechild = [self.addingchannel]
         self.generatestep()
+        self.setgenerated(True)
       else:
         infodib = gtk.Dialog(title="Warning", parent=infodi)
         ilabelb = gtk.Label("You have to create a selection!")
@@ -2462,8 +2471,9 @@ class SymbolsBuild(TLSbase):
     self.setgenerated(False)
     self.setbeforerun()
     
-  #method to fix symbols, add finishing touches and close
-  def fixsymbols(self):
+  #override method to fix symbols, add finishing touches and close.
+  #Careful, we cannot know before calling this method the first time if the step has been generated or not as the boolean variable is set here.
+  def afterclosing(self, who):
     if self.get_brightness_max(self.symbols) != -1: #check the histogram, verify that is not a fully transparent layer.
       if not self.generated:
         pdb.gimp_image_select_item(self.img, 2, self.symbols) #2 = replace selection, this select everything in the layer which is not transparent
@@ -2483,11 +2493,11 @@ class SymbolsBuild(TLSbase):
     pdb.gimp_displays_flush()
     
   #override callback for next/previous button, in order to add a call to fixsymbols
-  def on_setting_np(self, widget, pp):
-    if pp == TLSbase.NEXT:
-      self.fixsymbols()
+  #~ def on_setting_np(self, widget, pp):
+    #~ if pp == TLSbase.NEXT:
+      #~ self.fixsymbols()
       
-    TLSbase.on_setting_np(self, widget, pp)
+    #~ TLSbase.on_setting_np(self, widget, pp)
 
 
 #class to add roads
@@ -2623,6 +2633,7 @@ class RoadBuild(TLSbase):
   #callback method to cancel all roads
   def on_cancel_clicked(self, widget):
     self.cleandrawables()
+    self.setgenerated(False)
     self.setbeforerun()
     
   #callback method to draw roads
@@ -2642,16 +2653,23 @@ class RoadBuild(TLSbase):
       pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
 
     pdb.gimp_context_set_foreground(oldfgcol)
+    self.setgenerated(True)
     self.setbeforerun()
 
+  #override method to delete the last vectors drawable
+  def afterclosing(self, who):
+    pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
+    if not self.generated:
+      pdb.gimp_image_remove_layer(self.img, self.bgl)
+
   #override callback for next/previous button, in order to delete the last vectors drawable
-  def on_setting_np(self, widget, pp):
-    if pp == TLSbase.NEXT:
-      pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
-      if self.get_brightness_max(self.bgl) == -1: #check the histogram, verify if is a fully transparent layer.
-        pdb.gimp_image_remove_layer(self.img, self.bgl)
+  #~ def on_setting_np(self, widget, pp):
+    #~ if pp == TLSbase.NEXT:
+      #~ pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
+      #~ if self.get_brightness_max(self.bgl) == -1: #check the histogram, verify if is a fully transparent layer.
+        #~ pdb.gimp_image_remove_layer(self.img, self.bgl)
       
-    TLSbase.on_setting_np(self, widget, pp)
+    #~ TLSbase.on_setting_np(self, widget, pp)
 
 
 #class for the customized GUI
