@@ -24,6 +24,7 @@
 #setting names
 mainscript="make_landmap.py"
 mainfolder="make_landmap_brushes"
+ausscript="stroke_vector_options.py"
 
 echo "$mainscript installation script, working on linux systems.\n"
 echo "This script copies the main script and the other relevant files in the GIMP user directories."
@@ -41,6 +42,8 @@ echo "Your GIMP user folder is: $instdir"
 echo "Copying $mainscript..."
 cp $mainscript $instdir/plug-ins
 
+echo "Copying $ausscript..."
+cp $ausscript $instdir/plug-ins
 
 if [ ! -d "$instdir/plug-ins/$mainfolder" ]; then
   echo "Creating $mainfolder directory..."
