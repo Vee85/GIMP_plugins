@@ -29,7 +29,6 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ mountains improvements: add more control on smooth: possibility to better regulate smooth parameter. How?
-#@@@ allow possibility to import path for roads from SVG file
 
 import sys
 import os
@@ -792,7 +791,7 @@ class TLSbase(gtk.Dialog):
   
   #method to generate the clip layer
   def makeclipl(self, lname, commtxt): 
-    cliplayer = pdb.gimp_layer_new(self.img, self.refwidth, self.refheight, 0, lname, 100, 10) #10 = lighten only mode
+    cliplayer = pdb.gimp_layer_new(self.img, self.refwidth, self.refheight, 0, lname, 100, LIGHTEN_ONLY_MODE)
     self.img.add_layer(cliplayer, 0)
     colfillayer(self.img, cliplayer, (255, 255, 255)) #make layer color white
     
@@ -1737,17 +1736,19 @@ class MountainsBuild(BuildAddition):
   #constructor
   def __init__(self, image, layermask, channelmask, *args):
     mwin = BuildAddition.__init__(self, image, layermask, channelmask, *args)
-    self.mountainsangular = None
+    self.mntangularl = None
     self.cpvlayer = None
     self.embosslayer = None
     self.noisemask = None
     self.finalmaskl = None
     self.mntcolorl = None
     self.mntshadowl = None
+    self.mntedgesl = None
     
     self.addsnow = True
     self.browncol = False
     self.addshadow = True
+    self.raisedge = {"Top" : True, "Right" : True, "Bottom" : True, "Left" : True}
     
     self.colormountslow = (75, 62, 43)
     self.colormountshigh = (167, 143, 107)
@@ -1759,7 +1760,7 @@ class MountainsBuild(BuildAddition):
     "toplab" : "In the final result: white represent where mountains are drawn.", \
     "topnestedlab" : "Position of the mountains masses in the image."}
 
-    finalnames = ["basicnoise", "final", "blur", "widenoise", "angular", "colors", "visible", "emboss", "shadow", "mask", "defmask"]
+    finalnames = ["basicnoise", "final", "blur", "widenoise", "angular", "colors", "visible", "emboss", "shadow", "edges", "mask", "defmask"]
     self.namelist = [self.textes["baseln"] + fn for fn in finalnames]
     self.namelist.append([self.textes["baseln"] + n for n in self.childnames]) #list inside list
     
@@ -1797,11 +1798,32 @@ class MountainsBuild(BuildAddition):
     chbe.set_active(self.addshadow)
     chbe.connect("toggled", self.on_chbe_toggled)
     hbxe.add(chbe)
+
+    #new row
+    hbxf = gtk.HBox(spacing=3, homogeneous=False)
+    self.vbox.add(hbxf)
+    labf = gtk.Label("Raise mountains on image borders:")
+    hbxf.add(labf)
+    chbfa = self.addingchbegde(self.raisedge.keys()[0])
+    hbxf.add(chbfa)
+    chbfb = self.addingchbegde(self.raisedge.keys()[1])
+    hbxf.add(chbfb)
+    chbfc = self.addingchbegde(self.raisedge.keys()[2])
+    hbxf.add(chbfc)
+    chbfd = self.addingchbegde(self.raisedge.keys()[3])
+    hbxf.add(chbfd)
     
     #button area inherited from parent class
     self.add_button_nextprev()
 
     return mwin
+
+  #adding a checkbutton for rasing the mountains at image borders
+  def addingchbegde(self, dictkey):
+    chbt = gtk.CheckButton(dictkey)
+    chbt.set_active(self.raisedge[dictkey])
+    chbt.connect("toggled", self.on_chbfany_toggled, dictkey)
+    return chbt
   
   #nested class to let the user control if the mountains mask should be improved and rotated
   class ControlMask(gtk.Dialog):
@@ -1863,11 +1885,16 @@ class MountainsBuild(BuildAddition):
   #callback method, set the adding shadow variable
   def on_chbe_toggled(self, widget):
     self.addshadow = widget.get_active()
+
+  #callback method, set the
+  def on_chbfany_toggled(self, widget, k):
+    self.raisedge[k] = widget.get_active()
   
   #override cleaning method
   def cleandrawables(self):
     #here repeating self.addingchannel, because it may be reassigned after its reference is saved in the drawablechild list
-    self.deletedrawables(self.mountainsangular, self.cpvlayer, self.embosslayer, self.noisemask, self.finalmaskl, self.mntcolorl, self.mntshadowl, self.addingchannel, *self.getdrawablechild())
+    self.deletedrawables(self.mntangularl, self.cpvlayer, self.embosslayer, self.noisemask,
+    self.finalmaskl, self.mntcolorl, self.mntshadowl, self.mntedgesl, self.addingchannel, *self.getdrawablechild())
 
   #override loading method
   def loaddrawables(self):
@@ -1881,7 +1908,7 @@ class MountainsBuild(BuildAddition):
       elif ll.name == self.namelist[3]:
         self.noisel = ll
       elif ll.name == self.namelist[4]:
-        self.mountainsangular = ll
+        self.mntangularl = ll
       elif ll.name == self.namelist[5]:
         self.mntcolorl = ll
       elif ll.name == self.namelist[6]:
@@ -1891,10 +1918,12 @@ class MountainsBuild(BuildAddition):
       elif ll.name == self.namelist[8]:
         self.mntshadowl = ll
       elif ll.name == self.namelist[9]:
-        self.drawablechild.append(ll)
+        self.mntedgesl = ll
       elif ll.name == self.namelist[10]:
+        self.drawablechild.append(ll)
+      elif ll.name == self.namelist[11]:
         self.addingchannel = ll
-      elif ll.name in self.namelist[11]:
+      elif ll.name in self.namelist[12]:
         self.drawablechild.append(ll)
     return self.loaded()
     
@@ -1940,23 +1969,43 @@ class MountainsBuild(BuildAddition):
       pdb.plug_in_solid_noise(self.img, self.noisel, False, False, random.random() * 9999999999, 16, 4, 4)
     
     #creating angular gradient
-    self.mountainsangular = self.makeunilayer(self.textes["baseln"] + "angular", (0, 0, 0))
+    self.mntangularl = self.makeunilayer(self.textes["baseln"] + "angular", (0, 0, 0))
     #drawing the gradients: #0 (first) = normal mode, 0 (second) linear gradient, 6 (third): shape angular gradient, True (eighth): supersampling
-    pdb.gimp_edit_blend(self.mountainsangular, 0, 0, 6, 100, 0, 0, True, True, 4, 3.0, True, 0, 0, self.img.width, self.img.height)
+    pdb.gimp_edit_blend(self.mntangularl, 0, 0, 6, 100, 0, 0, True, True, 4, 3.0, True, 0, 0, self.img.width, self.img.height)
+
+    #creating linear gradient to rise mountains on image edges
+    self.mntedgesl = self.makeunilayer(self.textes["baseln"] + "edges", (0, 0, 0))
+    for edg in self.raisedge.keys():
+      if self.raisedge[edg]:
+        tempedgel = self.makeunilayer(self.textes["baseln"] + "edges", (0, 0, 0))
+        pdb.gimp_layer_set_mode(tempedgel, LIGHTEN_ONLY_MODE)
+        #drawing the gradients: #0 (first) = normal mode, 0 (second) linear gradient, 6 (third): shape angular gradient, True (eighth): supersampling
+        if edg == "Top":
+          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, self.img.width/2, 0, self.img.width/2, self.img.height/4)
+        elif edg == "Left":
+          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, 0, self.img.height/2, self.img.width/4, self.img.height/2)
+        elif edg == "Bottom":
+          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, self.img.width/2, self.img.height, self.img.width/2, self.img.height * 0.75)
+        elif edg == "Right":
+          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, self.img.width, self.img.height/2, self.img.width * 0.75, self.img.height/2)
+        self.mntedgesl = pdb.gimp_image_merge_down(self.img, tempedgel, 0)
+        
     pdb.gimp_selection_none(self.img)
     
     #editing level modes and color levels
     pdb.gimp_layer_set_mode(self.noisel, ADDITION_MODE)
-    pdb.gimp_layer_set_mode(self.mountainsangular, ADDITION_MODE)
+    pdb.gimp_layer_set_mode(self.mntangularl, ADDITION_MODE)
+    pdb.gimp_layer_set_mode(self.mntedgesl, ADDITION_MODE)
     pdb.gimp_levels(self.bgl, 0, 0, 255, 1.0, 0, 85) #regulating color levels, channel = #0 (second parameter) is for histogram value
     inhh = self.get_brightness_max(self.noisel)
     pdb.gimp_levels(self.noisel, 0, 0, inhh, 1.0, 0, 50) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    pdb.gimp_levels(self.mntedgesl, 0, 0, 255, 1.0, 0, 100) #regulating color levels, channel = #0 (second parameter) is for histogram value
     
     #editing color curves
     ditext = "Try to eliminate most of the brightness by lowering the top-right control point\nand adding other points at the level of the histogram counts."
-    cdd = CCurveDialog(self.img, self.mountainsangular, ditext, "Setting color curve", self, gtk.DIALOG_MODAL)
+    cdd = CCurveDialog(self.img, self.mntangularl, ditext, "Setting color curve", self, gtk.DIALOG_MODAL)
     cdd.run()
-    self.mountainsangular = cdd.reslayer
+    self.mntangularl = cdd.reslayer
     
     self.cpvlayer = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "visible")
     self.img.add_layer(self.cpvlayer, 0)
@@ -1982,7 +2031,6 @@ class MountainsBuild(BuildAddition):
       
       pdb.gimp_item_set_visible(self.mntcolorl, False)
       
-
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
     self.embosslayer.name = self.textes["baseln"] + "emboss"
@@ -2007,8 +2055,9 @@ class MountainsBuild(BuildAddition):
     #hiding not needed layers
     pdb.gimp_item_set_visible(self.bgl, False)
     pdb.gimp_item_set_visible(self.noisel, False)
-    pdb.gimp_item_set_visible(self.mountainsangular, False)
+    pdb.gimp_item_set_visible(self.mntangularl, False)
     pdb.gimp_item_set_visible(self.cpvlayer, False)
+    pdb.gimp_item_set_visible(self.mntedgesl, False)
     pdb.gimp_layer_set_mode(self.embosslayer, OVERLAY_MODE)
     pdb.gimp_selection_none(self.img)
 
