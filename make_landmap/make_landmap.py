@@ -667,7 +667,7 @@ class TLSbase(gtk.Dialog):
   
   #method to delete drawable (layers and channel masks) associated to the TLSbase child instance. Drawable of TLSbase are deleted, drawable of childs must be given as arguments
   def deletedrawables(self, *drawables):
-    basetuple = (self.bgl, self.noisel, self.clipl, self.baseml) #not deleting self.maskl and self.channelms as they are shared by various instances
+    basetuple = (self.bgl, self.noisel, self.clipl) #not deleting self.baselm, self.maskl and self.channelms as they are shared by various instances
     deltuple = basetuple + drawables
     
     #deleting the list
@@ -925,7 +925,7 @@ class TLSbase(gtk.Dialog):
     return shapelayer, resmask
 
 #class to generate random mask profile
-class MaskProfile(TLSbase):  
+class MaskProfile(TLSbase):
   #constructor
   def __init__(self, textes, image, tdraw, basemask, *args):
     mwin = TLSbase.__init__(self, image, basemask, None, None, True, *args)
@@ -1065,10 +1065,10 @@ class MaskProfile(TLSbase):
   #override method, generate the profile
   def generatestep(self):
     if self.generated:
-      self.bgl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, self.textes["baseln"] + "bg", 100, 0) #0 = normal mode
-      self.img.add_layer(self.bgl, 0)
-      colfillayer(self.img, self.bgl, (255, 255, 255)) #make layer full white
-      
+      self.bgl = self.makeunilayer(self.textes["baseln"] + "base", (255, 255, 255))
+    else:
+      self.bgl.name = self.textes["baseln"] + "base"
+           
     #Using the TSL tecnnique: shape layer
     if (self.chtype == 0): #skip everything
       pass
@@ -1687,8 +1687,8 @@ class AdditionalDetBuild(BuildAddition):
   #constructor
   def __init__(self, textes, image, basel, layermask, channelmask, colorlight, colordeep, *args):
     mwin = BuildAddition.__init__(self, image, layermask, channelmask, *args)
-
-    self.bgl = basel
+    
+    self.refbase = basel
     self.clight = colorlight
     self.cdeep = colordeep
     self.textes = textes
@@ -1712,11 +1712,11 @@ class AdditionalDetBuild(BuildAddition):
   #override method, clean previous drawables for regeneration. Not needed by this class as this process is done by BaseDetails
   def cleandrawables(self):
     pass
-  
+    
   #override method, drawing the area
   def generatestep(self):
     self.addingchannel.name = self.textes["baseln"] + "mask"
-    self.bgl = self.bgl.copy()
+    self.bgl = self.refbase.copy()
     self.img.add_layer(self.bgl, 0)
     self.bgl.name = self.textes["baseln"]
     
@@ -1886,7 +1886,7 @@ class MountainsBuild(BuildAddition):
   def on_chbe_toggled(self, widget):
     self.addshadow = widget.get_active()
 
-  #callback method, set the
+  #callback method, set the raisedge value of k entry
   def on_chbfany_toggled(self, widget, k):
     self.raisedge[k] = widget.get_active()
   
