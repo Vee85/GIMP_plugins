@@ -39,12 +39,19 @@ import gobject
 from gimpfu import *
 
 
-#generic function used to adjust RGB color of a color gobject
+#generic function used to convert a 65535 RGB color gobject in a 255 tuple RGB color
 def gdkcoltorgb(gdkc):
   red = int(gdkc.red_float * 255)
   green = int(gdkc.green_float * 255)
   blue = int(gdkc.blue_float * 255)
   return (red, green, blue)
+
+#generic function used to convert a 255 tuple RGB color in a 65535 RGB color gobject
+def rgbcoltogdk(rr, gg, bb):
+  red = int(rr * (65535 / 255))
+  green = int(gg * (65535 / 255))
+  blue = int(bb * (65535 / 255))
+  return gtk.gdk.Color(red, green, blue)
 
 #generic function to fill a layer with a color
 def colfillayer(image, layer, rgbcolor):
@@ -52,6 +59,56 @@ def colfillayer(image, layer, rgbcolor):
   pdb.gimp_context_set_foreground(rgbcolor) #set foreground color
   pdb.gimp_edit_bucket_fill(layer, 0, 0, 100, 255, True, pdb.gimp_image_width(image)/2, pdb.gimp_image_height(image)/2) #0 (first): filling the layer with foreground color
   pdb.gimp_context_set_foreground(oldfgcol)
+
+
+#class to let the user setting the colors edge of a color map
+class ColorMapper(gtk.Dialog):
+  #constructor
+  def __init__(self, labtxt, bicolor=False, *args):
+    mwin = gtk.Dialog.__init__(self, *args)
+    self.set_border_width(10)
+
+    if bicolor:
+      self.wcol = ["light", "deep"]
+    else:
+      self.wcol = ["the"]
+      
+    self.butcolors = {}
+    self.chcol = {}
+
+    #Designing the interface
+    #new row
+    laba = gtk.Label(labtxt)
+    self.vbox.add(laba)
+
+    #new row
+    hbxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxb)
+
+    for l in self.wcol:
+      tt = "Select " + l + " color"
+      labb = gtk.Label(tt)
+      hbxb.add(labb)
+      hbxb.add(self.addbutcol(l, tt, (0, 0, 0)))
+
+    #button area
+    self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+    self.add_button("Ok", gtk.RESPONSE_OK)
+
+    self.show_all()
+    return mwin
+
+  #callback method
+  def on_butcolor_clicked(self, widget, key):
+    self.chcol[key] = gdkcoltorgb(widget.get_color())
+
+  #make color button chooser
+  def addbutcol(self, key, dtitle, rgbcol):
+    self.butcolors[key] = gtk.ColorButton()
+    self.butcolors[key].set_title(dtitle)
+    self.chcol[key] = rgbcol
+    self.butcolors[key].connect("color-set", self.on_butcolor_clicked, key)
+    return self.butcolors[key]
 
 
 #class to adjust the color levels/threshold of a layer, reproducing a simpler interface to the GIMP color levels dialog or the GIMP color threshold dialog. 
@@ -229,41 +286,6 @@ class CLevDialog(gtk.Dialog):
       pass
       
     self.hide()
-    
-
-#class linked to a graphic marker in the drawing area
-class CCMarker:
-  #constructor
-  def __init__(self, x, y, at=True):
-    self.setcoord(x, y)
-    self.setactive(at)
-
-  #method, setting the coordinate
-  def setcoord(self, x, y):
-    self.x = x
-    self.y = y
-
-  #method, getting the x coordinate
-  def getx(self):
-    return self.x
-
-  #method, getting the y coordinate
-  def gety(self):
-    return self.y
-
-  #method, setting if active
-  def setactive(self, at):
-    self.active = at
-
-  #method, getting if active
-  def getactive(self):
-    return self.active
-  
-  #method, get distance from coordinates
-  def cdistance(self, cx, cy):
-    dx = self.x - cx
-    dy = self.y - cy
-    return math.sqrt(dx*dx + dy*dy)
 
 
 #class to adjust the color levels of a layer, reproducing a simpler interface to the GIMP color curves dialog. 
@@ -306,6 +328,40 @@ class BDrawDial(gtk.Dialog):
     #action area empty
 
     return dwin
+
+  #nested class representing a graphic marker in the drawing area
+  class CCMarker:
+    #constructor
+    def __init__(self, x, y, at=True):
+      self.setcoord(x, y)
+      self.setactive(at)
+
+    #method, setting the coordinate
+    def setcoord(self, x, y):
+      self.x = x
+      self.y = y
+
+    #method, getting the x coordinate
+    def getx(self):
+      return self.x
+
+    #method, getting the y coordinate
+    def gety(self):
+      return self.y
+
+    #method, setting if active
+    def setactive(self, at):
+      self.active = at
+
+    #method, getting if active
+    def getactive(self):
+      return self.active
+    
+    #method, get distance from coordinates
+    def cdistance(self, cx, cy):
+      dx = self.x - cx
+      dy = self.y - cy
+      return math.sqrt(dx*dx + dy*dy)
 
   #callback method, draw stuffs when the drawing area appears
   def on_expose(self, widget, ev):
@@ -356,7 +412,7 @@ class BDrawDial(gtk.Dialog):
         elif ev.button == 3:
           att = False
 
-        mm = CCMarker(ev.x, ev.y, att)
+        mm = self.CCMarker(ev.x, ev.y, att)
         self.markers.append(mm)
         self.sortmarkers()
         self.drawmarker(mm)
@@ -479,7 +535,7 @@ class CCurveDialog(BDrawDial):
       
   #callback method, replace all markers with default
   def on_butrest_clicked(self, widget, doprev=True):
-    self.markers = [CCMarker(self.xfr, self.drh - self.yfr, True), CCMarker(self.drw - self.xfr, self.yfr, True)]
+    self.markers = [self.CCMarker(self.xfr, self.drh - self.yfr, True), self.CCMarker(self.drw - self.xfr, self.yfr, True)]
     if doprev:
       self.on_butprev_clicked(self.butprev)
   
@@ -1272,8 +1328,8 @@ class BaseDetails(TLSbase):
     
     #internal parameters
     #@@@ ideally all of these: grassland, terrain, desert, arctic, underdark || these should be smaller regions rendered in other ways: forest, mountain, swamp
-    self.regionlist = ["grassland", "terrain", "desert", "arctic"]
-    self.regiontype = ["grass", "ground", "sand", "ice"]
+    self.regionlist = ["grassland", "terrain", "desert", "arctic", "custom color map"]
+    self.regiontype = ["grass", "ground", "sand", "ice", "custom"]
     self.region = self.regiontype[0] #will be reinitialized in GUI costruction
 
     self.namelist = [self.regiontype, [n + "texture" for n in self.regiontype], [n + "bumpmap" for n in self.regiontype], [n + "bumps" for n in self.regiontype]]
@@ -1356,15 +1412,21 @@ class BaseDetails(TLSbase):
     #setting base color
     self.addmaskp(self.bgl)
     self.bgl.name = self.region    
-    if (self.bgl.name == "grass"):
+    if self.bgl.name == "grass":
       self.cgradmap(self.bgl, self.colorgrassdeep, self.colorgrasslight)
-    if (self.bgl.name == "ground"):
+    if self.bgl.name == "ground":
       self.cgradmap(self.bgl, self.colorgrounddeep, self.colorgroundlight)
-    elif (self.bgl.name == "sand"):
+    elif self.bgl.name == "sand":
       self.cgradmap(self.bgl, self.colordesertdeep, self.colordesertlight)
-    elif (self.bgl.name == "ice"):
+    elif self.bgl.name == "ice":
       self.cgradmap(self.bgl, self.colorarcticdeep, self.colorarcticlight)
-    
+    elif self.bgl.name == "custom":
+      cmapper = ColorMapper("Choose a light and deep color at the edge of a gradient map", True, "Color chooser", self, gtk.DIALOG_MODAL)
+      rr = cmapper.run()
+      if rr == gtk.RESPONSE_OK:
+        self.cgradmap(self.bgl, cmapper.chcol["light"], cmapper.chcol["deep"])
+      cmapper.destroy()
+   
     pdb.gimp_displays_flush()
     
     #adding small areas of other region types
@@ -1377,26 +1439,25 @@ class BaseDetails(TLSbase):
         
         if addt == "grass":
           smtextes["labelext"] = "smaller green areas"
-          cdeep = self.colorgrassdeep
-          clight = self.colorgrasslight
+          cls = (self.colorgrasslight, self.colorgrassdeep)
         elif addt == "ground":
           smtextes["labelext"] = "smaller terrain areas"
-          cdeep = self.colorgrounddeep
-          clight = self.colorgroundlight
+          cls = (self.colorgroundlight, self.colorgrounddeep)
         elif addt == "sand":
           smtextes["labelext"] = "smaller desertic areas"
-          cdeep = self.colordesertdeep
-          clight = self.colordesertlight
+          cls = (self.colordesertlight, self.colordesertdeep)
         elif addt == "ice":
           smtextes["labelext"] = "smaller frosted areas"
-          cdeep = self.colorarcticdeep
-          clight = self.colorarcticlight
-        
-        smarea = AdditionalDetBuild(smtextes, self.img, self.bgl, self.maskl, self.channelms, cdeep, clight, "Building smaller areas", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+          cls = (self.colorarcticlight, self.colorarcticdeep)
+        elif addt == "custom":
+          smtextes["labelext"] = "smaller customized areas"
+          cls = None
+          
+        smarea = AdditionalDetBuild(smtextes, self.img, self.bgl, self.maskl, self.channelms, cls, "Building smaller areas", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
         smarea.run()
         self.allchildsdraw.append(smarea.bgl)
         self.allchildsdraw += smarea.getdrawablechild()
-    
+                  
     #generating noise
     self.noisel = self.makenoisel(self.bgl.name + "texture", 3, 3, OVERLAY_MODE)
     self.addmaskp(self.noisel)
@@ -1685,12 +1746,13 @@ class BuildAddition(TLSbase):
 #class to generate small area of a different land type than the main one
 class AdditionalDetBuild(BuildAddition):
   #constructor
-  def __init__(self, textes, image, basel, layermask, channelmask, colorlight, colordeep, *args):
+  def __init__(self, textes, image, basel, layermask, channelmask, colors, *args):
     mwin = BuildAddition.__init__(self, image, layermask, channelmask, *args)
     
     self.refbase = basel
-    self.clight = colorlight
-    self.cdeep = colordeep
+    self.colors = colors
+    self.clight = None
+    self.cdeep = None
     self.textes = textes
         
     #Designing the interface
@@ -1703,7 +1765,7 @@ class AdditionalDetBuild(BuildAddition):
     
     #new row
     self.smoothdef([0.03, 0.06, 0.1], "Select smoothing range for the area,\nit helps the blending with the main color.")
-        
+    
     #button area inherited from parent class
 
     self.show_all()
@@ -1716,6 +1778,8 @@ class AdditionalDetBuild(BuildAddition):
   #override method, drawing the area
   def generatestep(self):
     self.addingchannel.name = self.textes["baseln"] + "mask"
+    self.clight, self.cdeep = self.colorset(self.colors)
+    
     self.bgl = self.refbase.copy()
     self.img.add_layer(self.bgl, 0)
     self.bgl.name = self.textes["baseln"]
@@ -1729,8 +1793,24 @@ class AdditionalDetBuild(BuildAddition):
       pdb.plug_in_gauss(self.img, maskt, self.smoothval, self.smoothval, 0)
       
     self.on_job_done()
-    
-    
+
+  #method to set the colors
+  def colorset(self, colors):
+    if colors is not None:
+      return colors
+    else:
+      cmapper = ColorMapper("Choose a light and deep color at the edge of a gradient map", True, "Color chooser", self, gtk.DIALOG_MODAL)
+      rr = cmapper.run()
+      if rr == gtk.RESPONSE_OK:
+        cl = cmapper.chcol["light"]
+        cd = cmapper.chcol["deep"]
+      elif rr == gtk.RESPONSE_CANCEL:
+        cl = (0, 0, 0)
+        cd = (255, 255, 255)
+      cmapper.destroy()
+      return (cl, cd)
+
+      
 #class to generate the mountains
 class MountainsBuild(BuildAddition):
   #constructor
@@ -1746,12 +1826,12 @@ class MountainsBuild(BuildAddition):
     self.mntedgesl = None
     
     self.addsnow = True
-    self.browncol = False
+    self.addcol = False
     self.addshadow = True
     self.raisedge = {"Top" : True, "Right" : True, "Bottom" : True, "Left" : True}
     
-    self.colormountslow = (75, 62, 43)
-    self.colormountshigh = (167, 143, 107)
+    #~ self.colormountslow = (75, 62, 43)
+    #~ self.colormountshigh = (167, 143, 107)
     self.setsmoothbeforecomb(False) #mountains should always be smoothed later
     
     self.textes = {"baseln" : "mountains", \
@@ -1778,8 +1858,8 @@ class MountainsBuild(BuildAddition):
     #new row
     hbxd = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxd)
-    chbd = gtk.CheckButton("Colour mountains in brown.")
-    chbd.set_active(self.browncol)
+    chbd = gtk.CheckButton("Colour mountains.")
+    chbd.set_active(self.addcol)
     chbd.connect("toggled", self.on_chbd_toggled)
     hbxd.add(chbd)
     
@@ -1872,7 +1952,78 @@ class MountainsBuild(BuildAddition):
     #get angle in radians
     def getanglerad(self):
       return (self.rotangle/180.0)*math.pi
-  
+
+  #nested class to let the user choosing the mountains color
+  class ControlColor(gtk.Dialog):
+    #constructor
+    def __init__(self, *args):
+      swin = gtk.Dialog.__init__(self, *args)
+      self.set_border_width(10)
+
+      self.colornames = ["Brown", "Gray", "Custom"]
+      self.colorslight = [rgbcoltogdk(75, 62, 43), rgbcoltogdk(84, 84, 84), None] 
+      self.colorsdeep = [rgbcoltogdk(167, 143, 107), rgbcoltogdk(207, 207, 207), None] 
+      self.clight = gdkcoltorgb(self.colorslight[0])
+      self.cdeep = gdkcoltorgb(self.colorsdeep[0])
+      
+      #new row
+      labtxt = "Set mountains color from a predetermined list. Choose 'custom' to set arbitrary the colors."
+      laba = gtk.Label(labtxt)
+      self.vbox.add(laba)
+   
+      #new row            
+      boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gtk.gdk.Color, gtk.gdk.Color)
+      
+      #filling the model for the combobox
+      for i, j, k in zip(self.colornames, self.colorslight, self.colorsdeep):
+        irow = boxmodelb.append(None, [i, j, k])
+
+      self.sclight = gdkcoltorgb(self.colorslight[0])
+      self.cdeep = gdkcoltorgb(self.colorsdeep[0])
+
+      cboxb = gtk.ComboBox(boxmodelb)
+      rendtextb = gtk.CellRendererText()
+      cboxb.pack_start(rendtextb, True)
+      cboxb.add_attribute(rendtextb, "text", 0)
+      cboxb.set_entry_text_column(0)
+      cboxb.set_active(0)
+      cboxb.connect("changed", self.on_color_changed)
+      self.vbox.add(cboxb)
+
+      #button area
+      self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+      okbutton = self.add_button("Ok", gtk.RESPONSE_OK)
+      okbutton.connect("clicked", self.on_ok_clicked)
+
+      self.show_all()
+      return swin
+
+    #callback method, setting the colors
+    def on_color_changed(self, widget):
+      refmode = widget.get_model()
+      cll = refmode.get_value(widget.get_active_iter(), 1)
+      cdd = refmode.get_value(widget.get_active_iter(), 2)
+
+      if cll is not None and cdd is not None:
+        self.clight = gdkcoltorgb(cll)
+        self.cdeep = gdkcoltorgb(cdd)
+      else:
+        self.clight = None
+        self.cdeep = None
+
+    #callback method of the ok button, to allow the user to set a custom color if the custom option has been chosen
+    def on_ok_clicked(self, widget):
+      if self.clight is None or self.cdeep is None:
+        cmapper = ColorMapper("Choose a light and deep color at the edge of a gradient map", True, "Color chooser", self, gtk.DIALOG_MODAL)
+        rr = cmapper.run()
+        if rr == gtk.RESPONSE_OK:
+          self.clight = cmapper.chcol["light"]
+          self.cdeep = cmapper.chcol["deep"]
+        elif rr == gtk.RESPONSE_CANCEL:
+          self.clight = (0, 0, 0)
+          self.cdeep = (255, 255, 255)
+        cmapper.destroy()
+
   #outer class methods:
   #callback method, set the adding snow variable
   def on_chbb_toggled(self, widget):
@@ -1880,7 +2031,7 @@ class MountainsBuild(BuildAddition):
 
   #callback method, set the brown color variable
   def on_chbd_toggled(self, widget):
-    self.browncol = widget.get_active()
+    self.addcol = widget.get_active()
 
   #callback method, set the adding shadow variable
   def on_chbe_toggled(self, widget):
@@ -2018,11 +2169,15 @@ class MountainsBuild(BuildAddition):
     self.cpvlayer = cddb.reslayer
     
     #changing mountains color
-    if self.browncol:
+    if self.addcol:
       self.mntcolorl = cddb.reslayer.copy()
       self.mntcolorl.name = self.textes["baseln"] + "colors"
       self.img.add_layer(self.mntcolorl, 0)
-      self.cgradmap(self.mntcolorl, self.colormountshigh, self.colormountslow)
+      ctrlcl = self.ControlColor()
+      rr = ctrlcl.run()
+      if rr == gtk.RESPONSE_OK:
+        self.cgradmap(self.mntcolorl, ctrlcl.clight, ctrlcl.cdeep)
+      ctrlcl.destroy()
       maskcol = self.addmaskp(self.mntcolorl, self.addingchannel)
       if self.smoothval > 0:
         pdb.plug_in_gauss(self.img, maskcol, self.smoothval, self.smoothval, 0)
@@ -2072,10 +2227,10 @@ class MountainsBuild(BuildAddition):
       pdb.plug_in_gauss(self.img, self.cpvlayer, 5, 5, 0)
       pdb.gimp_layer_set_opacity(self.cpvlayer, 65)
       cldc.destroy()
-      if self.browncol:
+      if self.addcol:
         pdb.gimp_image_raise_item(self.img, self.cpvlayer)
     
-    if self.browncol:
+    if self.addcol:
       pdb.gimp_item_set_visible(self.mntcolorl, True)
       cldo = CLevDialog(self.img, self.mntcolorl, "Set mountains color opacity", CLevDialog.OPACITY, [], "Set opacity", self, gtk.DIALOG_MODAL)
       cldo.run()
