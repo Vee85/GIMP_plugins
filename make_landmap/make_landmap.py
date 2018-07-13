@@ -2704,6 +2704,7 @@ class RoadBuild(TLSbase):
   def __init__(self, image, layermask, channelmask, *args):
     mwin = TLSbase.__init__(self, image, None, layermask, channelmask, False, *args)
 
+    self.roadslayers = []
     self.paths = []
     self.roadlinelist = ["Solid", "Long dashed", "Medium dashed", "Short dashed", "Sparse dotted", \
     "Normal dotted", "Dense dotted", "Stipples", "Dash dotted", "Dash dot dotted"]
@@ -2790,6 +2791,17 @@ class RoadBuild(TLSbase):
 
     return mwin
 
+  #~ #class holding the interface to delete paths
+  #~ class PathsSel(gtk.Dialog):
+    #~ #constructor
+    #~ def __init__(self, *args):
+      #~ swin = gtk.Dialog.__init__(self, *args)
+      #~ self.set_border_width(10
+
+      #~ self.show_all()
+      #~ return swin
+
+  #outer class methods
   #callback method, setting the type line
   def on_line_changed(self, widget):
     refmode = widget.get_model()
@@ -2805,11 +2817,15 @@ class RoadBuild(TLSbase):
     
   #override method to prepare the road drawing 
   def setbeforerun(self):
-    #adding a transparent layer
+    #adding the base transparent layer
     if self.bgl is None:
       self.bgl = self.makeunilayer("roads")
       pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
       pdb.gimp_layer_set_mode(self.bgl, OVERLAY_MODE)
+
+    #adding a transparent layer
+    self.roadslayers.append(self.makeunilayer("drawroads" + str(len(self.roadslayers))))
+    pdb.plug_in_colortoalpha(self.img, self.roadslayers[-1], (255, 255, 255))
 
     #adding an empty path
     self.paths.append(pdb.gimp_vectors_new(self.img, "roads" + str(len(self.paths))))
@@ -2819,8 +2835,10 @@ class RoadBuild(TLSbase):
     
   #override cleaning method 
   def cleandrawables(self):
-    self.deletedrawables(*self.paths)
+    fullist = self.roadslayers + self.paths
+    self.deletedrawables(*fullist)
     self.bgl = None
+    del self.roadslayers[:]
     del self.paths[:]
 
   #override loading method
@@ -2846,13 +2864,13 @@ class RoadBuild(TLSbase):
     pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color to white
 
     try:
-      pdb.python_fu_stroke_vectors(self.img, self.bgl, self.paths[-1], self.roadsize, 0)
+      pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize, 0)
     except:
       pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
 
     pdb.gimp_context_set_foreground(self.roadcolor) #set foreground color to black
     try:
-      pdb.python_fu_stroke_vectors(self.img, self.bgl, self.paths[-1], self.roadsize/2, self.chtype)
+      pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize/2, self.chtype)
     except:
       pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
 
@@ -2873,18 +2891,30 @@ class RoadBuild(TLSbase):
     if rr == gtk.RESPONSE_OK:
       fn = filechooser.get_filename()
       pname = self.paths[-1].name
-      pdb.gimp_vectors_import_from_file(self.img, fn, True, True)
       pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
-      self.paths[-1] = self.img.vectors[-1]
-      self.paths[-1].name = pname
+      del self.paths[-1]
+      pdb.gimp_vectors_import_from_file(self.img, fn, True, True) #it adds the new vectors at position 0 in image.vectors list
+      self.img.vectors[0].name = pname
+      self.paths.append(self.img.vectors[0])
 
     filechooser.destroy()
 
   #override method to delete the last vectors drawable
   def afterclosing(self, who):
     pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
-    if not self.generated:
+    pdb.gimp_image_remove_layer(self.img, self.roadslayers[-1])
+    del self.roadslayers[-1]
+    if self.generated:
+      rds = self.roadslayers[-1]
+      i = 0
+      while i < len(self.roadslayers):
+        rds = pdb.gimp_image_merge_down(self.img, rds, 0)
+        i = i + 1
+      self.bgl = rds
+      pdb.gimp_layer_set_mode(self.bgl, OVERLAY_MODE)
+    else:
       pdb.gimp_image_remove_layer(self.img, self.bgl)
+    del self.roadslayers[:]
 
 
 #class for the customized GUI
