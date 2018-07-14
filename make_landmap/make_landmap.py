@@ -2713,7 +2713,7 @@ class RoadBuild(TLSbase):
     self.roadcolor = (0, 0, 0)
     self.roadsize = 5
 
-    self.namelist = ["roads"]
+    self.namelist = ["roads", "drawroads"]
 
     #Designing the interface
     #new row
@@ -2775,7 +2775,7 @@ class RoadBuild(TLSbase):
     #action area
     self.add_button_quit()
 
-    butcanc = gtk.Button("Cancel all Roads")
+    butcanc = gtk.Button("Cancel Roads")
     self.action_area.add(butcanc)
     butcanc.connect("clicked", self.on_cancel_clicked)
 
@@ -2791,17 +2791,71 @@ class RoadBuild(TLSbase):
 
     return mwin
 
-  #~ #class holding the interface to delete paths
-  #~ class PathsSel(gtk.Dialog):
-    #~ #constructor
-    #~ def __init__(self, *args):
-      #~ swin = gtk.Dialog.__init__(self, *args)
-      #~ self.set_border_width(10
+  #class holding the interface to delete paths
+  class DelPaths(gtk.Dialog):
+    #constructor
+    def __init__(self, outobject, *args):
+      swin = gtk.Dialog.__init__(self, *args)
+      self.set_border_width(10)
+      self.outobj = outobject
+      self.selpath = -1
+      self.sellayer = -1
 
-      #~ self.show_all()
-      #~ return swin
+      #new row
+      hbxa = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hbxa)
+      
+      laba = gtk.Label("Select the name of the path you want to delete.")
+      hbxa.add(laba)
+
+      #new row
+      hboxb = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hboxb)
+            
+      boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT, gobject.TYPE_INT)
+      pathsnames = ["All"] + [ll.name for ll in self.outobj.paths]
+      pathsidx = [-1] + range(len(self.outobj.paths[:-1]))
+      rlidx = [-1] + range(len(self.outobj.roadslayers[:-1]))
+      
+      #filling the model for the combobox
+      for i, j, k in zip(pathsnames, pathsidx, rlidx):
+        irow = boxmodelb.append(None, [i, j, k])
+
+      cboxb = gtk.ComboBox(boxmodelb)
+      rendtextb = gtk.CellRendererText()
+      cboxb.pack_start(rendtextb, True)
+      cboxb.add_attribute(rendtextb, "text", 0)
+      cboxb.set_entry_text_column(0)
+      cboxb.set_active(0)
+      cboxb.connect("changed", self.on_selroad_changed)
+      hboxb.add(cboxb)
+
+      #button area
+      self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+      self.add_button("OK", gtk.RESPONSE_OK)
+      
+      self.show_all()
+      return swin
+
+    #callback method to select the path to be deleted
+    def on_selroad_changed(self, widget):
+      refmode = widget.get_model()
+      self.selpath = refmode.get_value(widget.get_active_iter(), 1)
+      self.sellayer = refmode.get_value(widget.get_active_iter(), 2)
+
+    #method to get the selected path (vector and layer objects)
+    def getselected(self):
+      return self.selpath, self.sellayer
 
   #outer class methods
+  #overriding method to check if the step has generated some roads
+  def loaded(self):
+    if len(self.paths) > 0:
+      self.setgenerated(True)
+      return True
+    else:
+      return False
+  
   #callback method, setting the type line
   def on_line_changed(self, widget):
     refmode = widget.get_model()
@@ -2817,15 +2871,10 @@ class RoadBuild(TLSbase):
     
   #override method to prepare the road drawing 
   def setbeforerun(self):
-    #adding the base transparent layer
-    if self.bgl is None:
-      self.bgl = self.makeunilayer("roads")
-      pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
-      pdb.gimp_layer_set_mode(self.bgl, OVERLAY_MODE)
-
     #adding a transparent layer
     self.roadslayers.append(self.makeunilayer("drawroads" + str(len(self.roadslayers))))
     pdb.plug_in_colortoalpha(self.img, self.roadslayers[-1], (255, 255, 255))
+    pdb.gimp_layer_set_mode(self.roadslayers[-1], OVERLAY_MODE)
 
     #adding an empty path
     self.paths.append(pdb.gimp_vectors_new(self.img, "roads" + str(len(self.paths))))
@@ -2837,44 +2886,63 @@ class RoadBuild(TLSbase):
   def cleandrawables(self):
     fullist = self.roadslayers + self.paths
     self.deletedrawables(*fullist)
-    self.bgl = None
     del self.roadslayers[:]
     del self.paths[:]
 
   #override loading method
   def loaddrawables(self):
-    for ll in self.img.layers:
-      if ll.name == self.namelist[0]:
-        self.bgl = ll
     for pl in self.img.vectors:
       if self.namelist[0] in pl.name:
         self.paths.append(pl)
-        
+    for ll in self.img.layers:
+      if self.namelist[1] in ll.name:
+        self.roadslayers.append(ll)
     return self.loaded()
-    
-  #callback method to cancel all roads
-  def on_cancel_clicked(self, widget):
-    self.cleandrawables()
-    self.setgenerated(False)
-    self.setbeforerun()
-    
-  #callback method to draw roads
-  def on_drawroads_clicked(self, widget):
+
+  #drawing the roads
+  def drawing(self, rl, pt):
     oldfgcol = pdb.gimp_context_get_foreground()
     pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color to white
 
     try:
-      pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize, 0)
+      pdb.python_fu_stroke_vectors(self.img, rl, pt, self.roadsize, 0)
     except:
-      pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
+      pdb.gimp_edit_stroke_vectors(self.bgl, pt)
 
     pdb.gimp_context_set_foreground(self.roadcolor) #set foreground color to black
     try:
-      pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize/2, self.chtype)
+      pdb.python_fu_stroke_vectors(self.img, rl, pt, self.roadsize/2, self.chtype)
     except:
-      pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
-
+      pdb.gimp_edit_stroke_vectors(self.bgl, pt)
+    
     pdb.gimp_context_set_foreground(oldfgcol)
+
+  #callback method to cancel all roads
+  def on_cancel_clicked(self, widget):
+    pathselecter = self.DelPaths(self, "Adding symbols randomly", self, gtk.DIALOG_MODAL)
+    rr = pathselecter.run()
+
+    if rr == gtk.RESPONSE_OK:
+      pathtod, layertod = pathselecter.getselected()
+
+      if pathtod == -1 or layertod == -1:
+        self.cleandrawables()
+        self.setgenerated(False)
+        self.setbeforerun()
+      else:
+        pdb.gimp_image_remove_vectors(self.img, self.paths[pathtod])
+        pdb.gimp_image_remove_layer(self.img, self.roadslayers[layertod])
+        del self.paths[pathtod]
+        del self.roadslayers[layertod]
+        if len(self.roadslayers) == 0:
+          self.setgenerated(False)
+
+      pdb.gimp_displays_flush()
+    pathselecter.destroy()
+        
+  #callback method to draw roads
+  def on_drawroads_clicked(self, widget):
+    self.drawing(self.roadslayers[-1], self.paths[-1])
     self.setgenerated(True)
     self.setbeforerun()
 
@@ -2887,7 +2955,7 @@ class RoadBuild(TLSbase):
     filechooser.add_filter(swf_filter)
     rr = filechooser.run()
 
-    #importing e substituting the new vector drawable to the last element in paths
+    #importing and substituting the new vector drawable to the last element in paths
     if rr == gtk.RESPONSE_OK:
       fn = filechooser.get_filename()
       pname = self.paths[-1].name
@@ -2903,19 +2971,9 @@ class RoadBuild(TLSbase):
   def afterclosing(self, who):
     pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
     pdb.gimp_image_remove_layer(self.img, self.roadslayers[-1])
+    del self.paths[-1]
     del self.roadslayers[-1]
-    if self.generated:
-      rds = self.roadslayers[-1]
-      i = 0
-      while i < len(self.roadslayers):
-        rds = pdb.gimp_image_merge_down(self.img, rds, 0)
-        i = i + 1
-      self.bgl = rds
-      pdb.gimp_layer_set_mode(self.bgl, OVERLAY_MODE)
-    else:
-      pdb.gimp_image_remove_layer(self.img, self.bgl)
-    del self.roadslayers[:]
-
+    
 
 #class for the customized GUI
 class MainApp(gtk.Window):
