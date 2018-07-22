@@ -29,6 +29,7 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ mountains improvements: add more control on smooth: possibility to better regulate smooth parameter. How?
+#@@@ make rotation instead of directions in maskprofile
 
 import sys
 import os
@@ -1124,7 +1125,7 @@ class MaskProfile(TLSbase):
       self.bgl = self.makeunilayer(self.textes["baseln"] + "base", (255, 255, 255))
     else:
       self.bgl.name = self.textes["baseln"] + "base"
-           
+      
     #Using the TSL tecnnique: shape layer
     if (self.chtype == 0): #skip everything
       pass
@@ -1830,8 +1831,6 @@ class MountainsBuild(BuildAddition):
     self.addshadow = True
     self.raisedge = {"Top" : True, "Right" : True, "Bottom" : True, "Left" : True}
     
-    #~ self.colormountslow = (75, 62, 43)
-    #~ self.colormountshigh = (167, 143, 107)
     self.setsmoothbeforecomb(False) #mountains should always be smoothed later
     
     self.textes = {"baseln" : "mountains", \
@@ -2451,6 +2450,7 @@ class SymbolsBuild(TLSbase):
 
     self.basepath = os.path.dirname(os.path.abspath(__file__)) + "/make_landmap_brushes/"
     self.defsize = 0.025 * (self.img.width + self.img.height)
+    self.chsize = self.defsize
     self.bgcol = (223, 223, 83)
     self.brushnames = ["Town", "Capital", "Port", "Wallfort", "Ruin"]
     self.prevbrush = None
@@ -2487,6 +2487,23 @@ class SymbolsBuild(TLSbase):
     
     butruin = self.addbuttonimage(self.brushnames[4], self. basepath + "brushruin.png")
     hbxb.add(butruin)
+
+    #new row
+    hbxc = gtk.HBox(spacing=10, homogeneous=False)
+    self.vbox.add(hbxc)
+
+    labc = gtk.Label("Set brush size")
+    hbxc.add(labc)
+
+    brsizadj = gtk.Adjustment(self.defsize, 5, int(0.1*(self.img.width + self.img.height)), 1, 10)    
+    scalec = gtk.HScale(brsizadj)
+    scalec.set_size_request(120, 45)
+    scalec.connect("value-changed", self.on_brsize_changed)
+    hbxc.add(scalec)
+
+    spbutc = gtk.SpinButton(brsizadj, 0, 0)
+    spbutc.connect("output", self.on_brsize_changed)
+    hbxc.add(spbutc)
 
     #action area
     self.add_button_quit()
@@ -2599,6 +2616,11 @@ class SymbolsBuild(TLSbase):
     
     pdb.gimp_displays_flush()
 
+  #callback method to set the brush size
+  def on_brsize_changed(self, widget):
+    self.chsize = widget.get_value()
+    pdb.gimp_context_set_brush_size(self.chsize)
+
   #callback method to select the proper brush
   def on_brush_chosen(self, widget, brushstr):
     pdb.gimp_plugin_set_pdb_error_handler(1)
@@ -2621,7 +2643,7 @@ class SymbolsBuild(TLSbase):
       if rr == gtk.RESPONSE_OK:
         errdi.destroy()
 
-    pdb.gimp_context_set_brush_size(self.defsize)
+    pdb.gimp_context_set_brush_size(self.chsize)
     pdb.gimp_plugin_set_pdb_error_handler(0)
 
   #callback method, add randomly a given number of symbols.
@@ -2677,8 +2699,8 @@ class SymbolsBuild(TLSbase):
     self.setbeforerun()
     
   #override method to fix symbols, add finishing touches and close.
-  #Careful, we cannot know before calling this method the first time if the step has been generated or not as the boolean variable is set here.
   def afterclosing(self, who):
+    #we cannot know before calling this method the first time if the step has been generated or not as the boolean variable is set here.
     if self.get_brightness_max(self.symbols) != -1: #check the histogram, verify that is not a fully transparent layer.
       if not self.generated:
         pdb.gimp_image_select_item(self.img, 2, self.symbols) #2 = replace selection, this select everything in the layer which is not transparent
