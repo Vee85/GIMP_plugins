@@ -29,8 +29,9 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ adjust general scale to image size (es when generating the solid noise)
-#@@@ mountains improvements: add more control on smooth: possibility to better regulate smooth parameter. How? Add possibility to create multiple mountains steps
-#@@@ forests improvements: different color set to make different kind of forests? Add possibility to create multiple forests steps
+#@@@ mountains improvements: add more control on smooth: possibility to better regulate smooth parameter. How?
+#@@@ forests improvements: different color set to make different kind of forests?
+#@@@ cancel button also for mountains and forest, to delete one single step
 #@@@ make rotation instead of directions in maskprofile
 #@@@ implement next/prev system also for additionaldetbuilds objects
 #@@@ fix mountains snow and layers grouplayer should be overlay mode!
@@ -1946,7 +1947,7 @@ class MountainsBuild(LocalBuilder):
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxa)
 
-    labatxt = "Adding mountains to the map. If you do not want to draw mountains, just press Next."
+    labatxt = "Adding mountains to the map. If you do not want to draw mountains, just press Next.\n"
     labatxt += "You can repeat the step multiple times: just press again one of the buttons to repeat the process and add new mountains."
     laba = gtk.Label(labatxt)
     hbxa.add(laba)
@@ -2173,6 +2174,7 @@ class MountainsBuild(LocalBuilder):
         masksmooth = self.smoothval
         
       self.finalmaskl, self.addingchannel = self.overdrawmask(self.noisemask, self.textes["baseln"], masksmooth, self.addingchannel, True, True)
+      self.allmasks.append(self.addingchannel)
     elif chrot == gtk.RESPONSE_CANCEL:
       ctrlm.destroy()
     
@@ -2351,7 +2353,7 @@ class ForestBuild(LocalBuilder):
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxa)
 
-    labatxt = "Adding forests to the map. If you do not want to draw forests, just press Next."
+    labatxt = "Adding forests to the map. If you do not want to draw forests, just press Next.\n"
     labatxt += "You can repeat the step multiple times: just press again one of the buttons to repeat the process and add new forests."
     laba = gtk.Label(labatxt)
     hbxa.add(laba)
@@ -2378,6 +2380,7 @@ class ForestBuild(LocalBuilder):
     #creating noise base for the trees, this will be used to create a detailed mask for the trees
     self.bgl = self.makenoisel(self.textes["baseln"] + "basicnoise", 16, 16, NORMAL_MODE, True, True)
     self.shapelayer, self.addingchannel = self.overdrawmask(self.bgl, self.textes["baseln"], 30, self.addingchannel, True)
+    self.allmasks.append(self.addingchannel)
     
     #creating the bump needed to make the forest
     pdb.plug_in_hsv_noise(self.img, self.shapelayer, 2, 0, 0, 30)
