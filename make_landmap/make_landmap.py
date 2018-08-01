@@ -34,7 +34,6 @@
 #@@@ cancel button also for mountains and forest, to delete one single step
 #@@@ make rotation instead of directions in maskprofile
 #@@@ implement next/prev system also for additionaldetbuilds objects
-#@@@ fix mountains snow and layers grouplayer should be overlay mode!
 
 import sys
 import os
@@ -1190,7 +1189,13 @@ class LocalBuilder(TLSbase):
   def on_butgenhnp_clicked(self, widget):
     if self.generated and not self.multigen:
       self.cleandrawables()
-    self.makegrouplayer(self.textes["baseln"] + "group", 0)
+
+    #making the grouplayer
+    if len(self.groupl) == 0:
+      self.makegrouplayer(self.textes["baseln"] + "group", 0)
+    elif len(self.getgroupl().layers) > 0:
+      self.makegrouplayer(self.textes["baseln"] + "group", 0)
+      
     #dialog telling to select the area where to place the stuff
     infodi = gtk.Dialog(title="Info", parent=self)
     imess = "Select the area where you want to place the "+ self.textes["labelext"] + " with the lazo tool or another selection tool.\n"
@@ -1916,7 +1921,8 @@ class AdditionalDetBuild(LocalBuilder):
 class MountainsBuild(LocalBuilder):
   #constructor
   def __init__(self, image, layermask, channelmask, *args):
-    mwin = LocalBuilder.__init__(self, image, layermask, channelmask, True, *args) #must be modified into a multistep!
+    mwin = LocalBuilder.__init__(self, image, layermask, channelmask, True, *args)
+    self.base = None
     self.mntangularl = None
     self.cpvlayer = None
     self.embosslayer = None
@@ -2155,7 +2161,7 @@ class MountainsBuild(LocalBuilder):
       if any([i in ll.name for i in self.namelist]):
         self.allmasks.append(ll) 
     return self.loaded()
-    
+            
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def generatestep(self):
     self.addingchannel.name = self.textes["baseln"] + "mask"
@@ -2177,6 +2183,13 @@ class MountainsBuild(LocalBuilder):
       self.allmasks.append(self.addingchannel)
     elif chrot == gtk.RESPONSE_CANCEL:
       ctrlm.destroy()
+
+    if len(self.groupl) == 1:
+      self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
+    basebis = self.base.copy()
+    basebis.name = self.textes["baseln"] + "mapbase"
+    pdb.gimp_image_insert_layer(self.img, basebis, self.getgroupl(), 0)
+    self.addmaskp(basebis, self.addingchannel)
     
     #creating blurred base
     self.bgl = self.makeunilayer(self.textes["baseln"] + "blur", (0, 0, 0))
@@ -2230,6 +2243,7 @@ class MountainsBuild(LocalBuilder):
     inhh = self.get_brightness_max(self.noisel)
     pdb.gimp_levels(self.noisel, 0, 0, inhh, 1.0, 0, 50) #regulating color levels, channel = #0 (second parameter) is for histogram value
     pdb.gimp_levels(self.mntedgesl, 0, 0, 255, 1.0, 0, 100) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    pdb.gimp_levels(self.mntedgesl, 0, 0, 255, 1.0, 0, 100) #regulating color levels, channel = #0 (second parameter) is for histogram value
     
     #editing color curves
     ditext = "Try to eliminate most of the brightness by lowering the top-right control point\nand adding other points at the level of the histogram counts."
@@ -2270,8 +2284,6 @@ class MountainsBuild(LocalBuilder):
         pdb.plug_in_gauss(self.img, maskcol, self.smoothvallist[1], self.smoothvallist[1], 0) #here always setting a bit of smooth on the map
       
       pdb.gimp_item_set_visible(self.mntcolorl, False)
-    #~ else:
-      #~ pdb.gimp_layer_set_mode(self.getgroupl(), OVERLAY_MODE)
       
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
