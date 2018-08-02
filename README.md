@@ -20,5 +20,5 @@
 * **smudge_all.py**:
   Smudge the full layer or a selection area in randomatic directions, creating a random smudge effect. The smudging pressure can be chosen.
 
-* **stroke_vector_options.py**
+* **stroke_vector_options.py**:
   Stroke a path by using a list of arguments, similar to what the GIMP command stroke path can do. It is intended to be used mainly by other scripts which need to replicate those features. Currently it does not allow a custom stroking line, only a set of prebuilded lines.
