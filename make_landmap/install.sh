@@ -28,16 +28,26 @@ ausscript="stroke_vector_options.py"
 
 echo "$mainscript installation script, working on linux systems.\n"
 echo "This script copies the main script and the other relevant files in the GIMP user directories."
-echo "It assumes that your GIMP user directory is in your home."
+echo "It assumes that your GIMP user directory is in your home. It this is not the case, give the path as first argument."
 
-#looking for GIMP version
-gimpv=`gimp --version` 
-fullnumver=`echo $gimpv | cut -f6- -d\ `
-numver=`echo $fullnumver | cut -f-2 -d.`
+if [ -z $1 ]; then
+  #looking for GIMP version
+  gimpv=`gimp --version` 
+  fullnumver=`echo $gimpv | cut -f6- -d\ `
+  numver=`echo $fullnumver | cut -f-2 -d.`
 
-instdir="$HOME/.gimp-$numver"
+  instdir="$HOME/.gimp-$numver"
+else
+  instdir=$1
+fi
 
-echo "Your GIMP user folder is: $instdir"
+if [ -d "$instdir" ]; then
+  echo "Your GIMP user folder is: $instdir"
+else
+  echo "Cannot find your GIMP folder: $instdir is absent."
+  echo "Try again typing 'install.sh path/of/your/GIMP/folder' and be sure that the path is correct."
+  exit 1
+fi
 
 echo "Copying $mainscript..."
 cp $mainscript $instdir/plug-ins
