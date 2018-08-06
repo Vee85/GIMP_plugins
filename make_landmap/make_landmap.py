@@ -1757,6 +1757,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     self.butlocal = gtk.Button("Local areas")
     self.action_area.add(self.butlocal)
     self.butlocal.connect("clicked", self.on_local_clicked)
+    #self.butlocal.set_sensitive(False)
 
     self.add_button_nextprev()
 
@@ -1768,7 +1769,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       try:
         pdb.gimp_item_set_visible(self.noisel, False)
         pdb.gimp_item_set_visible(self.basebumpsl, False)
-      except RuntimeError, e:   #catching and neglecting runtime errors due to not valid ID, likely due to merged layers which do not exist anymore
+      except RuntimeError, e:   #catching and neglecting runtime errors due to not valid ID, likely due to layers which do not exist anymore
         pass
 
       pdb.gimp_displays_flush()
@@ -1779,10 +1780,21 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       try:
         pdb.gimp_item_set_visible(self.noisel, True)
         pdb.gimp_item_set_visible(self.basebumpsl, True)
-      except RuntimeError, e:   #catching and neglecting runtime errors due to not valid ID, likely due to merged layers which do not exist anymore
+      except RuntimeError, e:   #catching and neglecting runtime errors due to not valid ID, likely due to layers which do not exist anymore
         pass
 
       pdb.gimp_displays_flush()
+    else:
+      #dialog to explain the user that it has to draw before
+      infodial = gtk.Dialog(title="Warning", parent=self)
+      labtxt = "You cannot generate / delete the smaller areas until you generate the land details before.\n"
+      labtxt += "Press 'Generate land details' button."
+      ilabel = gtk.Label(labtxt)
+      infodial.vbox.add(ilabel)
+      ilabel.show()
+      infodial.add_button("OK", gtk.RESPONSE_OK)
+      rr = infodial.run()
+      infodial.destroy()
 
   #override cleaning method
   def cleandrawables(self):
