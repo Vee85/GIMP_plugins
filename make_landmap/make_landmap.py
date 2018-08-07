@@ -29,8 +29,6 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ adjust general scale to image size (es when generating the solid noise)
-#@@@ mountains improvements: add more control on smooth: possibility to better regulate smooth parameter. How?
-#@@@ forests improvements: different color set to make different kind of forests?
 #@@@ make rotation instead of directions in maskprofile
 
 import sys
@@ -62,14 +60,6 @@ def colfillayer(image, layer, rgbcolor):
   pdb.gimp_context_set_foreground(rgbcolor) #set foreground color
   pdb.gimp_edit_bucket_fill(layer, 0, 0, 100, 255, True, pdb.gimp_image_width(image)/2, pdb.gimp_image_height(image)/2) #0 (first): filling the layer with foreground color
   pdb.gimp_context_set_foreground(oldfgcol)
-
-
-#dictonary storing the color definitions, to be used by other classes
-colordict = dict()
-colordict["grass"] = {"deep" : (76, 83, 41), "light" : (149, 149, 89)} #a dark green color, known as ditch and a light green color, known as high grass
-colordict["ground"] = {"deep" : (75, 62, 44), "light" : (167, 143, 107)} #a dark brown color, lowest dirt and a light brown color, high dirt
-colordict["sand"] = {"deep" : (150, 113, 23), "light" : (244, 164, 96)} #a relatively dark brown, known as sand dune and a light brown almost yellow, known as sandy brown
-colordict["ice"] = {"deep" : (128, 236, 217), "light" : (232, 232, 232)} #a clear blue and a dirty white
 
 
 #class to let the user setting the colors edge of a color map
@@ -1687,6 +1677,7 @@ class WaterBuild(GlobalBuilder):
     pdb.gimp_displays_flush()
 
 
+#class holding the regional colors and providing interface to select a region
 class RegionChooser:
   #constructor
   def __init__(self):
@@ -1694,6 +1685,11 @@ class RegionChooser:
     self.regionlist = ["grassland", "terrain", "desert", "arctic", "custom color map"]
     self.regiontype = ["grass", "ground", "sand", "ice", "custom"]
     self.region = self.regiontype[0] #will be reinitialized in GUI costruction
+    self.colorref = dict() #dictonary storing the color definitions, to be used by other classes
+    self.colorref["grass"] = {"deep" : (76, 83, 41), "light" : (149, 149, 89)} #a dark green color, known as ditch and a light green color, known as high grass
+    self.colorref["ground"] = {"deep" : (75, 62, 44), "light" : (167, 143, 107)} #a dark brown color, lowest dirt and a light brown color, high dirt
+    self.colorref["sand"] = {"deep" : (150, 113, 23), "light" : (244, 164, 96)} #a relatively dark brown, known as sand dune and a light brown almost yellow, known as sandy brown
+    self.colorref["ice"] = {"deep" : (128, 236, 217), "light" : (232, 232, 232)} #a clear blue and a dirty white
 
   #method, adding a row in the gimp default.
   def addchooserrow(self):
@@ -1736,7 +1732,6 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     self.basebumpsl = None
     self.refbg = None
 
-    self.colorref = colordict
     smtextes = {"baseln" : "smallregion", \
     "labelext" : "small colored area", \
     "namelist" : ["none", "random", "one side", "centered", "surroundings", "customized"], \
@@ -1870,7 +1865,6 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
 
     self.refbase = None
     self.textes = textes
-    self.colorref = colordict
     self.namelist = [self.textes["baseln"] + "mask"]
     
     #Designing the interface
@@ -2450,9 +2444,22 @@ class ForestBuild(LocalBuilder):
     self.forestshadow = None
     self.colorlayers = []
     
-    self.browncol = {"tcbrown" : (75, 66, 47)}
-    self.greencol = {"tcgreen" : (59, 88, 14)}
-    self.yellowcol = {"tcyellow" : (134, 159, 48)}
+    self.forestcol = dict()
+    self.forestcol["brown"] = (75, 66, 47)
+    self.forestcol["brown2"] = (131, 54, 10)
+    self.forestcol["darkgreen"] = (59, 88, 14)
+    self.forestcol["green"] = (109, 162, 26)
+    self.forestcol["lightgreen"] = (166, 197, 59)
+    self.forestcol["palegreen"] = (134, 159, 48)
+    self.forestcol["darkred"] = (145, 13, 11)
+    self.forestcol["yellow"] = (251, 255, 13)
+    
+    #~ self.browncol = {"tcbrown" : (70, 49, 32)}
+    #~ self.yellowcol = {"tcyellow" : (168, 137, 21)}
+
+    self.ftypelist = ["summer (green)", "fresh (light green)", "autumnal (yellow, red)"]
+    self.ftypeidx = range(len(self.ftypelist))
+    self.fclist = [] #will be filled during GUI construction
     
     self.textes = {"baseln" : "forests", \
     "labelext" : "forests or woods", \
@@ -2471,6 +2478,30 @@ class ForestBuild(LocalBuilder):
     labatxt += "You can repeat the step multiple times: just press again one of the buttons to repeat the process and add new forests."
     laba = gtk.Label(labatxt)
     hbxa.add(laba)
+
+    #new row
+    hbxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxb)
+
+    labb = gtk.Label("Select forest type")
+    hbxb.add(labb)
+
+    boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
+    
+    #filling the model for the combobox
+    for i, j in zip(self.ftypelist, self.ftypeidx):
+      irow = boxmodelb.append(None, [i, j])
+
+    cboxb = gtk.ComboBox(boxmodelb)
+    rendtextb = gtk.CellRendererText()
+    cboxb.pack_start(rendtextb, True)
+    cboxb.add_attribute(rendtextb, "text", 0)
+    cboxb.set_entry_text_column(0)
+    cboxb.set_active(0)
+    cboxb.connect("changed", self.on_ftype_changed)
+    hbxb.add(cboxb)
+
+    self.setftype(0)
     
     #button area
     self.add_button_quit()
@@ -2479,11 +2510,25 @@ class ForestBuild(LocalBuilder):
     self.add_button_nextprev()
     
     return mwin
+
+  #callback method, setting the colors of the forest
+  def on_ftype_changed(self, widget):
+    refmode = widget.get_model()
+    idt = refmode.get_value(widget.get_active_iter(), 1)
+    self.setftype(idt)
+
+  #method, setting the three colors to use in forest color layers
+  def setftype(self, idx):
+    if idx == 0: #summer (green)
+      self.fclist = ["brown", "darkgreen", "palegreen"]
+    elif idx == 1: #fresh (light red)
+      self.fclist = ["brown", "green", "lightgreen"]
+    elif idx == 2: #autumnal (red)
+      self.fclist = ["brown2", "darkred", "yellow"]
     
   #method to add a masked layer color
-  def addforestcol(self, fc):
-    lab = fc.keys()[0]
-    resl = self.makeunilayer(self.textes["baseln"] + lab, fc[lab])
+  def addforestcol(self, cl):
+    resl = self.makeunilayer(self.textes["baseln"] + cl, self.forestcol[cl])
     self.addmaskp(resl, self.addingchannel)
     pdb.gimp_layer_set_mode(resl, SOFTLIGHT_MODE)
     return resl
@@ -2500,17 +2545,19 @@ class ForestBuild(LocalBuilder):
     self.bumplayer = self.makeunilayer(self.textes["baseln"] + "bump", (127, 127, 127)) #50% gray color
     self.addmaskp(self.bumplayer, self.addingchannel)
     pdb.plug_in_bump_map_tiled(self.img, self.bumplayer, self.shapelayer, 135, 30, 8, 0, 0, 0, 0, True, False, 2) #2 (last) = sinusoidal
-    
+
+    #adding shadow
     pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
     pdb.script_fu_drop_shadow(self.img, self.bumplayer, 2, 2, 15, (0, 0, 0), 75, False)
     self.forestshadow = [i for i in self.getgroupl().layers if i.name == "Drop Shadow"][0]
     self.forestshadow.name = self.textes["baseln"] + "shadow"
     pdb.gimp_selection_none(self.img)
     
-    #adding colors
-    self.colorlayers.append(self.addforestcol(self.browncol))
-    self.colorlayers.append(self.addforestcol(self.greencol))
-    self.colorlayers.append(self.addforestcol(self.yellowcol))
+    #cleaning and adding colors
+    if len(self.colorlayers) > 0:
+      del self.colorlayers[:]
+    for cn in self.fclist:
+      self.colorlayers.append(self.addforestcol(cn))
     
     pdb.gimp_displays_flush()
 
