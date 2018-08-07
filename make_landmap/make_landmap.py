@@ -2447,17 +2447,14 @@ class ForestBuild(LocalBuilder):
     self.forestcol = dict()
     self.forestcol["brown"] = (75, 66, 47)
     self.forestcol["brown2"] = (131, 54, 10)
-    self.forestcol["darkgreen"] = (59, 88, 14)
+    self.forestcol["darkgreen"] = (32, 48, 8)
     self.forestcol["green"] = (109, 162, 26)
     self.forestcol["lightgreen"] = (166, 197, 59)
     self.forestcol["palegreen"] = (134, 159, 48)
-    self.forestcol["darkred"] = (145, 13, 11)
+    self.forestcol["darkred"] = (79, 7, 6)
     self.forestcol["yellow"] = (251, 255, 13)
-    
-    #~ self.browncol = {"tcbrown" : (70, 49, 32)}
-    #~ self.yellowcol = {"tcyellow" : (168, 137, 21)}
 
-    self.ftypelist = ["summer (green)", "fresh (light green)", "autumnal (yellow, red)"]
+    self.ftypelist = ["evergreen", "fresh green", "autumnal (copper)"]
     self.ftypeidx = range(len(self.ftypelist))
     self.fclist = [] #will be filled during GUI construction
     
@@ -3371,7 +3368,7 @@ def python_make_landmap(img, tdraw):
   numfelimg, _ = pdb.gimp_procedural_db_query("plug-in-fimg-noise", ".*", ".*", ".*", ".*", ".*", ".*")
   if numfelimg == 0:
     messtxt = "Warning: you need to install the felimage plugin to use all the features of this plugin properly.\n"
-    messtxt += "Without the felimage plugin, the mountains will be of poor quality."  
+    messtxt += "Without the felimage plugin, the mountains quality will be poor."  
     pdb.gimp_message(messtxt)
 
   #query the procedure database
