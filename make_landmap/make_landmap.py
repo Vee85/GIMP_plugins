@@ -2261,7 +2261,17 @@ class MountainsBuild(LocalBuilder):
   #callback method, set the raisedge value of k entry
   def on_chbfany_toggled(self, widget, k):
     self.raisedge[k] = widget.get_active()
-            
+
+  #method, setting the base layer
+  def loadbase(self):
+    if len(self.groupl) > 1:
+      for gl in self.groupl:
+        pdb.gimp_item_set_visible(gl, False)
+    self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
+    if len(self.groupl) > 1:
+      for gl in self.groupl:
+        pdb.gimp_item_set_visible(gl, True)
+  
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def generatestep(self):    
     #improving the mask
@@ -2282,8 +2292,9 @@ class MountainsBuild(LocalBuilder):
     elif chrot == gtk.RESPONSE_CANCEL:
       ctrlm.destroy()
 
-    if len(self.groupl) == 1:
-      self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
+    #creating the base with the mask
+    if self.base is None:
+      self.loadbase()
     basebis = self.base.copy()
     basebis.name = self.textes["baseln"] + "mapbase"
     pdb.gimp_image_insert_layer(self.img, basebis, self.getgroupl(), 0)
