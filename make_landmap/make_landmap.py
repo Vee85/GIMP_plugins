@@ -2263,14 +2263,9 @@ class MountainsBuild(LocalBuilder):
     self.raisedge[k] = widget.get_active()
 
   #method, setting the base layer
-  def loadbase(self):
-    if len(self.groupl) > 1:
-      for gl in self.groupl:
-        pdb.gimp_item_set_visible(gl, False)
-    self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
-    if len(self.groupl) > 1:
-      for gl in self.groupl:
-        pdb.gimp_item_set_visible(gl, True)
+  def setgroupvisibility(self, bval):
+    for gl in self.groupl:
+      pdb.gimp_item_set_visible(gl, bval)
   
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def generatestep(self):    
@@ -2293,8 +2288,11 @@ class MountainsBuild(LocalBuilder):
       ctrlm.destroy()
 
     #creating the base with the mask
-    if self.base is None:
-      self.loadbase()
+    if len(self.groupl) == 1 or self.base is None:
+      self.setgroupvisibility(False)
+      self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
+      self.setgroupvisibility(True)
+      
     basebis = self.base.copy()
     basebis.name = self.textes["baseln"] + "mapbase"
     pdb.gimp_image_insert_layer(self.img, basebis, self.getgroupl(), 0)
