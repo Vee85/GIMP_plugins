@@ -28,7 +28,6 @@
 
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
-#@@@ adjust general scale to image size (es when generating the solid noise)
 #@@@ make rotation instead of directions in maskprofile
 
 import sys
@@ -1358,10 +1357,13 @@ class MaskProfile(GlobalBuilder):
     self.namelist = self.textes["namelist"]
     self.typelist = range(len(self.namelist))
     self.chtype = 0 #will be reinitialized in GUI costruction
+    self.detlist = ["large", "medium", "small"]
+    self.detvallist = [5, 8, 12]
+    self.detval = 5 #will be reinitialized in GUI costruction
     
     #new row
-    labb = gtk.Label(self.textes["toplab"])
-    self.vbox.add(labb)
+    labtop = gtk.Label(self.textes["toplab"])
+    self.vbox.add(labtop)
     
     #new row
     hbxa = gtk.HBox(spacing=10, homogeneous=True)
@@ -1392,8 +1394,40 @@ class MaskProfile(GlobalBuilder):
     blab += "and select the customized option in the dropdown menu.\n"
     blab += "Press again Generate land profile if you want to regenerate the profile.\n"
     blab += "Press Next step to continue." 
-    labc = gtk.Label(blab)
-    self.vbox.add(labc)
+    labb = gtk.Label(blab)
+    self.vbox.add(labb)
+
+    #new row
+    hbxc = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxc)
+    
+    labc = gtk.Label("Select details scale")
+    hbxc.add(labc)
+    
+    boxmodelc = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT)
+    
+    #filling the model for the combobox
+    for i, j in zip(self.detlist, self.detvallist):
+      irow = boxmodelc.append(None, [i, j])
+
+    self.detval = self.detvallist[0]
+
+    cboxc = gtk.ComboBox(boxmodelc)
+    rendtextc = gtk.CellRendererText()
+    cboxc.pack_start(rendtextc, True)
+    cboxc.add_attribute(rendtextc, "text", 0)
+    cboxc.set_entry_text_column(0)
+    cboxc.set_active(0)
+    cboxc.connect("changed", self.on_detscale_changed)
+    hbxc.add(cboxc)
+
+    #new row
+    blad = "Details scale sets the scale of small details of the profile.\n" 
+    blad += "Small scale generates more irregular profile lines or more numerous and smaller random areas\n"
+    blad += "instead of straigther profile lines and less numerous and bigger random areas.\n"
+    blad += "Small scale may be also useful for large images." 
+    labd = gtk.Label(blab)
+    self.vbox.add(labd)
     
     #button area
     self.add_button_generate("Generate profile")
@@ -1459,6 +1493,11 @@ class MaskProfile(GlobalBuilder):
   def on_type_changed(self, widget):
     refmode = widget.get_model()
     self.chtype = refmode.get_value(widget.get_active_iter(), 1)
+
+  #callback method, setting the details size to the one in the combobox
+  def on_detscale_changed(self, widget):
+    refmode = widget.get_model()
+    self.detval = refmode.get_value(widget.get_active_iter(), 1)
   
   #callback method, regenerate the land profile
   def on_butnext_clicked(self, widget):
@@ -1544,7 +1583,7 @@ class MaskProfile(GlobalBuilder):
         pass
       
       #making the other steps
-      self.noisel = self.makenoisel(self.textes["baseln"] + "noise", 5, 5, OVERLAY_MODE, False, nn)
+      self.noisel = self.makenoisel(self.textes["baseln"] + "noise", self.detval, self.detval, OVERLAY_MODE, False, nn)
       cmm = "The lower the selected value, the wider the affected area."
       self.clipl = self.makeclipl(self.textes["baseln"] + "clip", cmm)
       self.makeprofilel(self.textes["baseln"] + "layer")
