@@ -1338,8 +1338,9 @@ class LocalBuilder(TLSbase):
 
     elif (diresp == gtk.RESPONSE_CANCEL):
       pdb.gimp_selection_none(self.img)
+      pdb.gimp_image_remove_layer(self.img, self.groupl[-1])
+      del self.groupl[-1]
       infodi.destroy()
-      self.on_butgenhnp_clicked(widget)
 
 
 #class to generate random mask profile
@@ -2220,9 +2221,9 @@ class MountainsBuild(LocalBuilder):
       swin = gtk.Dialog.__init__(self, *args)
       self.set_border_width(10)
 
-      self.colornames = ["Brown", "Gray", "Custom"]
-      self.colorslight = [rgbcoltogdk(75, 62, 43), rgbcoltogdk(84, 84, 84), None] 
-      self.colorsdeep = [rgbcoltogdk(167, 143, 107), rgbcoltogdk(207, 207, 207), None] 
+      self.colornames = ["Brown", "Gray", "DarkYellow", "Custom"]
+      self.colorslight = [rgbcoltogdk(75, 62, 43), rgbcoltogdk(84, 84, 84), rgbcoltogdk(204, 137, 80), None] 
+      self.colorsdeep = [rgbcoltogdk(167, 143, 107), rgbcoltogdk(207, 207, 207), rgbcoltogdk(89, 67, 14), None] 
       self.clight = gdkcoltorgb(self.colorslight[0])
       self.cdeep = gdkcoltorgb(self.colorsdeep[0])
       
@@ -2274,7 +2275,9 @@ class MountainsBuild(LocalBuilder):
     #callback method of the ok button, to allow the user to set a custom color if the custom option has been chosen
     def on_ok_clicked(self, widget):
       if self.clight is None or self.cdeep is None:
-        cmapper = ColorMapper("Choose a light and deep color at the edge of a gradient map", True, "Color chooser", self, gtk.DIALOG_MODAL)
+        mapperlab = "Choose a light and deep color at the edge of a gradient map.\n"
+        mapperlab += "If you press cancel, a black-white gradient will be created."
+        cmapper = ColorMapper(mapperlab, True, "Color chooser", self, gtk.DIALOG_MODAL)
         rr = cmapper.run()
         if rr == gtk.RESPONSE_OK:
           self.clight = cmapper.chcol["light"]
