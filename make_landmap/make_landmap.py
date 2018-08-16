@@ -947,7 +947,7 @@ class TLSbase(gtk.Dialog):
     else:
       #mask already present, hence it is removed with the MASK_APPLY option
       applying = True
-        
+      
     if (applying):
       pdb.gimp_layer_remove_mask(layer, 0) #0 = MASK_APPLY
       return None
@@ -962,7 +962,12 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_context_set_background(lightc) #set background color
     
     #command to make the gradient map
-    pdb.gimp_context_set_gradient('Da pp a sf (RGB)')
+    num_grad, gradlist = pdb.gimp_gradients_get_list("RGB")
+    if num_grad == 1:
+      pdb.gimp_context_set_gradient(gradlist[0])
+    else:
+      raise RuntimeError("Error, cannot find the RGB gradient to set, or multiple RGB gradients can be set.")
+      
     pdb.plug_in_gradmap(self.img, layer)
     
     pdb.gimp_context_set_foreground(oldfgcol)
