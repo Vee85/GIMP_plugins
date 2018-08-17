@@ -24,7 +24,7 @@
 #setting names
 mainscript="make_landmap.py"
 mainfolder="make_landmap_brushes"
-ausscript="stroke_vector_options.py"
+ausscript="stroke_vectors_options.py"
 
 echo "$mainscript installation script, working on linux systems.\n"
 echo "This script copies the main script and the other relevant files in the GIMP user directories."
