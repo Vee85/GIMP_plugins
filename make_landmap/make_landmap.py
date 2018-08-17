@@ -1694,10 +1694,7 @@ class WaterBuild(GlobalBuilder):
     #getting bgl as copy of land mask
     self.copybgl(self.maskl, "seashape")
 
-    if (self.smooth > 0):
-      print self.smooth
-      sys.stdout.flush()
-      
+    if (self.smooth > 0):      
       self.gaussblur(self.bgl, self.smooth, self.smooth, 0)
       pdb.gimp_displays_flush()
     
