@@ -821,6 +821,12 @@ class TLSbase(gtk.Dialog):
   #method, set the smoothprofile parameter
   def setsmoothprof(self, val):
     self.smoothprofile = val
+
+  #method, apply the gauss blurring plug-in, do some parameter check before
+  def gaussblur(self, draw, x, y, mod):
+    px = x if x < 500 else 500
+    py = y if y < 500 else 500
+    pdb.plug_in_gauss(self.img, draw, px, py, mod)
   
   #method, copy the pixel map of a layer into a channel selection
   def layertochannel(self, llayer, pos, chname):
@@ -874,7 +880,7 @@ class TLSbase(gtk.Dialog):
     pdb.plug_in_solid_noise(self.img, noiselayer, False, turbulent, random.random() * 9999999999, 15, xpix, ypix)
     if normalise:
       pdb.plug_in_normalize(self.img, noiselayer)
-      pdb.plug_in_gauss(self.img, noiselayer, 5, 5, 0)
+      self.gaussblur(noiselayer, 5, 5, 0)
     
     return noiselayer
   
@@ -918,7 +924,7 @@ class TLSbase(gtk.Dialog):
       pdb.gimp_selection_none(self.img)
       #smoothing new mask before merging
       if self.smoothprofile > 0:
-        pdb.plug_in_gauss(self.img, self.maskl, self.smoothprofile, self.smoothprofile, 0)
+        self.gaussblur(self.maskl, self.smoothprofile, self.smoothprofile, 0)
       
       self.mergemasks()
       self.channelms = self.layertochannel(self.maskl, 0, "copiedfromlayer")
@@ -963,10 +969,12 @@ class TLSbase(gtk.Dialog):
     
     #command to make the gradient map
     num_grad, gradlist = pdb.gimp_gradients_get_list("RGB")
-    if num_grad == 1:
+    if num_grad == 0:
+      raise RuntimeError("Error, cannot find the RGB gradient to set. Something really wrong is going on here, there should be at least one default gradient.")
+    elif num_grad == 1:
       pdb.gimp_context_set_gradient(gradlist[0])
-    else:
-      raise RuntimeError("Error, cannot find the RGB gradient to set, or multiple RGB gradients can be set.")
+    elif num_grad > 1:
+      raise RuntimeError("Error, multiple RGB gradients can be set.") #@@@ make dialog with combobox to choose between the multiple RGB gradient
       
     pdb.plug_in_gradmap(self.img, layer)
     
@@ -998,7 +1006,7 @@ class TLSbase(gtk.Dialog):
     colfillayer(self.img, shapelayer, (255, 255, 255))
     pdb.gimp_selection_none(self.img)
     if smoothval > 0:
-      pdb.plug_in_gauss(self.img, shapelayer, smoothval, smoothval, 0)
+      self.gaussblur(shapelayer, smoothval, smoothval, 0)
     
     pdb.gimp_layer_set_mode(shapelayer, MULTIPLY_MODE)
     shapelayer = pdb.gimp_image_merge_down(self.img, shapelayer, 0) #merging shapelayer with extralev
@@ -1687,7 +1695,10 @@ class WaterBuild(GlobalBuilder):
     self.copybgl(self.maskl, "seashape")
 
     if (self.smooth > 0):
-      pdb.plug_in_gauss(self.img, self.bgl, self.smooth, self.smooth, 0)
+      print self.smooth
+      sys.stdout.flush()
+      
+      self.gaussblur(self.bgl, self.smooth, self.smooth, 0)
       pdb.gimp_displays_flush()
     
     self.noisel = self.makenoisel("seanoise", 4, 4, OVERLAY_MODE)
@@ -1706,7 +1717,7 @@ class WaterBuild(GlobalBuilder):
     pdb.gimp_selection_none(self.img)
 
     #smoothing near the coast and apply color
-    pdb.plug_in_gauss(self.img, self.seal, 20, 20, 0)
+    self.gaussblur(self.seal, 20, 20, 0)
     self.cgradmap(self.seal, self.colorwaterdeep, self.colorwaterlight)
     
     #adding shore
@@ -1717,7 +1728,7 @@ class WaterBuild(GlobalBuilder):
       if (pxpar < 5):
         pxpar = 5.0
       
-      pdb.plug_in_gauss(self.img, maskshore, pxpar, pxpar, 0)
+      self.gaussblur(maskshore, pxpar, pxpar, 0)
     
     pdb.gimp_displays_flush()
 
@@ -1961,7 +1972,7 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
 
     maskt = self.addmaskp(self.bgl, self.addingchannel)
     if not self.smoothbeforecomb and self.smoothval > 0:
-      pdb.plug_in_gauss(self.img, maskt, self.smoothval, self.smoothval, 0)
+      self.gaussblur(maskt, self.smoothval, self.smoothval, 0)
 
     pdb.gimp_displays_flush()
 
@@ -2002,7 +2013,7 @@ class DirtDetails(GlobalBuilder):
     if self.maskl is not None:
       masklcopy = self.maskl.copy()
       pdb.gimp_image_insert_layer(self.img, masklcopy, self.getgroupl(), 0)
-      pdb.plug_in_gauss(self.img, masklcopy, self.smp, self.smp, 0)
+      self.gaussblur(masklcopy, self.smp, self.smp, 0)
     
       #adding the noise layer mixed with the copy mask
       self.noisel = self.makenoisel(lname, pixsize, pixsize, DIFFERENCE_MODE)
@@ -2051,7 +2062,7 @@ class DirtDetails(GlobalBuilder):
     maskbis = self.addmaskp(self.bgl) #readding but not applying, we need to work on the second mask
 
     noisemask = self.addmaskp(self.noisel)
-    pdb.plug_in_gauss(self.img, self.noisel, 10, 10, 0)
+    self.gaussblur(self.noisel, 10, 10, 0)
     pdb.plug_in_spread(self.img, self.noisel, 10, 10)    
     self.addmaskp(self.noisel) #here called again to apply the mask
     
@@ -2345,9 +2356,9 @@ class MountainsBuild(LocalBuilder):
     pdb.gimp_image_insert_layer(self.img, basebis, self.getgroupl(), 0)
     maskbase = self.addmaskp(basebis, self.addingchannel)
     if self.smoothval > 0:
-      pdb.plug_in_gauss(self.img, maskbase, self.smoothval, self.smoothval, 0)
+      self.gaussblur(maskbase, self.smoothval, self.smoothval, 0)
     else:
-      pdb.plug_in_gauss(self.img, maskbase, self.smoothvallist[1], self.smoothvallist[1], 0) #here always setting a bit of smooth on the map
+      self.gaussblur(maskbase, self.smoothvallist[1], self.smoothvallist[1], 0) #here always setting a bit of smooth on the map
     
     #creating blurred base
     self.bgl = self.makeunilayer(self.textes["baseln"] + "blur", (0, 0, 0))
@@ -2355,7 +2366,7 @@ class MountainsBuild(LocalBuilder):
     colfillayer(self.img, self.bgl, (255, 255, 255))
     pdb.gimp_selection_none(self.img)
     if self.smoothval > 0:
-      pdb.plug_in_gauss(self.img, self.bgl, self.smoothval, self.smoothval, 0)
+      self.gaussblur(self.bgl, self.smoothval, self.smoothval, 0)
 
     #creating noise
     self.noisel = self.makeunilayer(self.textes["baseln"] + "widenoise", (0, 0, 0))
@@ -2431,9 +2442,9 @@ class MountainsBuild(LocalBuilder):
       ctrlcl.destroy()
       maskcol = self.addmaskp(self.mntcolorl, self.addingchannel)
       if self.smoothval > 0:
-        pdb.plug_in_gauss(self.img, maskcol, self.smoothval, self.smoothval, 0)
+        self.gaussblur(maskcol, self.smoothval, self.smoothval, 0)
       else:
-        pdb.plug_in_gauss(self.img, maskcol, self.smoothvallist[1], self.smoothvallist[1], 0) #here always setting a bit of smooth on the map
+        self.gaussblur(maskcol, self.smoothvallist[1], self.smoothvallist[1], 0) #here always setting a bit of smooth on the map
       
       pdb.gimp_item_set_visible(self.mntcolorl, False)
       
@@ -2475,7 +2486,7 @@ class MountainsBuild(LocalBuilder):
       cldc = CLevDialog(self.img, self.cpvlayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], self.getgroupl(), "Set lower threshold", self, gtk.DIALOG_MODAL)
       cldc.run()
       self.cpvlayer = cldc.reslayer
-      pdb.plug_in_gauss(self.img, self.cpvlayer, 5, 5, 0)
+      self.gaussblur(self.cpvlayer, 5, 5, 0)
       pdb.gimp_layer_set_opacity(self.cpvlayer, 65)
       cldc.destroy()
       if self.addcol:
@@ -2885,10 +2896,12 @@ class SymbolsBuild(GlobalBuilder):
   def setbeforerun(self):
     if self.bgl is None:
       self.bgl = self.makeunilayer("symbols outline")
+      pdb.gimp_layer_add_alpha(self.bgl)
       pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
 
     if self.symbols is None:
       self.symbols = self.makeunilayer("symbols")
+      pdb.gimp_layer_add_alpha(self.symbols)
       pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
     
     pdb.gimp_displays_flush()
@@ -3169,6 +3182,7 @@ class RoadBuild(GlobalBuilder):
   def setbeforerun(self):
     #adding a transparent layer
     self.roadslayers.append(self.makeunilayer("drawroads" + str(len(self.roadslayers))))
+    pdb.gimp_layer_add_alpha(self.roadslayers[-1])
     pdb.plug_in_colortoalpha(self.img, self.roadslayers[-1], (255, 255, 255))
     pdb.gimp_layer_set_mode(self.roadslayers[-1], OVERLAY_MODE)
 

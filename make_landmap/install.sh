@@ -36,6 +36,10 @@ if [ -z $1 ]; then
   fullnumver=`echo $gimpv | cut -f6- -d\ `
   numver=`echo $fullnumver | cut -f-2 -d.`
 
+  if [ -z $gimpv]; then
+    echo "It seems you do not have a command line for GIMP. Please give the full path of your user directory as argument."
+  fi
+
   instdir="$HOME/.gimp-$numver"
 else
   instdir=$1
