@@ -1431,6 +1431,7 @@ class LocalBuilder(TLSbase):
       infodi = MsgDialog("Info", self, imess)
       diresp = infodi.run()
 
+      cutted = False
       if (diresp == gtk.RESPONSE_OK):
         cutted, cpmap, cpmask = self.copytonewimg()
       infodi.destroy()
