@@ -749,7 +749,7 @@ class TLSbase(gtk.Dialog):
         pdb.gimp_floating_sel_anchor(fl_selb)
         self.layertochannel(copymaskl, 0, "landmask")
 
-    return copybasel, copymaskl
+    return non_empty, copybasel, copymaskl
 
   #method, copying back the new image into the main image
   def copyfromnewimg(self, groupdest=None):
@@ -1420,7 +1420,7 @@ class LocalBuilder(TLSbase):
       pdb.gimp_displays_flush()
     groupselecter.destroy()
 
-  #preparing the submap if needed #@@@ missing check that a selection is present.
+  #method to prepare the submap if needed
   def setsubmap(self):
     cpmap = None
     cpmask = None
@@ -1432,11 +1432,19 @@ class LocalBuilder(TLSbase):
       diresp = infodi.run()
 
       if (diresp == gtk.RESPONSE_OK):
-        cpmap, cpmask = self.copytonewimg()
+        cutted, cpmap, cpmask = self.copytonewimg()
       infodi.destroy()
+      
+      if not cutted:
+        #dialog telling to that nothing has been selected
+        infodj = MsgDialog("Warning!", self, "You did not select anything!")
+        infodj.run()
+        infodj.destroy()
+        cpmap, cpmask = self.setsubmap()
+        
     return cpmap, cpmask
     
-  #take back what is needed from the submap if needed
+  #method to take back what is needed from the submap if needed
   def takefromsubmap(self, copymap):
     if self.onsubmap:
       if copymap is not None:
@@ -1525,7 +1533,9 @@ class LocalBuilder(TLSbase):
         if rr == gtk.RESPONSE_OK:
           infodib.destroy()
           infodi.destroy()
-          self.on_butgenhnp_clicked(widget) #@@@ careful when recalling, we do not want to open another subimage.
+          if self.onsubmap: #deleting the image before restarting
+            self.deletenewimgs()
+          self.on_butgenhnp_clicked(widget)
 
     elif (diresp == gtk.RESPONSE_CANCEL):
       pdb.gimp_selection_none(self.getimg())
