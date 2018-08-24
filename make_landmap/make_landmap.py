@@ -29,10 +29,8 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ make rotation instead of directions in maskprofile
-#@@@ support for big images: need to figure a way to properly work on smaller new images:
-# copy from the main image and preserving a common scale, and then copy-paste back to the main image.
-# select by hand the smaller image in case of LocalBuilder, slice the main image automatically into mosaic submaps for GlobalBuilder to have smaller scale
-# find a fay to handle the discontinuity at borders in case of mosaic
+#@@@ add mosaic of the full map (GlobalBuilder)
+
 
 import sys
 import os
@@ -65,7 +63,7 @@ def colfillayer(image, layer, rgbcolor):
   pdb.gimp_context_set_foreground(oldfgcol)
 
 
-#class to store a couple image - its display
+#class to store an image and its layer and channel and display
 class ImageD:
   #constructor
   def __init__(self, width, height, mode):
@@ -74,6 +72,7 @@ class ImageD:
     pdb.gimp_image_insert_layer(self.image, self.bglayer, None, 0)
     self.masklayer = pdb.gimp_layer_new(self.image, self.image.width, self.image.height, 0, "copymask", 100, 0) #0 = normal mode
     pdb.gimp_image_insert_layer(self.image, self.masklayer, None, 0)
+    colfillayer(self.image, self.masklayer, (255, 255, 255))
     self.display = pdb.gimp_display_new(self.image)
 
   def getimage(self):
@@ -90,6 +89,35 @@ class ImageD:
 
   def delete(self):
     pdb.gimp_display_delete(self.display)
+
+
+#class, dialog with label and optional checkbutton pl
+class MsgDialog(gtk.Dialog):
+  #constructor
+  def __init__(self, title, parent, message, showcheck=False):
+    mwin = gtk.Dialog.__init__(self, title, parent, gtk.DIALOG_MODAL)
+    self.icv = False
+    self.set_border_width(10)
+    self.ilabel = gtk.Label(message)
+    self.vbox.add(self.ilabel)
+    
+    if showcheck:
+      self.ichb = gtk.CheckButton("Intersect selection with land mass if present\nPrevent the sea from being covered by the new area.")
+      self.ichb.set_active(True)
+      self.ichb.connect("toggled", self.on_ichb_toggled)
+      self.vbox.add(self.ichb)
+      
+    self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+    self.add_button("Ok", gtk.RESPONSE_OK)
+
+    self.show_all()
+    return mwin
+
+  def on_ichb_toggled(self, widget):
+    self.icv = widget.get_active()
+
+  def istoggled(self):
+    return self.icv
 
 #class to let the user setting the colors edge of a color map
 class ColorMapper(gtk.Dialog):
@@ -714,9 +742,9 @@ class TLSbase(gtk.Dialog):
       pdb.gimp_floating_sel_anchor(fl_sel)
       
       #copy the cutted landmask if present
+      copymaskl = self.mosaic[-1].getmasklayer()
       if self.maskl is not None:
         pdb.gimp_edit_copy(self.maskl)
-        copymaskl = self.mosaic[-1].getmasklayer()
         fl_selb = pdb.gimp_edit_paste(copymaskl, True)
         pdb.gimp_floating_sel_anchor(fl_selb)
         self.layertochannel(copymaskl, 0, "landmask")
@@ -745,10 +773,14 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_selection_none(self.img)
     pdb.gimp_image_remove_channel(self.img, copiedarea)
 
+    self.refwidth = self.img.width
+    self.refheight = self.img.height
+
   #deleting all the subimabes
   def deletenewimgs(self):
     for im in self.mosaic:
       im.delete()
+    del self.mosaic[:]
 
   #method, generate the stuffs. To be overrided by child classes
   def generatestep(self):
@@ -854,8 +886,12 @@ class TLSbase(gtk.Dialog):
     self.bgl.name = blname
     pdb.gimp_image_insert_layer(self.getimg(), self.bgl, self.getgroupl(), 0)
     
-  #method to set some stuffs before a run() call. To be overrided by the child classes if needed, but not mandatory
-  def setbeforerun(self):
+  #method to perform any action before a run() call showing the dialog interface. To be overrided by the child classes if needed, but not mandatory
+  def beforerun(self, *args):
+    pass
+
+  #method to perform any action before pressing the generate button, each time the button is pressed. To be overrided by the child classes if needed, but not mandatory
+  def beforegen(self):
     pass
 
   #method to perform any action at the pressing of the next or quit button (even if the step has not been generated). To be overrided by the child classes if needed, but not mandatory
@@ -998,7 +1034,8 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_image_insert_layer(self.getimg(), cliplayer, self.getgroupl(), 0)
     colfillayer(self.getimg(), cliplayer, (255, 255, 255)) #make layer color white
     
-    cld = CLevDialog(self.getimg(), cliplayer, commtxt, CLevDialog.LEVELS, [CLevDialog.OUTPUT_MAX], self.getgroupl(), "Set clip layer level", self, gtk.DIALOG_MODAL) #title = "sel clip...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    cld = CLevDialog(self.getimg(), cliplayer, commtxt, CLevDialog.LEVELS, [CLevDialog.OUTPUT_MAX], self.getgroupl(), "Set clip layer level", self, gtk.DIALOG_MODAL)
+    #title = "sel clip...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     cld.run()
     cliplayer = cld.reslayer
     self.thrc = cld.outhigh
@@ -1161,7 +1198,7 @@ class GlobalBuilder(TLSbase):
     self.generatestep()
     self.setgenerated(True)
     if self.multigen:
-      self.setbeforerun()
+      self.beforegen()
 
 
 #class for building stuffs in small selected areas. Intented to be used as an abstract class providing common interface and methods (old BuildAddition class)
@@ -1184,7 +1221,7 @@ class LocalBuilder(TLSbase):
     self.smoothval = 0 #will be reinitialized by the dedicated method
 
     self.onsubmap = False
-    
+
     #No GUI here, it is buildt in the child classes as it may change from class to class. Only the button area is buildt here, which should be equal for all the children
     #No button area
 
@@ -1366,7 +1403,7 @@ class LocalBuilder(TLSbase):
       if grouptod == -1:
         self.cleandrawables()
         self.setgenerated(False)
-        self.setbeforerun()
+        self.beforegen()
       else:
         #deleting the group
         pdb.gimp_image_remove_layer(self.img, self.groupl[grouptod])
@@ -1383,31 +1420,41 @@ class LocalBuilder(TLSbase):
       pdb.gimp_displays_flush()
     groupselecter.destroy()
 
+  #preparing the submap if needed #@@@ missing check that a selection is present.
+  def setsubmap(self):
+    cpmap = None
+    cpmask = None
+    if self.onsubmap:
+      #dialog telling to select the area where to place the stuff
+      imess = "Select the area to copy with a rectangular selection.\n"
+      imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
+      infodi = MsgDialog("Info", self, imess)
+      diresp = infodi.run()
+
+      if (diresp == gtk.RESPONSE_OK):
+        cpmap, cpmask = self.copytonewimg()
+      infodi.destroy()
+    return cpmap, cpmask
+    
+  #take back what is needed from the submap if needed
+  def takefromsubmap(self, copymap):
+    if self.onsubmap:
+      if copymap is not None:
+        pdb.gimp_item_set_visible(copymap, False)
+      self.copyfromnewimg(self.getgroupl(False))
+      self.deletenewimgs()
+      pdb.gimp_displays_flush()
+
   #callback method to generate random selection (mask profile)
   def on_butgenrdn_clicked(self, widget):
     if self.generated and not self.multigen:
       self.cleandrawables()
     self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
 
-    #preparing the submap
-    if self.onsubmap:
-      #dialog telling to select the area where to place the stuff
-      infodi = gtk.Dialog(title="Info", parent=self)
-      imess = "Select the area to copy with a rectangular selection.\n"
-      imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
-      ilabel = gtk.Label(imess)
-      infodi.vbox.add(ilabel)
-      ilabel.show()
-      infodi.add_button("Cancel", gtk.RESPONSE_CANCEL)
-      infodi.add_button("Ok", gtk.RESPONSE_OK)
-      diresp = infodi.run()
-
-      if (diresp == gtk.RESPONSE_OK):
-        cpmap, cpmask = self.copytonewimg()
-      infodi.destroy()
-      
+    cpmap, cpmask = self.setsubmap()
     baselayer = self.makeunilayer(self.textes["baseln"] + "base")
-    newmp = MaskProfile(self.textes, self.getimg(), baselayer, self.getmaskl(), self.getgroupl(), "Building " + self.textes["baseln"] + " mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    newmp = MaskProfile(self.textes, self.getimg(), baselayer, self.getmaskl(), self.getgroupl(), "Building " + self.textes["baseln"] + " mass", self, gtk.DIALOG_MODAL)
+    #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     if self.smoothbeforecomb and self.smoothval > 0:
       newmp.setsmoothprof(self.smoothval)
 
@@ -1427,17 +1474,12 @@ class LocalBuilder(TLSbase):
       self.generatestep()
       self.setgenerated(True)
       if self.multigen:
-        self.setbeforerun()
+        self.beforegen()
     else:
       pdb.gimp_image_remove_layer(self.getimg(), newmp.bgl)
 
-    #copying the submap into the original image
-    if self.onsubmap:
-      pdb.gimp_item_set_visible(cpmap, False)
-      self.copyfromnewimg(self.getgroupl(False))
-      self.deletenewimgs()
-      pdb.gimp_displays_flush()
-      
+    self.takefromsubmap(cpmap)
+    
   #callback method to let the user to select the area by hand and generate the mask profile.
   def on_butgenhnp_clicked(self, widget):
     if self.generated and not self.multigen:
@@ -1446,56 +1488,48 @@ class LocalBuilder(TLSbase):
     #making the grouplayer
     if len(self.groupl) == 0:
       self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
-    elif len(self.getgroupl().layers) > 0:
+    elif len(self.getlayerlist()) > 0:
       self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
-      
+
+    cpmap, cpmask = self.setsubmap()
     #dialog telling to select the area where to place the stuff
-    infodi = gtk.Dialog(title="Info", parent=self)
+    if self.onsubmap:
+      pdb.gimp_item_set_visible(cpmask, False)
+      pdb.gimp_displays_flush()
     imess = "Select the area where you want to place the "+ self.textes["labelext"] + " with the lazo tool or another selection tool.\n"
     imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
-    ilabel = gtk.Label(imess)
-    infodi.vbox.add(ilabel)
-    ilabel.show()
-    ichb = gtk.CheckButton("Intersect selection with land mass if present\n(prevent the sea from being covered by the new area.")
-    ichb.set_active(True)
-    infodi.vbox.add(ichb)
-    ichb.show()
-    infodi.add_button("Cancel", gtk.RESPONSE_CANCEL)
-    infodi.add_button("Ok", gtk.RESPONSE_OK)
+    infodi = MsgDialog("Info", self, imess, True)
     diresp = infodi.run()
 
     if (diresp == gtk.RESPONSE_OK):
-      if not pdb.gimp_selection_is_empty(self.img):
+      if not pdb.gimp_selection_is_empty(self.getimg()):
         if self.smoothbeforecomb and self.smoothval > 0:
-          pdb.gimp_selection_feather(self.img, self.smoothval)
+          pdb.gimp_selection_feather(self.getimg(), self.smoothval)
           
-        self.addingchannel = pdb.gimp_selection_save(self.img)
-        pdb.gimp_selection_none(self.img)
+        self.addingchannel = pdb.gimp_selection_save(self.getimg())
+        pdb.gimp_selection_none(self.getimg())
         #combining the new mask with the land profile
-        if self.channelms is not None and ichb.get_active():
+        if self.channelms is not None and infodi.istoggled():
           pdb.gimp_channel_combine_masks(self.addingchannel, self.channelms, 3, 0, 0)
         infodi.destroy()
         self.addingchannel.name = self.textes["baseln"] + "mask"
         self.appendmask(self.addingchannel)
         self.generatestep()
         self.setgenerated(True)
+        self.takefromsubmap(cpmap)
         if self.multigen:
-          self.setbeforerun()
+          self.beforegen()
       else:
-        infodib = gtk.Dialog(title="Warning", parent=infodi)
-        ilabelb = gtk.Label("You have to create a selection!")
-        infodib.vbox.add(ilabelb)
-        ilabelb.show()
-        infodib.add_button("Ok", gtk.RESPONSE_OK)
+        infodib = MsgDialog("Warning", infodi, "You have to create a selection!")
         rr = infodib.run()
         if rr == gtk.RESPONSE_OK:
           infodib.destroy()
           infodi.destroy()
-          self.on_butgenhnp_clicked(widget)
+          self.on_butgenhnp_clicked(widget) #@@@ careful when recalling, we do not want to open another subimage.
 
     elif (diresp == gtk.RESPONSE_CANCEL):
-      pdb.gimp_selection_none(self.img)
-      pdb.gimp_image_remove_layer(self.img, self.groupl[-1])
+      pdb.gimp_selection_none(self.getimg())
+      pdb.gimp_image_remove_layer(self.getimg(), self.groupl[-1])
       del self.groupl[-1]
       infodi.destroy()
 
@@ -1664,11 +1698,7 @@ class MaskProfile(GlobalBuilder):
         self.on_job_done()
       else:
         #dialog telling to press the other button first
-        infodi = gtk.Dialog(title="Warning", parent=self)
-        ilabel = gtk.Label("You cannot go to the next step until you generate a profile.\nPress the \"Generate profile\" button first.")
-        infodi.vbox.add(ilabel)
-        ilabel.show()
-        infodi.add_button("Ok", gtk.RESPONSE_OK)
+        infodi = MsgDialog("Warning", self, "You cannot go to the next step until you generate a profile.\nPress the \"Generate profile\" button first.")
         infodi.run()
         infodi.destroy()
         
@@ -1966,7 +1996,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
 
       pdb.gimp_displays_flush()
       self.localbuilder.show_all()
-      self.localbuilder.setbeforerun()
+      self.localbuilder.beforerun(None)
       self.localbuilder.run()
 
       try:
@@ -1978,13 +2008,9 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       pdb.gimp_displays_flush()
     else:
       #dialog to explain the user that it has to draw before
-      infodial = gtk.Dialog(title="Warning", parent=self)
       labtxt = "You cannot generate / delete the smaller areas until you generate the land details before.\n"
       labtxt += "Press 'Generate land details' button."
-      ilabel = gtk.Label(labtxt)
-      infodial.vbox.add(ilabel)
-      ilabel.show()
-      infodial.add_button("OK", gtk.RESPONSE_OK)
+      infodial = MsgDialog("Warning", self, labtxt)
       rr = infodial.run()
       infodial.destroy()
 
@@ -2005,7 +2031,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       elif ll.name == self.namelist[3]:
         self.basebumpsl = ll
 
-    self.localbuilder.setrfbase(self.bgl)
+    self.localbuilder.beforerun(self.bgl)
     self.localbuilder.loaddrawables()
     return self.loaded()
     
@@ -2033,8 +2059,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
 
     #adding small areas of other region types
     self.localbuilder.show_all()
-    self.localbuilder.setrfbase(self.bgl)
-    self.localbuilder.setbeforerun()
+    self.localbuilder.beforerun(self.bgl)
     self.localbuilder.run()
     
     #generating noise
@@ -2085,8 +2110,16 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
 
     return mwin
 
+  #override method, setting a reference to the base layer
+  def beforerun(self, *args):
+    if args[0] is not None:
+      if isinstance(args[0], gimp.Layer):
+        self.refbase = args[0]
+      else:
+        raise RuntimeError("Error, Wrong type passed to AdditionalDetBuild.beforerun. It should be a gimp.Layer")
+
   #override method to set insertindex 
-  def setbeforerun(self):
+  def beforegen(self):
     if len(self.groupl) == 0:
       refll = self.refbase
     else:
@@ -2116,10 +2149,6 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
       self.gaussblur(maskt, self.smoothval, self.smoothval, 0)
 
     pdb.gimp_displays_flush()
-
-  #setting a reference to the base layer, to be called before a run, but not everytime we generated a step (so we cannot use setbeforerun method)
-  def setrfbase(self, basel):
-    self.refbase = basel
 
 
 #class to generate the dirt on the terrain
@@ -2464,10 +2493,16 @@ class MountainsBuild(LocalBuilder):
   def on_chbfany_toggled(self, widget, k):
     self.raisedge[k] = widget.get_active()
 
-  #method, setting the base layer
+  #method, setting the base layer @@@possibly useless method
   def setgroupvisibility(self, bval):
     for gl in self.groupl:
       pdb.gimp_item_set_visible(gl, bval)
+
+  #override method, creating the base with the mask
+  def beforerun(self, *args):
+    # ~ self.setgroupvisibility(False)
+    self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
+    # ~ self.setgroupvisibility(True)
   
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def generatestep(self):    
@@ -2489,13 +2524,11 @@ class MountainsBuild(LocalBuilder):
     elif chrot == gtk.RESPONSE_CANCEL:
       ctrlm.destroy()
 
-    #creating the base with the mask
-    if len(self.groupl) == 1 or self.base is None:
-      self.setgroupvisibility(False)
-      self.base = pdb.gimp_layer_new_from_visible(self.getimg(), self.getimg(), self.textes["baseln"] + "mapbasehidden")
-      self.setgroupvisibility(True)
-      
-    basebis = self.base.copy()
+    #getting the correct base for the map
+    if self.onsubmap:
+      basebis = pdb.gimp_layer_new_from_visible(self.getimg(), self.getimg(), self.textes["baseln"] + "submapbasehidden")
+    else:
+      basebis = self.base.copy()
     basebis.name = self.textes["baseln"] + "mapbase"
     pdb.gimp_image_insert_layer(self.getimg(), basebis, self.getgroupl(), 0)
     maskbase = self.addmaskp(basebis, self.addingchannel)
@@ -2688,6 +2721,9 @@ class ForestBuild(LocalBuilder):
     hbxa.add(laba)
 
     #new row
+    self.submapdef()
+
+    #new row
     hbxb = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxb)
 
@@ -2833,15 +2869,11 @@ class RiversBuild(GlobalBuilder):
     pdb.gimp_context_set_brush_size(self.defsize)
 
     #dialog to explain the user that is time to draw
-    infodial = gtk.Dialog(title="Drawing rivers", parent=self)
     labtxt = "Draw the rivers on the map. Regulate the size of the pencil if needed.\n"
     labtxt += "Use the pencil and do not worry of drawing on the sea.\n"
     labtxt += "Do not change the foreground color (it has to be white as you are actually editing the layer mask).\n"
     labtxt += "Press OK when you have finished to draw the rivers."
-    ilabel = gtk.Label(labtxt)
-    infodial.vbox.add(ilabel)
-    ilabel.show()
-    infodial.add_button("OK", gtk.RESPONSE_OK)
+    infodial = MsgDialog("Drawing rivers", self, labtxt)
     rr = infodial.run()
     
     #steps after the rivers have been drawn
@@ -3036,8 +3068,8 @@ class SymbolsBuild(GlobalBuilder):
         self.symbols = ll
     return self.loaded()
         
-  #override method to prepare the symbols drawing 
-  def setbeforerun(self):
+  #override method to prepare the symbols drawing (args not used)
+  def beforerun(self, *args):
     if self.bgl is None:
       self.bgl = self.makeunilayer("symbols outline")
       pdb.gimp_layer_add_alpha(self.bgl)
@@ -3108,12 +3140,7 @@ class SymbolsBuild(GlobalBuilder):
               pdb.gimp_paintbrush_default(self.symbols, 2, [xc, yc])
               i = i + 1
           else:
-            infodi = gtk.Dialog(title="Info", parent=self)
-            imess = "Select the area where you want to place the symbols with the lazo tool or another selection tool first!\n"
-            ilabel = gtk.Label(imess)
-            infodi.vbox.add(ilabel)
-            ilabel.show()
-            infodi.add_button("Ok", gtk.RESPONSE_OK)
+            infodi = MsgDialog("Info", self, "Select the area where you want to place the symbols with the lazo tool or another selection tool first!\n")
             diresp = infodi.run()
             if (diresp == gtk.RESPONSE_OK):
               infodi.destroy()
@@ -3130,7 +3157,7 @@ class SymbolsBuild(GlobalBuilder):
   def on_cancel_clicked(self, widget):
     self.cleandrawables()
     self.setgenerated(False)
-    self.setbeforerun()
+    self.beforerun()
     
   #override method to fix symbols, add finishing touches and close.
   def afterclosing(self, who):
@@ -3323,7 +3350,7 @@ class RoadBuild(GlobalBuilder):
     self.roadsize = widget.get_value()
     
   #override method to prepare the road drawing 
-  def setbeforerun(self):
+  def beforegen(self):
     #adding a transparent layer
     self.roadslayers.append(self.makeunilayer("drawroads" + str(len(self.roadslayers))))
     pdb.gimp_layer_add_alpha(self.roadslayers[-1])
@@ -3382,7 +3409,7 @@ class RoadBuild(GlobalBuilder):
       if pathtod == -1 or layertod == -1:
         self.cleandrawables()
         self.setgenerated(False)
-        self.setbeforerun()
+        self.beforegen()
       else:
         pdb.gimp_image_remove_vectors(self.img, self.paths[pathtod])
         pdb.gimp_image_remove_layer(self.img, self.roadslayers[layertod])
@@ -3522,7 +3549,8 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
   #method calling the object builder, listening to the response, and recursively calling itself
   def buildingmap(self, builder):
     builder.show_all()
-    builder.setbeforerun()
+    builder.beforerun()
+    builder.beforegen()
     builder.run()
     proxb = builder.chosen
     if proxb is not None:
