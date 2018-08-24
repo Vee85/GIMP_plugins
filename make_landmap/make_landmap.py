@@ -29,6 +29,8 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ make rotation instead of directions in maskprofile
+#@@@ add mosaic of the full map (GlobalBuilder)
+
 
 import sys
 import os
@@ -60,6 +62,62 @@ def colfillayer(image, layer, rgbcolor):
   pdb.gimp_edit_bucket_fill(layer, 0, 0, 100, 255, True, pdb.gimp_image_width(image)/2, pdb.gimp_image_height(image)/2) #0 (first): filling the layer with foreground color
   pdb.gimp_context_set_foreground(oldfgcol)
 
+
+#class to store an image and its layer and channel and display
+class ImageD:
+  #constructor
+  def __init__(self, width, height, mode):
+    self.image = pdb.gimp_image_new(width, height, mode)
+    self.bglayer = pdb.gimp_layer_new(self.image, self.image.width, self.image.height, 0, "background", 100, 0) #0 = normal mode
+    pdb.gimp_image_insert_layer(self.image, self.bglayer, None, 0)
+    self.masklayer = pdb.gimp_layer_new(self.image, self.image.width, self.image.height, 0, "copymask", 100, 0) #0 = normal mode
+    pdb.gimp_image_insert_layer(self.image, self.masklayer, None, 0)
+    colfillayer(self.image, self.masklayer, (255, 255, 255))
+    self.display = pdb.gimp_display_new(self.image)
+
+  def getimage(self):
+    return self.image
+
+  def getbglayer(self):
+    return self.bglayer
+
+  def getmasklayer(self):
+    return self.masklayer
+
+  def getdisplay(self):
+    return self.display
+
+  def delete(self):
+    pdb.gimp_display_delete(self.display)
+
+
+#class, dialog with label and optional checkbutton pl
+class MsgDialog(gtk.Dialog):
+  #constructor
+  def __init__(self, title, parent, message, showcheck=False):
+    mwin = gtk.Dialog.__init__(self, title, parent, gtk.DIALOG_MODAL)
+    self.icv = False
+    self.set_border_width(10)
+    self.ilabel = gtk.Label(message)
+    self.vbox.add(self.ilabel)
+    
+    if showcheck:
+      self.ichb = gtk.CheckButton("Intersect selection with land mass if present\nPrevent the sea from being covered by the new area.")
+      self.ichb.set_active(True)
+      self.ichb.connect("toggled", self.on_ichb_toggled)
+      self.vbox.add(self.ichb)
+      
+    self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+    self.add_button("Ok", gtk.RESPONSE_OK)
+
+    self.show_all()
+    return mwin
+
+  def on_ichb_toggled(self, widget):
+    self.icv = widget.get_active()
+
+  def istoggled(self):
+    return self.icv
 
 #class to let the user setting the colors edge of a color map
 class ColorMapper(gtk.Dialog):
@@ -325,10 +383,8 @@ class BDrawDial(gtk.Dialog):
     self.darea.connect("expose-event", self.on_expose)
     self.darea.add_events(gtk.gdk.BUTTON_PRESS_MASK)
     self.darea.add_events(gtk.gdk.BUTTON_RELEASE_MASK)
-    #~ self.darea.add_events(gtk.gdk.POINTER_MOTION_MASK)
     self.darea.connect("button-press-event", self.on_button_press)
     self.darea.connect("button-release-event", self.on_button_release)
-    #~ self.darea.connect("motion-notify-event", self.on_pointer_moving)
     self.vbox.add(self.darea)
 
     #action area empty
@@ -577,6 +633,7 @@ class TLSbase(gtk.Dialog):
   #class constants
   PREVIOUS = 0
   NEXT = 1
+  MAXGAUSSPIX = 500
   
   #constructor
   def __init__(self, image, basemask, layermask, channelmask, mandst, *args):
@@ -594,6 +651,8 @@ class TLSbase(gtk.Dialog):
     
     #internal arguments
     self.img = image
+    self.mosaic = []
+    self.mosidx = 0
     self.refwidth = image.width
     self.refheight = image.height
     self.groupl = []
@@ -651,7 +710,78 @@ class TLSbase(gtk.Dialog):
     if not self.generated:
       self.cleandrawables()
     self.on_job_done()
-    
+
+  #method, getting the image
+  def getimg(self):
+    if len(self.mosaic) == 0:
+      return self.img
+    else:
+      return self.mosaic[self.mosidx].getimage()
+
+  #method, getting the mask layer from the correct image
+  def getmaskl(self):
+    if len(self.mosaic) == 0:
+      return self.maskl
+    else:
+      return self.mosaic[self.mosidx].getmasklayer()
+      
+  #method, copying the selection content from main image and creating a new image with it
+  def copytonewimg(self):
+    copybasel = None
+    copymaskl = None
+    non_empty, x1, y1, x2, y2 = pdb.gimp_selection_bounds(self.img)
+    if non_empty:
+      self.refwidth = x2 - x1
+      self.refheight = y2 - y1
+
+      #copy the cutted selection
+      pdb.gimp_edit_copy_visible(self.img)
+      self.mosaic.append(ImageD(self.refwidth, self.refheight, 0))
+      copybasel = self.mosaic[-1].getbglayer()
+      fl_sel = pdb.gimp_edit_paste(copybasel, True)
+      pdb.gimp_floating_sel_anchor(fl_sel)
+      
+      #copy the cutted landmask if present
+      copymaskl = self.mosaic[-1].getmasklayer()
+      if self.maskl is not None:
+        pdb.gimp_edit_copy(self.maskl)
+        fl_selb = pdb.gimp_edit_paste(copymaskl, True)
+        pdb.gimp_floating_sel_anchor(fl_selb)
+        self.layertochannel(copymaskl, 0, "landmask")
+
+    return non_empty, copybasel, copymaskl
+
+  #method, copying back the new image into the main image
+  def copyfromnewimg(self, groupdest=None):
+    #saving and clearing the selection
+    copiedarea = pdb.gimp_selection_save(self.img)
+    pdb.gimp_selection_none(self.img)
+
+    #preparing new layer to receive the copied buffer
+    newlay = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, "copyback", 100, 0) #0 = normal mode
+    pdb.gimp_image_insert_layer(self.img, newlay, groupdest, 0)
+    pdb.gimp_layer_add_alpha(newlay)
+    pdb.plug_in_colortoalpha(self.img, newlay, (0, 0, 0))
+
+    #reapplying selection
+    pdb.gimp_image_select_item(self.img, 0, copiedarea)
+
+    #copy and paste and clear again the selection
+    pdb.gimp_edit_copy_visible(self.mosaic[self.mosidx].getimage())
+    fl_sel = pdb.gimp_edit_paste(newlay, True)
+    pdb.gimp_floating_sel_anchor(fl_sel)
+    pdb.gimp_selection_none(self.img)
+    pdb.gimp_image_remove_channel(self.img, copiedarea)
+
+    self.refwidth = self.img.width
+    self.refheight = self.img.height
+
+  #deleting all the subimabes
+  def deletenewimgs(self):
+    for im in self.mosaic:
+      im.delete()
+    del self.mosaic[:]
+
   #method, generate the stuffs. To be overrided by child classes
   def generatestep(self):
     raise NotImplementedError("child class must implement on_butgen_clicked method")
@@ -679,16 +809,26 @@ class TLSbase(gtk.Dialog):
     raise NotImplementedError("Child class must implement cleandrawables method")
 
   #method to get the last grouplayer (the one in use) or None
-  def getgroupl(self):
-    if isinstance(self.groupl, list):
-      if len(self.groupl) > 0:
-        return self.groupl[-1]
-      else:
-        return None
-    elif isinstance(self.groupl, gimp.GroupLayer):
-      return self.groupl
-    elif self.groupl is None:
+  def getgroupl(self, checkmosaic=True):
+    if len(self.mosaic) > 0 and checkmosaic:
       return None
+    else:
+      if isinstance(self.groupl, list):
+        if len(self.groupl) > 0:
+          return self.groupl[-1]
+        else:
+          return None
+      elif isinstance(self.groupl, gimp.GroupLayer):
+        return self.groupl
+      elif self.groupl is None:
+        return None
+
+  #method, getting the layer list of the correct image and grouplayer
+  def getlayerlist(self):
+    if self.getgroupl() is None:
+      return self.getimg().layers
+    else:
+      return self.getgroupl().layers
 
   #method, loading the group layer if needed
   def loadgrouplayer(self, namegroup):
@@ -738,16 +878,20 @@ class TLSbase(gtk.Dialog):
       self.groupl[-1].name = gname
       pdb.gimp_image_insert_layer(self.img, self.groupl[-1], None, pos)
     else:
-      raise RuntimeError("An error as occurred when making a new GroupLayer. The makegrouplayer must have been called when self.groupl is not a list.")
+      raise RuntimeError("An error as occurred when making a new GroupLayer. The makegrouplayer method must have been called when self.groupl is not a list.")
   
   #method to copy the background layer from an already existing layer
   def copybgl(self, blayer, blname):
     self.bgl = blayer.copy()
     self.bgl.name = blname
-    pdb.gimp_image_insert_layer(self.img, self.bgl, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.bgl, self.getgroupl(), 0)
     
-  #method to set some stuffs before a run() call. To be overrided by the child classes if needed, but not mandatory
-  def setbeforerun(self):
+  #method to perform any action before a run() call showing the dialog interface. To be overrided by the child classes if needed, but not mandatory
+  def beforerun(self, *args):
+    pass
+
+  #method to perform any action before pressing the generate button, each time the button is pressed. To be overrided by the child classes if needed, but not mandatory
+  def beforegen(self):
     pass
 
   #method to perform any action at the pressing of the next or quit button (even if the step has not been generated). To be overrided by the child classes if needed, but not mandatory
@@ -812,7 +956,7 @@ class TLSbase(gtk.Dialog):
       chmask = self.channelms
 
     if chmask is not None:
-      color = pdb.gimp_image_pick_color(self.img, chmask, x, y, False, False, 0)
+      color = pdb.gimp_image_pick_color(self.getimg(), chmask, x, y, False, False, 0)
       if color.red > threshold and color.green > threshold and color.blue > threshold:
         return True
 
@@ -824,38 +968,38 @@ class TLSbase(gtk.Dialog):
 
   #method, apply the gauss blurring plug-in, do some parameter check before
   def gaussblur(self, draw, x, y, mod):
-    px = x if x < 500 else 500
-    py = y if y < 500 else 500
-    pdb.plug_in_gauss(self.img, draw, px, py, mod)
+    px = x if x < TLSbase.MAXGAUSSPIX else TLSbase.MAXGAUSSPIX
+    py = y if y < TLSbase.MAXGAUSSPIX else TLSbase.MAXGAUSSPIX
+    pdb.plug_in_gauss(self.getimg(), draw, px, py, mod)
   
   #method, copy the pixel map of a layer into a channel selection
   def layertochannel(self, llayer, pos, chname):
-    reschannel = pdb.gimp_channel_new(self.img, self.img.width, self.img.height, chname, 100, (0, 0, 0))
-    self.img.add_channel(reschannel, pos)
+    reschannel = pdb.gimp_channel_new(self.getimg(), self.getimg().width, self.getimg().height, chname, 100, (0, 0, 0))
+    self.getimg().add_channel(reschannel, pos)
     
-    pdb.gimp_selection_all(self.img)
+    pdb.gimp_selection_all(self.getimg())
     if not pdb.gimp_edit_copy(llayer):
       raise RuntimeError("An error as occurred while copying from the layer in TLSbase.layertochannel method!")
       
     flsel = pdb.gimp_edit_paste(reschannel, True)
     pdb.gimp_floating_sel_anchor(flsel)
     pdb.gimp_item_set_visible(reschannel, False)
-    pdb.gimp_selection_none(self.img)
+    pdb.gimp_selection_none(self.getimg())
     return reschannel
 
   #method to use another function (such as makeunilayer, makenoisel, makeclipl) to generate a wider layer. In this case, full list of arguments except the final size must be provided as a tuple
   def makerotatedlayer(self, centered, angle, makingf, args):
-    newsize = math.sqrt(math.pow(self.img.width, 2) + math.pow(self.img.height, 2))
+    newsize = math.sqrt(math.pow(self.getimg().width, 2) + math.pow(self.getimg().height, 2))
     self.refwidth = newsize
     self.refheight = newsize
     resl = makingf(*args)
-    self.refwidth = self.img.width
-    self.refheight = self.img.height
+    self.refwidth = self.getimg().width
+    self.refheight = self.getimg().height
 
     #aligning the centers (center of new layer equal to the center of the image
     if centered:
-      xoff = self.img.width/2 - newsize/2
-      yoff = self.img.height/2 - newsize/2
+      xoff = self.getimg().width/2 - newsize/2
+      yoff = self.getimg().height/2 - newsize/2
       pdb.gimp_layer_translate(resl, xoff, yoff)
     
     resl = pdb.gimp_item_transform_rotate(resl, angle, True, 0, 0) #0, 0, rotation center coordinates, negltected if autocenter is True
@@ -864,33 +1008,34 @@ class TLSbase(gtk.Dialog):
   
   #method to generate a uniformly colored layer (typically the background layer)
   def makeunilayer(self, lname, lcolor=None):
-    res = pdb.gimp_layer_new(self.img, self.refwidth, self.refheight, 0, lname, 100, 0) #0 = normal mode
-    pdb.gimp_image_insert_layer(self.img, res, self.getgroupl(), 0)
+    res = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, 0) #0 = normal mode
+    pdb.gimp_image_insert_layer(self.getimg(), res, self.getgroupl(), 0)
     if lcolor is None:      
       lcolor = (255, 255, 255) #make layer color white
     
-    colfillayer(self.img, res, lcolor)
+    colfillayer(self.getimg(), res, lcolor)
     pdb.gimp_displays_flush()
     return res
   
   #method to generate the noise layer
   def makenoisel(self, lname, xpix, ypix, mode=NORMAL_MODE, turbulent=False, normalise=False):
-    noiselayer = pdb.gimp_layer_new(self.img, self.refwidth, self.refheight, 0, lname, 100, mode)
-    pdb.gimp_image_insert_layer(self.img, noiselayer, self.getgroupl(), 0)
-    pdb.plug_in_solid_noise(self.img, noiselayer, False, turbulent, random.random() * 9999999999, 15, xpix, ypix)
+    noiselayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, mode)
+    pdb.gimp_image_insert_layer(self.getimg(), noiselayer, self.getgroupl(), 0)
+    pdb.plug_in_solid_noise(self.getimg(), noiselayer, False, turbulent, random.random() * 9999999999, 15, xpix, ypix)
     if normalise:
-      pdb.plug_in_normalize(self.img, noiselayer)
+      pdb.plug_in_normalize(self.getimg(), noiselayer)
       self.gaussblur(noiselayer, 5, 5, 0)
     
     return noiselayer
   
   #method to generate the clip layer
   def makeclipl(self, lname, commtxt): 
-    cliplayer = pdb.gimp_layer_new(self.img, self.refwidth, self.refheight, 0, lname, 100, LIGHTEN_ONLY_MODE)
-    pdb.gimp_image_insert_layer(self.img, cliplayer, self.getgroupl(), 0)
-    colfillayer(self.img, cliplayer, (255, 255, 255)) #make layer color white
+    cliplayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, LIGHTEN_ONLY_MODE)
+    pdb.gimp_image_insert_layer(self.getimg(), cliplayer, self.getgroupl(), 0)
+    colfillayer(self.getimg(), cliplayer, (255, 255, 255)) #make layer color white
     
-    cld = CLevDialog(self.img, cliplayer, commtxt, CLevDialog.LEVELS, [CLevDialog.OUTPUT_MAX], self.getgroupl(), "Set clip layer level", self, gtk.DIALOG_MODAL) #title = "sel clip...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    cld = CLevDialog(self.getimg(), cliplayer, commtxt, CLevDialog.LEVELS, [CLevDialog.OUTPUT_MAX], self.getgroupl(), "Set clip layer level", self, gtk.DIALOG_MODAL)
+    #title = "sel clip...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     cld.run()
     cliplayer = cld.reslayer
     self.thrc = cld.outhigh
@@ -900,28 +1045,24 @@ class TLSbase(gtk.Dialog):
   #method to merge two layer representing two masks
   def mergemasks(self):
     if self.baseml is not None and self.maskl is not None:
-      if self.getgroupl() is None:
-        llst = self.img.layers
-      else:
-        llst = self.getgroupl().layers
-      mlpos = [j for i, j in zip(llst, range(len(llst))) if i.name == self.maskl.name][0]
+      mlpos = [j for i, j in zip(self.getlayerlist(), range(len(self.getlayerlist()))) if i.name == self.maskl.name][0]
       copybl = self.baseml.copy()
-      pdb.gimp_image_insert_layer(self.img, copybl, self.getgroupl(), mlpos)
+      pdb.gimp_image_insert_layer(self.getimg(), copybl, self.getgroupl(), mlpos)
       pdb.gimp_layer_set_mode(copybl, DARKEN_ONLY_MODE)
-      self.maskl = pdb.gimp_image_merge_down(self.img, copybl, 0)
+      self.maskl = pdb.gimp_image_merge_down(self.getimg(), copybl, 0)
 
   #method to make the final layer with the profile and save it in a channel.
   #remember: white = transparent, black = blocked
   def makeprofilel(self, lname):
     pdb.gimp_context_set_sample_merged(True)
-    pdb.gimp_image_select_color(self.img, 2, self.clipl, (int(self.thrc), int(self.thrc), int(self.thrc))) #2 = selection replace
+    pdb.gimp_image_select_color(self.getimg(), 2, self.clipl, (int(self.thrc), int(self.thrc), int(self.thrc))) #2 = selection replace
     pdb.gimp_context_set_sample_merged(False)
-    pdb.gimp_selection_invert(self.img) #inverting selection
+    pdb.gimp_selection_invert(self.getimg()) #inverting selection
     self.maskl = self.makeunilayer(lname)
     
     if self.baseml is not None:
       #merging the mask with a previous mask
-      pdb.gimp_selection_none(self.img)
+      pdb.gimp_selection_none(self.getimg())
       #smoothing new mask before merging
       if self.smoothprofile > 0:
         self.gaussblur(self.maskl, self.smoothprofile, self.smoothprofile, 0)
@@ -929,8 +1070,8 @@ class TLSbase(gtk.Dialog):
       self.mergemasks()
       self.channelms = self.layertochannel(self.maskl, 0, "copiedfromlayer")
     else:
-      self.channelms = pdb.gimp_selection_save(self.img)
-      pdb.gimp_selection_none(self.img)
+      self.channelms = pdb.gimp_selection_save(self.getimg())
+      pdb.gimp_selection_none(self.getimg())
     
   #method to apply a channel mask to a layer
   def addmaskp(self, layer, chmask=None, inverting=False, applying=False):
@@ -941,8 +1082,8 @@ class TLSbase(gtk.Dialog):
       maskmode = 0 #white mask (full transparent)
       if (chmask is not None):
         maskmode = 6 #channel mask
-        if (pdb.gimp_image_get_active_channel(self.img) is None): #checking if there is already an active channel
-          pdb.gimp_image_set_active_channel(self.img, chmask) #setting the active channel: if there is no active channel, gimp_layer_create_mask will fail.
+        if (pdb.gimp_image_get_active_channel(self.getimg()) is None): #checking if there is already an active channel
+          pdb.gimp_image_set_active_channel(self.getimg(), chmask) #setting the active channel: if there is no active channel, gimp_layer_create_mask will fail.
       
       mask = pdb.gimp_layer_create_mask(layer, maskmode)
       pdb.gimp_layer_add_mask(layer, mask)
@@ -976,7 +1117,7 @@ class TLSbase(gtk.Dialog):
     elif num_grad > 1:
       raise RuntimeError("Error, multiple RGB gradients can be set.") #@@@ make dialog with combobox to choose between the multiple RGB gradient
       
-    pdb.plug_in_gradmap(self.img, layer)
+    pdb.plug_in_gradmap(self.getimg(), layer)
     
     pdb.gimp_context_set_foreground(oldfgcol)
     pdb.gimp_context_set_background(oldbgcol)
@@ -989,44 +1130,44 @@ class TLSbase(gtk.Dialog):
     #make a copy of the basenoise layer, so that the original layer is not overwritten
     copybn = basenoise.copy()
     copybn.name = lname + "copy"
-    pdb.gimp_image_insert_layer(self.img, copybn, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), copybn, self.getgroupl(), 0)
     if hideoriginal:
       pdb.gimp_item_set_visible(basenoise, False)
 
     extralev = copybn.copy()
     extralev.name = lname + "level"
-    pdb.gimp_image_insert_layer(self.img, extralev, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), extralev, self.getgroupl(), 0)
     pdb.gimp_levels(extralev, 0, 0, 255, 1, 80, 255) #regulating color levels, channel = #0 (second parameter) is for histogram value
     
     shapelayer = self.makeunilayer(lname + "shape", (0, 0, 0))
-    pdb.gimp_image_select_item(self.img, 2, chmask)
+    pdb.gimp_image_select_item(self.getimg(), 2, chmask)
     if smoothval > 0:
-      pdb.gimp_selection_feather(self.img, smoothval)
+      pdb.gimp_selection_feather(self.getimg(), smoothval)
     
-    colfillayer(self.img, shapelayer, (255, 255, 255))
-    pdb.gimp_selection_none(self.img)
+    colfillayer(self.getimg(), shapelayer, (255, 255, 255))
+    pdb.gimp_selection_none(self.getimg())
     if smoothval > 0:
       self.gaussblur(shapelayer, smoothval, smoothval, 0)
     
     pdb.gimp_layer_set_mode(shapelayer, MULTIPLY_MODE)
-    shapelayer = pdb.gimp_image_merge_down(self.img, shapelayer, 0) #merging shapelayer with extralev
+    shapelayer = pdb.gimp_image_merge_down(self.getimg(), shapelayer, 0) #merging shapelayer with extralev
     commtxt = "Set the threshold until you get a shape you like"
-    frshape = CLevDialog(self.img, shapelayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], self.getgroupl(), "Set lower threshold", self, gtk.DIALOG_MODAL)
+    frshape = CLevDialog(self.getimg(), shapelayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], self.getgroupl(), "Set lower threshold", self, gtk.DIALOG_MODAL)
     frshape.run()
     
     shapelayer = frshape.reslayer
-    pdb.gimp_image_select_color(self.img, 2, shapelayer, (255, 255, 255)) #2 = selection replace
-    resmask = pdb.gimp_selection_save(self.img) #replacing forest mask with this one.
+    pdb.gimp_image_select_color(self.getimg(), 2, shapelayer, (255, 255, 255)) #2 = selection replace
+    resmask = pdb.gimp_selection_save(self.getimg()) #replacing forest mask with this one.
     resmask.name = lname + "defmask"
-    pdb.gimp_selection_none(self.img)
+    pdb.gimp_selection_none(self.getimg())
     pdb.gimp_layer_set_mode(shapelayer, MULTIPLY_MODE)
-    shapelayer = pdb.gimp_image_merge_down(self.img, shapelayer, 0)
+    shapelayer = pdb.gimp_image_merge_down(self.getimg(), shapelayer, 0)
     shapelayer.name = lname + "final"
 
     if hidefinal:
       pdb.gimp_item_set_visible(shapelayer, False)
     else:
-      pdb.plug_in_colortoalpha(self.img, shapelayer, (0, 0, 0))
+      pdb.plug_in_colortoalpha(self.getimg(), shapelayer, (0, 0, 0))
 
     return shapelayer, resmask
 
@@ -1057,7 +1198,7 @@ class GlobalBuilder(TLSbase):
     self.generatestep()
     self.setgenerated(True)
     if self.multigen:
-      self.setbeforerun()
+      self.beforegen()
 
 
 #class for building stuffs in small selected areas. Intented to be used as an abstract class providing common interface and methods (old BuildAddition class)
@@ -1078,7 +1219,9 @@ class LocalBuilder(TLSbase):
     self.smoothlist = ["None", "Small", "Medium", "Big"]
     self.smoothvallist = None
     self.smoothval = 0 #will be reinitialized by the dedicated method
-    
+
+    self.onsubmap = False
+
     #No GUI here, it is buildt in the child classes as it may change from class to class. Only the button area is buildt here, which should be equal for all the children
     #No button area
 
@@ -1201,6 +1344,13 @@ class LocalBuilder(TLSbase):
     self.chbsc.connect("toggled", self.on_chsc_toggled)
     self.hbxsc.add(self.chbsc)
 
+  #method, setting and adding the work on submap checkbox
+  def submapdef(self):
+    self.cbsubmap = gtk.CheckButton("Work on a submap")
+    self.cbsubmap.set_active(self.onsubmap)
+    self.cbsubmap.connect("toggled", self.on_cbsubmap_toggled)
+    self.vbox.add(self.cbsubmap)
+    
   #appending channel mask to the list of list
   def appendmask(self, mask, newsublist=True):
     if newsublist:
@@ -1220,6 +1370,10 @@ class LocalBuilder(TLSbase):
   #callback method, setting smooth_before parameter
   def on_chsc_toggled(self, widget):
     self.smoothbeforecomb = widget.get_active()
+
+  #callback method, setting onsubmap parameter
+  def on_cbsubmap_toggled(self, widget):
+    self.onsubmap = widget.get_active()
 
   #override cleaning method, common to all LocalBuild childs
   def cleandrawables(self):
@@ -1249,7 +1403,7 @@ class LocalBuilder(TLSbase):
       if grouptod == -1:
         self.cleandrawables()
         self.setgenerated(False)
-        self.setbeforerun()
+        self.beforegen()
       else:
         #deleting the group
         pdb.gimp_image_remove_layer(self.img, self.groupl[grouptod])
@@ -1266,13 +1420,49 @@ class LocalBuilder(TLSbase):
       pdb.gimp_displays_flush()
     groupselecter.destroy()
 
+  #method to prepare the submap if needed
+  def setsubmap(self):
+    cpmap = None
+    cpmask = None
+    if self.onsubmap:
+      #dialog telling to select the area where to place the stuff
+      imess = "Select the area to copy with a rectangular selection.\n"
+      imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
+      infodi = MsgDialog("Info", self, imess)
+      diresp = infodi.run()
+
+      if (diresp == gtk.RESPONSE_OK):
+        cutted, cpmap, cpmask = self.copytonewimg()
+      infodi.destroy()
+      
+      if not cutted:
+        #dialog telling to that nothing has been selected
+        infodj = MsgDialog("Warning!", self, "You did not select anything!")
+        infodj.run()
+        infodj.destroy()
+        cpmap, cpmask = self.setsubmap()
+        
+    return cpmap, cpmask
+    
+  #method to take back what is needed from the submap if needed
+  def takefromsubmap(self, copymap):
+    if self.onsubmap:
+      if copymap is not None:
+        pdb.gimp_item_set_visible(copymap, False)
+      self.copyfromnewimg(self.getgroupl(False))
+      self.deletenewimgs()
+      pdb.gimp_displays_flush()
+
   #callback method to generate random selection (mask profile)
   def on_butgenrdn_clicked(self, widget):
     if self.generated and not self.multigen:
       self.cleandrawables()
     self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
+
+    cpmap, cpmask = self.setsubmap()
     baselayer = self.makeunilayer(self.textes["baseln"] + "base")
-    newmp = MaskProfile(self.textes, self.img, baselayer, self.maskl, self.getgroupl(), "Building " + self.textes["baseln"] + " mass", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    newmp = MaskProfile(self.textes, self.getimg(), baselayer, self.getmaskl(), self.getgroupl(), "Building " + self.textes["baseln"] + " mass", self, gtk.DIALOG_MODAL)
+    #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     if self.smoothbeforecomb and self.smoothval > 0:
       newmp.setsmoothprof(self.smoothval)
 
@@ -1286,14 +1476,18 @@ class LocalBuilder(TLSbase):
       pdb.gimp_item_set_visible(newmp.noisel, False)
       pdb.gimp_item_set_visible(newmp.clipl, False)
       pdb.gimp_item_set_visible(newmp.maskl, False)
+      if self.onsubmap:
+        pdb.gimp_item_set_visible(cpmask, False)
       self.appendmask(self.addingchannel)
       self.generatestep()
       self.setgenerated(True)
       if self.multigen:
-        self.setbeforerun()
+        self.beforegen()
     else:
-      pdb.gimp_image_remove_layer(self.img, newmp.bgl)
-      
+      pdb.gimp_image_remove_layer(self.getimg(), newmp.bgl)
+
+    self.takefromsubmap(cpmap)
+    
   #callback method to let the user to select the area by hand and generate the mask profile.
   def on_butgenhnp_clicked(self, widget):
     if self.generated and not self.multigen:
@@ -1302,56 +1496,50 @@ class LocalBuilder(TLSbase):
     #making the grouplayer
     if len(self.groupl) == 0:
       self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
-    elif len(self.getgroupl().layers) > 0:
+    elif len(self.getlayerlist()) > 0:
       self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
-      
+
+    cpmap, cpmask = self.setsubmap()
     #dialog telling to select the area where to place the stuff
-    infodi = gtk.Dialog(title="Info", parent=self)
+    if self.onsubmap:
+      pdb.gimp_item_set_visible(cpmask, False)
+      pdb.gimp_displays_flush()
     imess = "Select the area where you want to place the "+ self.textes["labelext"] + " with the lazo tool or another selection tool.\n"
     imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
-    ilabel = gtk.Label(imess)
-    infodi.vbox.add(ilabel)
-    ilabel.show()
-    ichb = gtk.CheckButton("Intersect selection with land mass if present\n(prevent the sea from being covered by the new area.")
-    ichb.set_active(True)
-    infodi.vbox.add(ichb)
-    ichb.show()
-    infodi.add_button("Cancel", gtk.RESPONSE_CANCEL)
-    infodi.add_button("Ok", gtk.RESPONSE_OK)
+    infodi = MsgDialog("Info", self, imess, True)
     diresp = infodi.run()
 
     if (diresp == gtk.RESPONSE_OK):
-      if not pdb.gimp_selection_is_empty(self.img):
+      if not pdb.gimp_selection_is_empty(self.getimg()):
         if self.smoothbeforecomb and self.smoothval > 0:
-          pdb.gimp_selection_feather(self.img, self.smoothval)
+          pdb.gimp_selection_feather(self.getimg(), self.smoothval)
           
-        self.addingchannel = pdb.gimp_selection_save(self.img)
-        pdb.gimp_selection_none(self.img)
+        self.addingchannel = pdb.gimp_selection_save(self.getimg())
+        pdb.gimp_selection_none(self.getimg())
         #combining the new mask with the land profile
-        if self.channelms is not None and ichb.get_active():
+        if self.channelms is not None and infodi.istoggled():
           pdb.gimp_channel_combine_masks(self.addingchannel, self.channelms, 3, 0, 0)
         infodi.destroy()
         self.addingchannel.name = self.textes["baseln"] + "mask"
         self.appendmask(self.addingchannel)
         self.generatestep()
         self.setgenerated(True)
+        self.takefromsubmap(cpmap)
         if self.multigen:
-          self.setbeforerun()
+          self.beforegen()
       else:
-        infodib = gtk.Dialog(title="Warning", parent=infodi)
-        ilabelb = gtk.Label("You have to create a selection!")
-        infodib.vbox.add(ilabelb)
-        ilabelb.show()
-        infodib.add_button("Ok", gtk.RESPONSE_OK)
+        infodib = MsgDialog("Warning", infodi, "You have to create a selection!")
         rr = infodib.run()
         if rr == gtk.RESPONSE_OK:
           infodib.destroy()
           infodi.destroy()
+          if self.onsubmap: #deleting the image before restarting
+            self.deletenewimgs()
           self.on_butgenhnp_clicked(widget)
 
     elif (diresp == gtk.RESPONSE_CANCEL):
-      pdb.gimp_selection_none(self.img)
-      pdb.gimp_image_remove_layer(self.img, self.groupl[-1])
+      pdb.gimp_selection_none(self.getimg())
+      pdb.gimp_image_remove_layer(self.getimg(), self.groupl[-1])
       del self.groupl[-1]
       infodi.destroy()
 
@@ -1520,11 +1708,7 @@ class MaskProfile(GlobalBuilder):
         self.on_job_done()
       else:
         #dialog telling to press the other button first
-        infodi = gtk.Dialog(title="Warning", parent=self)
-        ilabel = gtk.Label("You cannot go to the next step until you generate a profile.\nPress the \"Generate profile\" button first.")
-        infodi.vbox.add(ilabel)
-        ilabel.show()
-        infodi.add_button("Ok", gtk.RESPONSE_OK)
+        infodi = MsgDialog("Warning", self, "You cannot go to the next step until you generate a profile.\nPress the \"Generate profile\" button first.")
         infodi.run()
         infodi.destroy()
         
@@ -1550,7 +1734,7 @@ class MaskProfile(GlobalBuilder):
       if (self.chtype == 1): #to generate multi-random area
         #setting the layer to a light gray color
         nn = True
-        colfillayer(self.img, self.bgl, (128, 128, 128)) #rgb notation for a 50% gray
+        colfillayer(self.getimg(), self.bgl, (128, 128, 128)) #rgb notation for a 50% gray
       elif (self.chtype > 1 and self.chtype < 5):
         if (self.chtype == 2): #to generate one-side area
           gradtype = 0 #linear
@@ -1559,31 +1743,31 @@ class MaskProfile(GlobalBuilder):
           if rd == gtk.RESPONSE_OK:
             #setting the coordinates for gradient drawing
             if seldir.dx == 0:
-              x1 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / self.fsg))
-              x2 = random.random() * (pdb.gimp_image_width(self.img) / self.fsg)
+              x1 = pdb.gimp_image_width(self.getimg()) - (random.random() * (pdb.gimp_image_width(self.getimg()) / self.fsg))
+              x2 = random.random() * (pdb.gimp_image_width(self.getimg()) / self.fsg)
             elif seldir.dx == 1:
-              x1 = pdb.gimp_image_height(self.img)/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.img) / self.fsg))
-              x2 = pdb.gimp_image_height(self.img)/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.img) / self.fsg))
+              x1 = pdb.gimp_image_height(self.getimg())/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.getimg()) / self.fsg))
+              x2 = pdb.gimp_image_height(self.getimg())/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.getimg()) / self.fsg))
             elif seldir.dx == 2:
-              x1 = random.random() * (pdb.gimp_image_width(self.img) / self.fsg)
-              x2 = pdb.gimp_image_width(self.img) - (random.random() * (pdb.gimp_image_width(self.img) / self.fsg))
+              x1 = random.random() * (pdb.gimp_image_width(self.getimg()) / self.fsg)
+              x2 = pdb.gimp_image_width(self.getimg()) - (random.random() * (pdb.gimp_image_width(self.getimg()) / self.fsg))
               
             if seldir.dy == 0:
-              y1 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / self.fsg))
-              y2 = random.random() * (pdb.gimp_image_height(self.img) / self.fsg)
+              y1 = pdb.gimp_image_height(self.getimg()) - (random.random() * (pdb.gimp_image_height(self.getimg()) / self.fsg))
+              y2 = random.random() * (pdb.gimp_image_height(self.getimg()) / self.fsg)
             elif seldir.dy == 1:
-              y1 = pdb.gimp_image_height(self.img)/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.img) / self.fsg))
-              y2 = pdb.gimp_image_height(self.img)/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.img) / self.fsg))
+              y1 = pdb.gimp_image_height(self.getimg())/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.getimg()) / self.fsg))
+              y2 = pdb.gimp_image_height(self.getimg())/2 + ((random.random() -0.5) * (pdb.gimp_image_height(self.getimg()) / self.fsg))
             elif seldir.dy == 2:
-              y1 = random.random() * (pdb.gimp_image_height(self.img) / self.fsg)
-              y2 = pdb.gimp_image_height(self.img) - (random.random() * (pdb.gimp_image_height(self.img) / self.fsg))
+              y1 = random.random() * (pdb.gimp_image_height(self.getimg()) / self.fsg)
+              y2 = pdb.gimp_image_height(self.getimg()) - (random.random() * (pdb.gimp_image_height(self.getimg()) / self.fsg))
                           
             seldir.destroy()
           
         elif (self.chtype == 3 or self.chtype == 4): #to generate a circular area or corona
           gradtype = 2 #radial
-          x1 = pdb.gimp_image_width(self.img)/2
-          y1 = pdb.gimp_image_height(self.img)/2
+          x1 = pdb.gimp_image_width(self.getimg())/2
+          y1 = pdb.gimp_image_height(self.getimg())/2
           aver = (x1 + y1)/2.0
           x2 = aver + (aver * (0.75 + random.random()/2.0))
           y2 = y1
@@ -1699,19 +1883,19 @@ class WaterBuild(GlobalBuilder):
       pdb.gimp_displays_flush()
     
     self.noisel = self.makenoisel("seanoise", 4, 4, OVERLAY_MODE)
-    self.bgl = pdb.gimp_image_merge_down(self.img, self.noisel, 0)
+    self.bgl = pdb.gimp_image_merge_down(self.getimg(), self.noisel, 0)
 
     #copy bgl layer into a new layer 
     self.seal = self.bgl.copy()
     self.seal.name = "sea"
-    pdb.gimp_image_insert_layer(self.img, self.seal, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.seal, self.getgroupl(), 0)
     
     self.addmaskp(self.seal, self.channelms, True, True)
-    pdb.plug_in_normalize(self.img, self.seal)
-    pdb.gimp_image_select_item(self.img, 2, self.seal) #this selects the non transparent region of the layer, #2 = replace selection
-    pdb.gimp_selection_invert(self.img) #inverting the selection
-    colfillayer(self.img, self.seal, (255, 255, 255)) #filling selected area with white
-    pdb.gimp_selection_none(self.img)
+    pdb.plug_in_normalize(self.getimg(), self.seal)
+    pdb.gimp_image_select_item(self.getimg(), 2, self.seal) #this selects the non transparent region of the layer, #2 = replace selection
+    pdb.gimp_selection_invert(self.getimg()) #inverting the selection
+    colfillayer(self.getimg(), self.seal, (255, 255, 255)) #filling selected area with white
+    pdb.gimp_selection_none(self.getimg())
 
     #smoothing near the coast and apply color
     self.gaussblur(self.seal, 20, 20, 0)
@@ -1721,7 +1905,7 @@ class WaterBuild(GlobalBuilder):
     if (self.addshore):
       self.shorel = self.makeunilayer("seashore", self.colorwaterlight)
       maskshore = self.addmaskp(self.shorel)
-      pxpar = 0.01 * (self.img.width + self.img.height)/2.0
+      pxpar = 0.01 * (self.getimg().width + self.getimg().height)/2.0
       if (pxpar < 5):
         pxpar = 5.0
       
@@ -1822,7 +2006,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
 
       pdb.gimp_displays_flush()
       self.localbuilder.show_all()
-      self.localbuilder.setbeforerun()
+      self.localbuilder.beforerun(None)
       self.localbuilder.run()
 
       try:
@@ -1834,13 +2018,9 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       pdb.gimp_displays_flush()
     else:
       #dialog to explain the user that it has to draw before
-      infodial = gtk.Dialog(title="Warning", parent=self)
       labtxt = "You cannot generate / delete the smaller areas until you generate the land details before.\n"
       labtxt += "Press 'Generate land details' button."
-      ilabel = gtk.Label(labtxt)
-      infodial.vbox.add(ilabel)
-      ilabel.show()
-      infodial.add_button("OK", gtk.RESPONSE_OK)
+      infodial = MsgDialog("Warning", self, labtxt)
       rr = infodial.run()
       infodial.destroy()
 
@@ -1861,7 +2041,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       elif ll.name == self.namelist[3]:
         self.basebumpsl = ll
 
-    self.localbuilder.setrfbase(self.bgl)
+    self.localbuilder.beforerun(self.bgl)
     self.localbuilder.loaddrawables()
     return self.loaded()
     
@@ -1889,8 +2069,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
 
     #adding small areas of other region types
     self.localbuilder.show_all()
-    self.localbuilder.setrfbase(self.bgl)
-    self.localbuilder.setbeforerun()
+    self.localbuilder.beforerun(self.bgl)
     self.localbuilder.run()
     
     #generating noise
@@ -1903,7 +2082,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     self.basebumpsl = self.makeunilayer(self.namelist[3], (128, 128, 128))
     pdb.gimp_layer_set_mode(self.basebumpsl, OVERLAY_MODE)
 
-    pdb.plug_in_bump_map_tiled(self.img, self.basebumpsl, self.bumpmapl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
+    pdb.plug_in_bump_map_tiled(self.getimg(), self.basebumpsl, self.bumpmapl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
     self.addmaskp(self.basebumpsl)
 
     pdb.gimp_displays_flush()
@@ -1941,8 +2120,16 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
 
     return mwin
 
+  #override method, setting a reference to the base layer
+  def beforerun(self, *args):
+    if args[0] is not None:
+      if isinstance(args[0], gimp.Layer):
+        self.refbase = args[0]
+      else:
+        raise RuntimeError("Error, Wrong type passed to AdditionalDetBuild.beforerun. It should be a gimp.Layer")
+
   #override method to set insertindex 
-  def setbeforerun(self):
+  def beforegen(self):
     if len(self.groupl) == 0:
       refll = self.refbase
     else:
@@ -1972,10 +2159,6 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
       self.gaussblur(maskt, self.smoothval, self.smoothval, 0)
 
     pdb.gimp_displays_flush()
-
-  #setting a reference to the base layer, to be called before a run, but not everytime we generated a step (so we cannot use setbeforerun method)
-  def setrfbase(self, basel):
-    self.refbase = basel
 
 
 #class to generate the dirt on the terrain
@@ -2009,12 +2192,12 @@ class DirtDetails(GlobalBuilder):
     #preparing the noiselayer generation
     if self.maskl is not None:
       masklcopy = self.maskl.copy()
-      pdb.gimp_image_insert_layer(self.img, masklcopy, self.getgroupl(), 0)
+      pdb.gimp_image_insert_layer(self.getimg(), masklcopy, self.getgroupl(), 0)
       self.gaussblur(masklcopy, self.smp, self.smp, 0)
     
       #adding the noise layer mixed with the copy mask
       self.noisel = self.makenoisel(lname, pixsize, pixsize, DIFFERENCE_MODE)
-      self.noisel = pdb.gimp_image_merge_down(self.img, self.noisel, 0)
+      self.noisel = pdb.gimp_image_merge_down(self.getimg(), self.noisel, 0)
       pdb.gimp_invert(self.noisel)
       
     else:
@@ -2024,7 +2207,7 @@ class DirtDetails(GlobalBuilder):
     #correcting the mask color levels
     commtxt = "Set minimum, maximum and gamma to edit the B/W ratio in the image.\n"
     commtxt += "The white regions will be covered by dirt."
-    cld = CLevDialog(self.img, self.noisel, commtxt, CLevDialog.LEVELS, [CLevDialog.INPUT_MIN, CLevDialog.GAMMA, CLevDialog.INPUT_MAX], self.getgroupl(), "Set input levels", self, gtk.DIALOG_MODAL)
+    cld = CLevDialog(self.getimg(), self.noisel, commtxt, CLevDialog.LEVELS, [CLevDialog.INPUT_MIN, CLevDialog.GAMMA, CLevDialog.INPUT_MAX], self.getgroupl(), "Set input levels", self, gtk.DIALOG_MODAL)
     cld.run()
     resl = cld.reslayer
     cld.destroy()
@@ -2049,8 +2232,8 @@ class DirtDetails(GlobalBuilder):
     self.bgl.name = "dirt"
     
     #adding some effect to the layer to make it like dirt
-    pdb.plug_in_hsv_noise(self.img, self.bgl, 4, 11, 10, 22)
-    pdb.plug_in_bump_map_tiled(self.img, self.bgl, self.bgl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
+    pdb.plug_in_hsv_noise(self.getimg(), self.bgl, 4, 11, 10, 22)
+    pdb.plug_in_bump_map_tiled(self.getimg(), self.bgl, self.bgl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
     
     self.noisel = self.makedirtnoisel("dirtnoise", 16)
     
@@ -2060,14 +2243,14 @@ class DirtDetails(GlobalBuilder):
 
     noisemask = self.addmaskp(self.noisel)
     self.gaussblur(self.noisel, 10, 10, 0)
-    pdb.plug_in_spread(self.img, self.noisel, 10, 10)    
+    pdb.plug_in_spread(self.getimg(), self.noisel, 10, 10)    
     self.addmaskp(self.noisel) #here called again to apply the mask
     
     #applying the mask, final step
     if self.maskl is not None:
       masklcopy = self.maskl.copy()
-      pdb.gimp_image_insert_layer(self.img, masklcopy, self.getgroupl(), 1)      
-      self.noisel = pdb.gimp_image_merge_down(self.img, self.noisel, 0)
+      pdb.gimp_image_insert_layer(self.getimg(), masklcopy, self.getgroupl(), 1)      
+      self.noisel = pdb.gimp_image_merge_down(self.getimg(), self.noisel, 0)
 
     self.noisel.name = "dirtnoise"
     pdb.gimp_edit_copy(self.noisel)
@@ -2075,7 +2258,7 @@ class DirtDetails(GlobalBuilder):
     pdb.gimp_floating_sel_anchor(flsel)
 
     pdb.gimp_item_set_visible(self.noisel, False)
-    cldo = CLevDialog(self.img, self.bgl, "Set dirt opacity", CLevDialog.OPACITY, [], self.getgroupl(), "Set opacity", self, gtk.DIALOG_MODAL)
+    cldo = CLevDialog(self.getimg(), self.bgl, "Set dirt opacity", CLevDialog.OPACITY, [], self.getgroupl(), "Set opacity", self, gtk.DIALOG_MODAL)
     cldo.run()
     cldo.destroy()
     
@@ -2125,6 +2308,9 @@ class MountainsBuild(LocalBuilder):
     
     #new row
     self.smoothdef([0.03, 0.1, 0.2], "Select smoothing for mountains feet.")
+
+    #new row
+    self.submapdef()
     
     #new row
     hbxd = gtk.HBox(spacing=10, homogeneous=True)
@@ -2317,10 +2503,16 @@ class MountainsBuild(LocalBuilder):
   def on_chbfany_toggled(self, widget, k):
     self.raisedge[k] = widget.get_active()
 
-  #method, setting the base layer
+  #method, setting the base layer @@@possibly useless method
   def setgroupvisibility(self, bval):
     for gl in self.groupl:
       pdb.gimp_item_set_visible(gl, bval)
+
+  #override method, creating the base with the mask
+  def beforerun(self, *args):
+    # ~ self.setgroupvisibility(False)
+    self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
+    # ~ self.setgroupvisibility(True)
   
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def generatestep(self):    
@@ -2342,15 +2534,13 @@ class MountainsBuild(LocalBuilder):
     elif chrot == gtk.RESPONSE_CANCEL:
       ctrlm.destroy()
 
-    #creating the base with the mask
-    if len(self.groupl) == 1 or self.base is None:
-      self.setgroupvisibility(False)
-      self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
-      self.setgroupvisibility(True)
-      
-    basebis = self.base.copy()
+    #getting the correct base for the map
+    if self.onsubmap:
+      basebis = pdb.gimp_layer_new_from_visible(self.getimg(), self.getimg(), self.textes["baseln"] + "submapbasehidden")
+    else:
+      basebis = self.base.copy()
     basebis.name = self.textes["baseln"] + "mapbase"
-    pdb.gimp_image_insert_layer(self.img, basebis, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), basebis, self.getgroupl(), 0)
     maskbase = self.addmaskp(basebis, self.addingchannel)
     if self.smoothval > 0:
       self.gaussblur(maskbase, self.smoothval, self.smoothval, 0)
@@ -2359,28 +2549,28 @@ class MountainsBuild(LocalBuilder):
     
     #creating blurred base
     self.bgl = self.makeunilayer(self.textes["baseln"] + "blur", (0, 0, 0))
-    pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
-    colfillayer(self.img, self.bgl, (255, 255, 255))
-    pdb.gimp_selection_none(self.img)
+    pdb.gimp_image_select_item(self.getimg(), 2, self.addingchannel)
+    colfillayer(self.getimg(), self.bgl, (255, 255, 255))
+    pdb.gimp_selection_none(self.getimg())
     if self.smoothval > 0:
       self.gaussblur(self.bgl, self.smoothval, self.smoothval, 0)
 
     #creating noise
     self.noisel = self.makeunilayer(self.textes["baseln"] + "widenoise", (0, 0, 0))
-    pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
+    pdb.gimp_image_select_item(self.getimg(), 2, self.addingchannel)
     if self.smoothval > 0:
-      pdb.gimp_selection_feather(self.img, self.smoothval)
+      pdb.gimp_selection_feather(self.getimg(), self.smoothval)
     paramstr = str(random.random() * 9999999999)
     paramstr += " 10.0 10.0 8.0 2.0 0.30 1.0 0.0 planar lattice_noise NO ramp fbm smear 0.0 0.0 0.0 fg_bg"
     try:
-      pdb.plug_in_fimg_noise(self.img, self.noisel, paramstr) #using felimage plugin
+      pdb.plug_in_fimg_noise(self.getimg(), self.noisel, paramstr) #using felimage plugin
     except:
-      pdb.plug_in_solid_noise(self.img, self.noisel, False, False, random.random() * 9999999999, 16, 4, 4)
+      pdb.plug_in_solid_noise(self.getimg(), self.noisel, False, False, random.random() * 9999999999, 16, 4, 4)
     
     #creating angular gradient
     self.mntangularl = self.makeunilayer(self.textes["baseln"] + "angular", (0, 0, 0))
     #drawing the gradients: #0 (first) = normal mode, 0 (second) linear gradient, 6 (third): shape angular gradient, True (eighth): supersampling
-    pdb.gimp_edit_blend(self.mntangularl, 0, 0, 6, 100, 0, 0, True, True, 4, 3.0, True, 0, 0, self.img.width, self.img.height)
+    pdb.gimp_edit_blend(self.mntangularl, 0, 0, 6, 100, 0, 0, True, True, 4, 3.0, True, 0, 0, self.getimg().width, self.getimg().height)
 
     #creating linear gradient to rise mountains on image edges
     self.mntedgesl = self.makeunilayer(self.textes["baseln"] + "edges", (0, 0, 0))
@@ -2390,16 +2580,16 @@ class MountainsBuild(LocalBuilder):
         pdb.gimp_layer_set_mode(tempedgel, LIGHTEN_ONLY_MODE)
         #drawing the gradients: #0 (first) = normal mode, 0 (second) linear gradient, 6 (third): shape angular gradient, True (eighth): supersampling
         if edg == "Top":
-          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, self.img.width/2, 0, self.img.width/2, self.img.height/4)
+          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, self.getimg().width/2, 0, self.getimg().width/2, self.getimg().height/4)
         elif edg == "Left":
-          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, 0, self.img.height/2, self.img.width/4, self.img.height/2)
+          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, 0, self.getimg().height/2, self.getimg().width/4, self.getimg().height/2)
         elif edg == "Bottom":
-          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, self.img.width/2, self.img.height, self.img.width/2, self.img.height * 0.75)
+          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, self.getimg().width/2, self.getimg().height, self.getimg().width/2, self.getimg().height * 0.75)
         elif edg == "Right":
-          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, self.img.width, self.img.height/2, self.img.width * 0.75, self.img.height/2)
-        self.mntedgesl = pdb.gimp_image_merge_down(self.img, tempedgel, 0)
+          pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, self.getimg().width, self.getimg().height/2, self.getimg().width * 0.75, self.getimg().height/2)
+        self.mntedgesl = pdb.gimp_image_merge_down(self.getimg(), tempedgel, 0)
         
-    pdb.gimp_selection_none(self.img)
+    pdb.gimp_selection_none(self.getimg())
     
     #editing level modes and color levels
     pdb.gimp_layer_set_mode(self.noisel, ADDITION_MODE)
@@ -2413,17 +2603,17 @@ class MountainsBuild(LocalBuilder):
     
     #editing color curves
     ditext = "Try to eliminate most of the brightness by lowering the top-right control point\nand adding other points at the level of the histogram counts."
-    cdd = CCurveDialog(self.img, self.mntangularl, self.getgroupl(), ditext, "Setting color curve", self, gtk.DIALOG_MODAL)
+    cdd = CCurveDialog(self.getimg(), self.mntangularl, self.getgroupl(), ditext, "Setting color curve", self, gtk.DIALOG_MODAL)
     cdd.run()
     self.mntangularl = cdd.reslayer
     
-    self.cpvlayer = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "visible")
-    pdb.gimp_image_insert_layer(self.img, self.cpvlayer, self.getgroupl(), 0)
+    self.cpvlayer = pdb.gimp_layer_new_from_visible(self.getimg(), self.getimg(), self.textes["baseln"] + "visible")
+    pdb.gimp_image_insert_layer(self.getimg(), self.cpvlayer, self.getgroupl(), 0)
     cdd.destroy()
     
     #editing color curves, again
     ditextb = "Try to add one or more control points below the diagonal\nin order to better define mountains peaks."
-    cddb = CCurveDialog(self.img, self.cpvlayer, self.getgroupl(), ditextb, "Setting color curve", self, gtk.DIALOG_MODAL)
+    cddb = CCurveDialog(self.getimg(), self.cpvlayer, self.getgroupl(), ditextb, "Setting color curve", self, gtk.DIALOG_MODAL)
     cddb.run()
     self.cpvlayer = cddb.reslayer
     
@@ -2431,7 +2621,7 @@ class MountainsBuild(LocalBuilder):
     if self.addcol:
       self.mntcolorl = cddb.reslayer.copy()
       self.mntcolorl.name = self.textes["baseln"] + "colors"
-      pdb.gimp_image_insert_layer(self.img, self.mntcolorl, self.getgroupl(), 0)
+      pdb.gimp_image_insert_layer(self.getimg(), self.mntcolorl, self.getgroupl(), 0)
       ctrlcl = self.ControlColor()
       rr = ctrlcl.run()
       if rr == gtk.RESPONSE_OK:
@@ -2448,22 +2638,22 @@ class MountainsBuild(LocalBuilder):
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
     self.embosslayer.name = self.textes["baseln"] + "emboss"
-    pdb.gimp_image_insert_layer(self.img, self.embosslayer, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.embosslayer, self.getgroupl(), 0)
     cddb.destroy()
-    pdb.plug_in_emboss(self.img, self.embosslayer, 30.0, 30.0, 20.0, 1)
+    pdb.plug_in_emboss(self.getimg(), self.embosslayer, 30.0, 30.0, 20.0, 1)
     
     #fixing outside selection
-    pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
+    pdb.gimp_image_select_item(self.getimg(), 2, self.addingchannel)
     if self.smoothval > 0:
-      pdb.gimp_selection_feather(self.img, self.smoothval)
-    pdb.gimp_selection_invert(self.img) #inverting selection
-    colfillayer(self.img, self.embosslayer, (128, 128, 128))
+      pdb.gimp_selection_feather(self.getimg(), self.smoothval)
+    pdb.gimp_selection_invert(self.getimg()) #inverting selection
+    colfillayer(self.getimg(), self.embosslayer, (128, 128, 128))
     
     #drop shadow around the mountains
     if self.addshadow:
-      pdb.plug_in_colortoalpha(self.img, self.embosslayer, (128, 128, 128))
-      pdb.script_fu_drop_shadow(self.img, self.embosslayer, 2, 2, 15, (0, 0, 0), 75, False)
-      self.mntshadowl = [i for i in self.getgroupl().layers if i.name == "Drop Shadow"][0]
+      pdb.plug_in_colortoalpha(self.getimg(), self.embosslayer, (128, 128, 128))
+      pdb.script_fu_drop_shadow(self.getimg(), self.embosslayer, 2, 2, 15, (0, 0, 0), 75, False)
+      self.mntshadowl = [i for i in self.getlayerlist() if i.name == "Drop Shadow"][0]
       self.mntshadowl.name = self.textes["baseln"] + "shadow"
     
     #hiding not needed layers
@@ -2473,25 +2663,25 @@ class MountainsBuild(LocalBuilder):
     pdb.gimp_item_set_visible(self.cpvlayer, False)
     pdb.gimp_item_set_visible(self.mntedgesl, False)
     pdb.gimp_layer_set_mode(self.embosslayer, OVERLAY_MODE)
-    pdb.gimp_selection_none(self.img)
+    pdb.gimp_selection_none(self.getimg())
 
     #adding snow
     if self.addsnow:
       pdb.gimp_item_set_visible(self.cpvlayer, True)
       pdb.gimp_layer_set_mode(self.cpvlayer, SCREEN_MODE)
       commtxt = "Set minimum threshold to regulate the amount of the snow."
-      cldc = CLevDialog(self.img, self.cpvlayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], self.getgroupl(), "Set lower threshold", self, gtk.DIALOG_MODAL)
+      cldc = CLevDialog(self.getimg(), self.cpvlayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], self.getgroupl(), "Set lower threshold", self, gtk.DIALOG_MODAL)
       cldc.run()
       self.cpvlayer = cldc.reslayer
       self.gaussblur(self.cpvlayer, 5, 5, 0)
       pdb.gimp_layer_set_opacity(self.cpvlayer, 65)
       cldc.destroy()
       if self.addcol:
-        pdb.gimp_image_raise_item(self.img, self.cpvlayer)
+        pdb.gimp_image_raise_item(self.getimg(), self.cpvlayer)
     
     if self.addcol:
       pdb.gimp_item_set_visible(self.mntcolorl, True)
-      cldo = CLevDialog(self.img, self.mntcolorl, "Set mountains color opacity", CLevDialog.OPACITY, [], self.getgroupl(), "Set opacity", self, gtk.DIALOG_MODAL)
+      cldo = CLevDialog(self.getimg(), self.mntcolorl, "Set mountains color opacity", CLevDialog.OPACITY, [], self.getgroupl(), "Set opacity", self, gtk.DIALOG_MODAL)
       cldo.run()
       cldo.destroy()
 
@@ -2539,6 +2729,9 @@ class ForestBuild(LocalBuilder):
     labatxt += "You can repeat the step multiple times: just press again one of the buttons to repeat the process and add new forests."
     laba = gtk.Label(labatxt)
     hbxa.add(laba)
+
+    #new row
+    self.submapdef()
 
     #new row
     hbxb = gtk.HBox(spacing=10, homogeneous=True)
@@ -2602,17 +2795,17 @@ class ForestBuild(LocalBuilder):
     self.appendmask(self.addingchannel, False)
 
     #creating the bump needed to make the forest
-    pdb.plug_in_hsv_noise(self.img, self.shapelayer, 2, 0, 0, 30)
+    pdb.plug_in_hsv_noise(self.getimg(), self.shapelayer, 2, 0, 0, 30)
     self.bumplayer = self.makeunilayer(self.textes["baseln"] + "bump", (127, 127, 127)) #50% gray color
     self.addmaskp(self.bumplayer, self.addingchannel)
-    pdb.plug_in_bump_map_tiled(self.img, self.bumplayer, self.shapelayer, 135, 30, 8, 0, 0, 0, 0, True, False, 2) #2 (last) = sinusoidal
+    pdb.plug_in_bump_map_tiled(self.getimg(), self.bumplayer, self.shapelayer, 135, 30, 8, 0, 0, 0, 0, True, False, 2) #2 (last) = sinusoidal
 
     #adding shadow
-    pdb.gimp_image_select_item(self.img, 2, self.addingchannel)
-    pdb.script_fu_drop_shadow(self.img, self.bumplayer, 2, 2, 15, (0, 0, 0), 75, False)
-    self.forestshadow = [i for i in self.getgroupl().layers if i.name == "Drop Shadow"][0]
+    pdb.gimp_image_select_item(self.getimg(), 2, self.addingchannel)
+    pdb.script_fu_drop_shadow(self.getimg(), self.bumplayer, 2, 2, 15, (0, 0, 0), 75, False)
+    self.forestshadow = [i for i in self.getlayerlist() if i.name == "Drop Shadow"][0]
     self.forestshadow.name = self.textes["baseln"] + "shadow"
-    pdb.gimp_selection_none(self.img)
+    pdb.gimp_selection_none(self.getimg())
     
     #cleaning and adding colors
     if len(self.colorlayers) > 0:
@@ -2686,15 +2879,11 @@ class RiversBuild(GlobalBuilder):
     pdb.gimp_context_set_brush_size(self.defsize)
 
     #dialog to explain the user that is time to draw
-    infodial = gtk.Dialog(title="Drawing rivers", parent=self)
     labtxt = "Draw the rivers on the map. Regulate the size of the pencil if needed.\n"
     labtxt += "Use the pencil and do not worry of drawing on the sea.\n"
     labtxt += "Do not change the foreground color (it has to be white as you are actually editing the layer mask).\n"
     labtxt += "Press OK when you have finished to draw the rivers."
-    ilabel = gtk.Label(labtxt)
-    infodial.vbox.add(ilabel)
-    ilabel.show()
-    infodial.add_button("OK", gtk.RESPONSE_OK)
+    infodial = MsgDialog("Drawing rivers", self, labtxt)
     rr = infodial.run()
     
     #steps after the rivers have been drawn
@@ -2889,8 +3078,8 @@ class SymbolsBuild(GlobalBuilder):
         self.symbols = ll
     return self.loaded()
         
-  #override method to prepare the symbols drawing 
-  def setbeforerun(self):
+  #override method to prepare the symbols drawing (args not used)
+  def beforerun(self, *args):
     if self.bgl is None:
       self.bgl = self.makeunilayer("symbols outline")
       pdb.gimp_layer_add_alpha(self.bgl)
@@ -2961,12 +3150,7 @@ class SymbolsBuild(GlobalBuilder):
               pdb.gimp_paintbrush_default(self.symbols, 2, [xc, yc])
               i = i + 1
           else:
-            infodi = gtk.Dialog(title="Info", parent=self)
-            imess = "Select the area where you want to place the symbols with the lazo tool or another selection tool first!\n"
-            ilabel = gtk.Label(imess)
-            infodi.vbox.add(ilabel)
-            ilabel.show()
-            infodi.add_button("Ok", gtk.RESPONSE_OK)
+            infodi = MsgDialog("Info", self, "Select the area where you want to place the symbols with the lazo tool or another selection tool first!\n")
             diresp = infodi.run()
             if (diresp == gtk.RESPONSE_OK):
               infodi.destroy()
@@ -2983,7 +3167,7 @@ class SymbolsBuild(GlobalBuilder):
   def on_cancel_clicked(self, widget):
     self.cleandrawables()
     self.setgenerated(False)
-    self.setbeforerun()
+    self.beforerun()
     
   #override method to fix symbols, add finishing touches and close.
   def afterclosing(self, who):
@@ -3032,7 +3216,7 @@ class RoadBuild(GlobalBuilder):
     labatxt = "Adding roads. You are going to use paths. Click on the top path in the Paths panel to activate the path tool.\n"
     labatxt += "Place paths between cities, place nodes and curves. The roads will be drawn on the paths you are going to place by clicking the 'Draw Roads' button.\n"
     labatxt += "You can repeat this step: just select the new Path that is created each time the roads are drawn and place new paths.\n"
-    labatxt += "If you have a svg file with paths that you wish to import to use as roads, import it through the 'Import from SVG file' button.\n"
+    labatxt += "If you have a svg file with paths that you wish to import to use as roads, import it through the Import from SVG file button.\n"
     labatxt += "Change color, size or type line if you wish and click again the 'Draw Roads' button."
     laba = gtk.Label(labatxt)
     hboxa.add(laba)
@@ -3176,7 +3360,7 @@ class RoadBuild(GlobalBuilder):
     self.roadsize = widget.get_value()
     
   #override method to prepare the road drawing 
-  def setbeforerun(self):
+  def beforegen(self):
     #adding a transparent layer
     self.roadslayers.append(self.makeunilayer("drawroads" + str(len(self.roadslayers))))
     pdb.gimp_layer_add_alpha(self.roadslayers[-1])
@@ -3235,7 +3419,7 @@ class RoadBuild(GlobalBuilder):
       if pathtod == -1 or layertod == -1:
         self.cleandrawables()
         self.setgenerated(False)
-        self.setbeforerun()
+        self.beforegen()
       else:
         pdb.gimp_image_remove_vectors(self.img, self.paths[pathtod])
         pdb.gimp_image_remove_layer(self.img, self.roadslayers[layertod])
@@ -3375,7 +3559,8 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
   #method calling the object builder, listening to the response, and recursively calling itself
   def buildingmap(self, builder):
     builder.show_all()
-    builder.setbeforerun()
+    builder.beforerun()
+    builder.beforegen()
     builder.run()
     proxb = builder.chosen
     if proxb is not None:
