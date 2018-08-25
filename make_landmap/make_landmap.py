@@ -104,6 +104,7 @@ class MsgDialog(gtk.Dialog):
     if showcheck:
       self.ichb = gtk.CheckButton("Intersect selection with land mass if present\nPrevent the sea from being covered by the new area.")
       self.ichb.set_active(True)
+      self.icv = self.ichb.get_active()
       self.ichb.connect("toggled", self.on_ichb_toggled)
       self.vbox.add(self.ichb)
       
@@ -1432,7 +1433,7 @@ class LocalBuilder(TLSbase):
       diresp = infodi.run()
 
       cutted = False
-      if (diresp == gtk.RESPONSE_OK):
+      if diresp == gtk.RESPONSE_OK:
         cutted, cpmap, cpmask = self.copytonewimg()
       infodi.destroy()
       
@@ -1629,7 +1630,7 @@ class MaskProfile(GlobalBuilder):
     blad += "Small scale generates more irregular profile lines or more numerous and smaller random areas\n"
     blad += "instead of straigther profile lines and less numerous and bigger random areas.\n"
     blad += "Small scale may be also useful for large images." 
-    labd = gtk.Label(blab)
+    labd = gtk.Label(blad)
     self.vbox.add(labd)
     
     #button area
