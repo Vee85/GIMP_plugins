@@ -29,7 +29,6 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ make rotation instead of directions in maskprofile
-#@@@ add mosaic of the full map (GlobalBuilder)
 
 
 import sys
@@ -94,15 +93,15 @@ class ImageD:
 #class, dialog with label and optional checkbutton pl
 class MsgDialog(gtk.Dialog):
   #constructor
-  def __init__(self, title, parent, message, showcheck=False):
+  def __init__(self, title, parent, message, chbmess=None):
     mwin = gtk.Dialog.__init__(self, title, parent, gtk.DIALOG_MODAL)
     self.icv = False
     self.set_border_width(10)
     self.ilabel = gtk.Label(message)
     self.vbox.add(self.ilabel)
     
-    if showcheck:
-      self.ichb = gtk.CheckButton("Intersect selection with land mass if present\nPrevent the sea from being covered by the new area.")
+    if chbmess is not None:
+      self.ichb = gtk.CheckButton(chbmess)
       self.ichb.set_active(True)
       self.icv = self.ichb.get_active()
       self.ichb.connect("toggled", self.on_ichb_toggled)
@@ -119,6 +118,7 @@ class MsgDialog(gtk.Dialog):
 
   def istoggled(self):
     return self.icv
+
 
 #class to let the user setting the colors edge of a color map
 class ColorMapper(gtk.Dialog):
@@ -652,8 +652,7 @@ class TLSbase(gtk.Dialog):
     
     #internal arguments
     self.img = image
-    self.mosaic = []
-    self.mosidx = 0
+    self.subimgd = None
     self.refwidth = image.width
     self.refheight = image.height
     self.groupl = []
@@ -667,7 +666,7 @@ class TLSbase(gtk.Dialog):
     self.thrc = 0 #will be selected later
     self.smoothprofile = 0
     self.generated = False
-    
+
     #nothing in the dialog: labels and buttons are created in the child classes
     
     return mwin
@@ -714,17 +713,17 @@ class TLSbase(gtk.Dialog):
 
   #method, getting the image
   def getimg(self):
-    if len(self.mosaic) == 0:
+    if self.subimgd is None:
       return self.img
     else:
-      return self.mosaic[self.mosidx].getimage()
+      return self.subimgd.getimage()
 
   #method, getting the mask layer from the correct image
   def getmaskl(self):
-    if len(self.mosaic) == 0:
+    if self.subimgd is None:
       return self.maskl
     else:
-      return self.mosaic[self.mosidx].getmasklayer()
+      return self.subimgd.getmasklayer()
       
   #method, copying the selection content from main image and creating a new image with it
   def copytonewimg(self):
@@ -737,13 +736,13 @@ class TLSbase(gtk.Dialog):
 
       #copy the cutted selection
       pdb.gimp_edit_copy_visible(self.img)
-      self.mosaic.append(ImageD(self.refwidth, self.refheight, 0))
-      copybasel = self.mosaic[-1].getbglayer()
+      self.subimgd = ImageD(self.refwidth, self.refheight, 0)
+      copybasel = self.subimgd.getbglayer()
       fl_sel = pdb.gimp_edit_paste(copybasel, True)
       pdb.gimp_floating_sel_anchor(fl_sel)
       
       #copy the cutted landmask if present
-      copymaskl = self.mosaic[-1].getmasklayer()
+      copymaskl = self.subimgd.getmasklayer()
       if self.maskl is not None:
         pdb.gimp_edit_copy(self.maskl)
         fl_selb = pdb.gimp_edit_paste(copymaskl, True)
@@ -768,7 +767,7 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_image_select_item(self.img, 0, copiedarea)
 
     #copy and paste and clear again the selection
-    pdb.gimp_edit_copy_visible(self.mosaic[self.mosidx].getimage())
+    pdb.gimp_edit_copy_visible(self.subimgd.getimage())
     fl_sel = pdb.gimp_edit_paste(newlay, True)
     pdb.gimp_floating_sel_anchor(fl_sel)
     pdb.gimp_selection_none(self.img)
@@ -778,10 +777,10 @@ class TLSbase(gtk.Dialog):
     self.refheight = self.img.height
 
   #deleting all the subimabes
-  def deletenewimgs(self):
-    for im in self.mosaic:
-      im.delete()
-    del self.mosaic[:]
+  def deletenewimg(self):
+    if self.subimgd is not None:
+      self.subimgd.delete()
+      self.subimgd = None
 
   #method, generate the stuffs. To be overrided by child classes
   def generatestep(self):
@@ -810,8 +809,8 @@ class TLSbase(gtk.Dialog):
     raise NotImplementedError("Child class must implement cleandrawables method")
 
   #method to get the last grouplayer (the one in use) or None
-  def getgroupl(self, checkmosaic=True):
-    if len(self.mosaic) > 0 and checkmosaic:
+  def getgroupl(self, checksubim=True):
+    if self.subimgd is not None and checksubim:
       return None
     else:
       if isinstance(self.groupl, list):
@@ -1020,9 +1019,46 @@ class TLSbase(gtk.Dialog):
   
   #method to generate the noise layer
   def makenoisel(self, lname, xpix, ypix, mode=NORMAL_MODE, turbulent=False, normalise=False):
-    noiselayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, mode)
+    noiselayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, 0) #0 (last) = normal mode
     pdb.gimp_image_insert_layer(self.getimg(), noiselayer, self.getgroupl(), 0)
-    pdb.plug_in_solid_noise(self.getimg(), noiselayer, False, turbulent, random.random() * 9999999999, 15, xpix, ypix)
+
+    if self.tilednoise and self.subimgd is None and isinstance(self, GlobalBuilder):
+      #saving the current selection, if present, in a channel
+      savedchannel = None
+      if not pdb.gimp_selection_is_empty(self.img):
+        savedchannel = pdb.gimp_selection_save(self.img)
+        pdb.gimp_selection_none(self.img)
+
+      #calcutaing size of subimage and matrix boundaries
+      subwidth = int(self.img.width / self.noisematrix["w"])
+      subheight = int(self.img.height / self.noisematrix["h"])
+      widthstep = range(0, self.img.width, subwidth)
+      heightstep = range(0, self.img.height, subheight)
+      
+      #making the tiled noise
+      self.subimgd = ImageD(subwidth, subheight, 0)
+      pdb.plug_in_solid_noise(self.getimg(), self.subimgd.getbglayer(), True, turbulent, random.random() * 9999999999, 15, xpix, ypix)
+      pdb.gimp_item_set_visible(self.getmaskl(), False)
+
+      #copying back the noise
+      pdb.gimp_edit_copy_visible(self.getimg())
+      for sx in widthstep:
+        for sy in heightstep:
+          pdb.gimp_image_select_rectangle(self.img, 2, sx, sy, subwidth, subheight)
+          fl_sel = pdb.gimp_edit_paste(noiselayer, True)
+          pdb.gimp_floating_sel_anchor(fl_sel)
+          
+      pdb.gimp_selection_none(self.img)
+      self.deletenewimg()
+
+      #restoring selection saved in a channel, if present
+      if savedchannel is not None:
+        pdb.gimp_image_select_item(self.img, 2, savedchannel)
+        
+    else:
+      pdb.plug_in_solid_noise(self.getimg(), noiselayer, False, turbulent, random.random() * 9999999999, 15, xpix, ypix)
+
+    pdb.gimp_layer_set_mode(noiselayer, mode)
     if normalise:
       pdb.plug_in_normalize(self.getimg(), noiselayer)
       self.gaussblur(noiselayer, 5, 5, 0)
@@ -1181,10 +1217,55 @@ class GlobalBuilder(TLSbase):
     self.textes = None #this should be instantiated in child classes
     self.multigen = multigen
 
+    self.tilednoise = False
+    self.noisematrix = {"w" : 1, "h" : 1}
+    
     #No GUI here, it is buildt in the child classes as it may change from class to class. Only the button area is buildt here, which should be equal for all the children
     #No button area
 
     return mwin
+
+  #method, setting and adding the interface for tilednoise
+  def tilednoisedef(self):
+    self.tnhbox = gtk.HBox(spacing=10, homogeneous=False)
+    self.vbox.add(self.tnhbox)
+
+    #the checkbutton
+    self.cbtn = gtk.CheckButton("Tiled noise")
+    self.cbtn.set_active(self.tilednoise)
+    self.cbtn.connect("toggled", self.on_cbtn_toggled)
+    self.tnhbox.add(self.cbtn)
+
+    #the Width spinbutton
+    xadj = gtk.Adjustment(2, 2, 10, 1, 2)
+    yadj = gtk.Adjustment(2, 2, 10, 1, 2)
+      
+    self.labtnx = gtk.Label("Width:")
+    self.tnhbox.add(self.labtnx)
+    
+    self.sbtnx = gtk.SpinButton(xadj, 0, 0)
+    self.sbtnx.connect("output", self.on_noisematrix_changed, "w")
+    self.noisematrix["w"] = self.sbtnx.get_value()
+    self.tnhbox.add(self.sbtnx)
+
+    #the Heigth spinbutton
+    yadj = gtk.Adjustment(2, 2, 10, 1, 2)
+      
+    self.labtny = gtk.Label("Height:")
+    self.tnhbox.add(self.labtny)
+    
+    self.sbtny = gtk.SpinButton(yadj, 0, 0)
+    self.sbtny.connect("output", self.on_noisematrix_changed, "h")
+    self.noisematrix["h"] = self.sbtny.get_value()
+    self.tnhbox.add(self.sbtny)
+
+  #callback method, setting the checkbutton for tiled noise
+  def on_cbtn_toggled(self, widget):
+    self.tilednoise = widget.get_active()
+
+  #callback method, setting the x or y parameter
+  def on_noisematrix_changed(self, widget, d):
+    self.noisematrix[d] = widget.get_value()
 
   #method adding the generate button
   def add_button_generate(self, btxt):
@@ -1345,7 +1426,7 @@ class LocalBuilder(TLSbase):
     self.chbsc.connect("toggled", self.on_chsc_toggled)
     self.hbxsc.add(self.chbsc)
 
-  #method, setting and adding the work on submap checkbox
+  #method, setting and adding the submap checkbox
   def submapdef(self):
     self.cbsubmap = gtk.CheckButton("Work on a submap")
     self.cbsubmap.set_active(self.onsubmap)
@@ -1452,7 +1533,7 @@ class LocalBuilder(TLSbase):
       if copymap is not None:
         pdb.gimp_item_set_visible(copymap, False)
       self.copyfromnewimg(self.getgroupl(False))
-      self.deletenewimgs()
+      self.deletenewimg()
       pdb.gimp_displays_flush()
 
   #callback method to generate random selection (mask profile)
@@ -1508,7 +1589,7 @@ class LocalBuilder(TLSbase):
       pdb.gimp_displays_flush()
     imess = "Select the area where you want to place the "+ self.textes["labelext"] + " with the lazo tool or another selection tool.\n"
     imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
-    infodi = MsgDialog("Info", self, imess, True)
+    infodi = MsgDialog("Info", self, imess, "Intersect selection with land mass if present\nPrevent the sea from being covered by the new area.")
     diresp = infodi.run()
 
     if (diresp == gtk.RESPONSE_OK):
@@ -1536,7 +1617,7 @@ class LocalBuilder(TLSbase):
           infodib.destroy()
           infodi.destroy()
           if self.onsubmap: #deleting the image before restarting
-            self.deletenewimgs()
+            self.deletenewimg()
           self.on_butgenhnp_clicked(widget)
 
     elif (diresp == gtk.RESPONSE_CANCEL):
@@ -1627,7 +1708,7 @@ class MaskProfile(GlobalBuilder):
 
     #new row
     blad = "Details scale sets the scale of small details of the profile.\n" 
-    blad += "Small scale generates more irregular profile lines or more numerous and smaller random areas\n"
+    blad += "Small scale generates more irregular profile lines or more and smaller random areas\n"
     blad += "instead of straigther profile lines and less numerous and bigger random areas.\n"
     blad += "Small scale may be also useful for large images." 
     labd = gtk.Label(blad)
@@ -1983,6 +2064,9 @@ class BaseDetails(GlobalBuilder, RegionChooser):
 
     basicname = "color"
     self.namelist = [basicname, basicname + "texture", basicname + "bumpmap", basicname + "bumps"]
+
+    #new row
+    self.tilednoisedef()
     
     #button area
     self.add_button_quit()
@@ -2181,6 +2265,9 @@ class DirtDetails(GlobalBuilder):
     
     laba = gtk.Label("Adding dirt to the map. If you do not want to draw dirt, just press Next.")
     hbxa.add(laba)
+
+    #new row
+    self.tilednoisedef()
     
     #button area
     self.add_button_quit()
@@ -2505,16 +2592,9 @@ class MountainsBuild(LocalBuilder):
   def on_chbfany_toggled(self, widget, k):
     self.raisedge[k] = widget.get_active()
 
-  #method, setting the base layer @@@possibly useless method
-  def setgroupvisibility(self, bval):
-    for gl in self.groupl:
-      pdb.gimp_item_set_visible(gl, bval)
-
   #override method, creating the base with the mask
   def beforerun(self, *args):
-    # ~ self.setgroupvisibility(False)
     self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
-    # ~ self.setgroupvisibility(True)
   
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def generatestep(self):    
