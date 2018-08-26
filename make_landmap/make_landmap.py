@@ -1018,7 +1018,7 @@ class TLSbase(gtk.Dialog):
     return res
   
   #method to generate the noise layer
-  def makenoisel(self, lname, xpix, ypix, mode=NORMAL_MODE, turbulent=False, normalise=False):
+  def makenoisel(self, lname, xpix, ypix, mode=LAYER_MODE_NORMAL, turbulent=False, normalise=False):
     noiselayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, 0) #0 (last) = normal mode
     pdb.gimp_image_insert_layer(self.getimg(), noiselayer, self.getgroupl(), 0)
 
@@ -1067,7 +1067,7 @@ class TLSbase(gtk.Dialog):
   
   #method to generate the clip layer
   def makeclipl(self, lname, commtxt): 
-    cliplayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, LIGHTEN_ONLY_MODE)
+    cliplayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, LAYER_MODE_LIGHTEN_ONLY)
     pdb.gimp_image_insert_layer(self.getimg(), cliplayer, self.getgroupl(), 0)
     colfillayer(self.getimg(), cliplayer, (255, 255, 255)) #make layer color white
     
@@ -1085,7 +1085,7 @@ class TLSbase(gtk.Dialog):
       mlpos = [j for i, j in zip(self.getlayerlist(), range(len(self.getlayerlist()))) if i.name == self.maskl.name][0]
       copybl = self.baseml.copy()
       pdb.gimp_image_insert_layer(self.getimg(), copybl, self.getgroupl(), mlpos)
-      pdb.gimp_layer_set_mode(copybl, DARKEN_ONLY_MODE)
+      pdb.gimp_layer_set_mode(copybl, LAYER_MODE_DARKEN_ONLY)
       self.maskl = pdb.gimp_image_merge_down(self.getimg(), copybl, 0)
 
   #method to make the final layer with the profile and save it in a channel.
@@ -1186,7 +1186,7 @@ class TLSbase(gtk.Dialog):
     if smoothval > 0:
       self.gaussblur(shapelayer, smoothval, smoothval, 0)
     
-    pdb.gimp_layer_set_mode(shapelayer, MULTIPLY_MODE)
+    pdb.gimp_layer_set_mode(shapelayer, LAYER_MODE_MULTIPLY)
     shapelayer = pdb.gimp_image_merge_down(self.getimg(), shapelayer, 0) #merging shapelayer with extralev
     commtxt = "Set the threshold until you get a shape you like"
     frshape = CLevDialog(self.getimg(), shapelayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], self.getgroupl(), "Set lower threshold", self, gtk.DIALOG_MODAL)
@@ -1197,7 +1197,7 @@ class TLSbase(gtk.Dialog):
     resmask = pdb.gimp_selection_save(self.getimg()) #replacing forest mask with this one.
     resmask.name = lname + "defmask"
     pdb.gimp_selection_none(self.getimg())
-    pdb.gimp_layer_set_mode(shapelayer, MULTIPLY_MODE)
+    pdb.gimp_layer_set_mode(shapelayer, LAYER_MODE_MULTIPLY)
     shapelayer = pdb.gimp_image_merge_down(self.getimg(), shapelayer, 0)
     shapelayer.name = lname + "final"
 
@@ -1864,7 +1864,7 @@ class MaskProfile(GlobalBuilder):
         pass
       
       #making the other steps
-      self.noisel = self.makenoisel(self.textes["baseln"] + "noise", self.detval, self.detval, OVERLAY_MODE, False, nn)
+      self.noisel = self.makenoisel(self.textes["baseln"] + "noise", self.detval, self.detval, LAYER_MODE_OVERLAY, False, nn)
       cmm = "The lower the selected value, the wider the affected area."
       self.clipl = self.makeclipl(self.textes["baseln"] + "clip", cmm)
       self.makeprofilel(self.textes["baseln"] + "layer")
@@ -1965,7 +1965,7 @@ class WaterBuild(GlobalBuilder):
       self.gaussblur(self.bgl, self.smooth, self.smooth, 0)
       pdb.gimp_displays_flush()
     
-    self.noisel = self.makenoisel("seanoise", 4, 4, OVERLAY_MODE)
+    self.noisel = self.makenoisel("seanoise", 4, 4, LAYER_MODE_OVERLAY)
     self.bgl = pdb.gimp_image_merge_down(self.getimg(), self.noisel, 0)
 
     #copy bgl layer into a new layer 
@@ -2159,14 +2159,14 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     self.localbuilder.run()
     
     #generating noise
-    self.noisel = self.makenoisel(self.namelist[1], 3, 3, OVERLAY_MODE)
+    self.noisel = self.makenoisel(self.namelist[1], 3, 3, LAYER_MODE_OVERLAY)
     self.addmaskp(self.noisel)
     
     #create an embossing effect using a bump map
-    self.bumpmapl = self.makenoisel(self.namelist[2], 15, 15, NORMAL_MODE, True)
+    self.bumpmapl = self.makenoisel(self.namelist[2], 15, 15, LAYER_MODE_NORMAL, True)
     pdb.gimp_item_set_visible(self.bumpmapl, False)
     self.basebumpsl = self.makeunilayer(self.namelist[3], (128, 128, 128))
-    pdb.gimp_layer_set_mode(self.basebumpsl, OVERLAY_MODE)
+    pdb.gimp_layer_set_mode(self.basebumpsl, LAYER_MODE_OVERLAY)
 
     pdb.plug_in_bump_map_tiled(self.getimg(), self.basebumpsl, self.bumpmapl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
     self.addmaskp(self.basebumpsl)
@@ -2285,13 +2285,13 @@ class DirtDetails(GlobalBuilder):
       self.gaussblur(masklcopy, self.smp, self.smp, 0)
     
       #adding the noise layer mixed with the copy mask
-      self.noisel = self.makenoisel(lname, pixsize, pixsize, DIFFERENCE_MODE)
+      self.noisel = self.makenoisel(lname, pixsize, pixsize, LAYER_MODE_DIFFERENCE)
       self.noisel = pdb.gimp_image_merge_down(self.getimg(), self.noisel, 0)
       pdb.gimp_invert(self.noisel)
       
     else:
       #just generating a normal noise layer
-      self.noisel = self.makenoisel(lname, pixsize, pixsize, NORMAL_MODE)
+      self.noisel = self.makenoisel(lname, pixsize, pixsize, LAYER_MODE_NORMAL)
       
     #correcting the mask color levels
     commtxt = "Set minimum, maximum and gamma to edit the B/W ratio in the image.\n"
@@ -2605,7 +2605,7 @@ class MountainsBuild(LocalBuilder):
     if chrot == gtk.RESPONSE_OK:
       rang = ctrlm.getanglerad()
       ctrlm.destroy()
-      self.noisemask = self.makerotatedlayer(True, rang, self.makenoisel, (self.textes["baseln"] + "basicnoise", 6, 2, NORMAL_MODE, True, True))
+      self.noisemask = self.makerotatedlayer(True, rang, self.makenoisel, (self.textes["baseln"] + "basicnoise", 6, 2, LAYER_MODE_NORMAL, True, True))
       if self.smoothbeforecomb and self.smoothval > 0:
         masksmooth = 0
       else:
@@ -2659,7 +2659,7 @@ class MountainsBuild(LocalBuilder):
     for edg in self.raisedge.keys():
       if self.raisedge[edg]:
         tempedgel = self.makeunilayer(self.textes["baseln"] + "edges", (0, 0, 0))
-        pdb.gimp_layer_set_mode(tempedgel, LIGHTEN_ONLY_MODE)
+        pdb.gimp_layer_set_mode(tempedgel, LAYER_MODE_LIGHTEN_ONLY)
         #drawing the gradients: #0 (first) = normal mode, 0 (second) linear gradient, 6 (third): shape angular gradient, True (eighth): supersampling
         if edg == "Top":
           pdb.gimp_edit_blend(tempedgel, 0, 0, 0, 100, 0, 0, True, True, 4, 3.0, True, self.getimg().width/2, 0, self.getimg().width/2, self.getimg().height/4)
@@ -2674,9 +2674,9 @@ class MountainsBuild(LocalBuilder):
     pdb.gimp_selection_none(self.getimg())
     
     #editing level modes and color levels
-    pdb.gimp_layer_set_mode(self.noisel, ADDITION_MODE)
-    pdb.gimp_layer_set_mode(self.mntangularl, ADDITION_MODE)
-    pdb.gimp_layer_set_mode(self.mntedgesl, ADDITION_MODE)
+    pdb.gimp_layer_set_mode(self.noisel, LAYER_MODE_ADDITION)
+    pdb.gimp_layer_set_mode(self.mntangularl, LAYER_MODE_ADDITION)
+    pdb.gimp_layer_set_mode(self.mntedgesl, LAYER_MODE_ADDITION)
     pdb.gimp_levels(self.bgl, 0, 0, 255, 1.0, 0, 85) #regulating color levels, channel = #0 (second parameter) is for histogram value
     inhh = self.get_brightness_max(self.noisel)
     pdb.gimp_levels(self.noisel, 0, 0, inhh, 1.0, 0, 50) #regulating color levels, channel = #0 (second parameter) is for histogram value
@@ -2744,13 +2744,13 @@ class MountainsBuild(LocalBuilder):
     pdb.gimp_item_set_visible(self.mntangularl, False)
     pdb.gimp_item_set_visible(self.cpvlayer, False)
     pdb.gimp_item_set_visible(self.mntedgesl, False)
-    pdb.gimp_layer_set_mode(self.embosslayer, OVERLAY_MODE)
+    pdb.gimp_layer_set_mode(self.embosslayer, LAYER_MODE_OVERLAY)
     pdb.gimp_selection_none(self.getimg())
 
     #adding snow
     if self.addsnow:
       pdb.gimp_item_set_visible(self.cpvlayer, True)
-      pdb.gimp_layer_set_mode(self.cpvlayer, SCREEN_MODE)
+      pdb.gimp_layer_set_mode(self.cpvlayer, LAYER_MODE_SCREEN)
       commtxt = "Set minimum threshold to regulate the amount of the snow."
       cldc = CLevDialog(self.getimg(), self.cpvlayer, commtxt, CLevDialog.THRESHOLD, [CLevDialog.THR_MIN], self.getgroupl(), "Set lower threshold", self, gtk.DIALOG_MODAL)
       cldc.run()
@@ -2866,13 +2866,13 @@ class ForestBuild(LocalBuilder):
   def addforestcol(self, cl):
     resl = self.makeunilayer(self.textes["baseln"] + cl, self.forestcol[cl])
     self.addmaskp(resl, self.addingchannel)
-    pdb.gimp_layer_set_mode(resl, SOFTLIGHT_MODE)
+    pdb.gimp_layer_set_mode(resl, LAYER_MODE_SOFTLIGHT)
     return resl
 
   #override method, drawing the forest in the selection (when the method is called, a selection channel for the forest should be already present)
   def generatestep(self):    
     #creating noise base for the trees, this will be used to create a detailed mask for the trees
-    self.bgl = self.makenoisel(self.textes["baseln"] + "basicnoise", 16, 16, NORMAL_MODE, True, True)
+    self.bgl = self.makenoisel(self.textes["baseln"] + "basicnoise", 16, 16, LAYER_MODE_NORMAL, True, True)
     self.shapelayer, self.addingchannel = self.overdrawmask(self.bgl, self.textes["baseln"], 30, self.addingchannel, True)
     self.appendmask(self.addingchannel, False)
 
@@ -2982,7 +2982,7 @@ class RiversBuild(GlobalBuilder):
 
       #merging the layer to have only the rivers for the bump map
       pdb.gimp_item_set_visible(difflayer, True)
-      pdb.gimp_layer_set_mode(self.bumpsmap, DIFFERENCE_MODE)
+      pdb.gimp_layer_set_mode(self.bumpsmap, LAYER_MODE_DIFFERENCE)
       self.bumpsmap = pdb.gimp_image_merge_down(self.img, self.bumpsmap, 0)
       self.bumpsmap.name = "riversbumps"
       pdb.gimp_invert(self.bumpsmap)
@@ -2991,7 +2991,7 @@ class RiversBuild(GlobalBuilder):
       #making the bevels with a bump map
       self.bevels = self.makeunilayer("riversbevels", (127, 127, 127))
       pdb.plug_in_bump_map_tiled(self.img, self.bevels, self.bumpsmap, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
-      pdb.gimp_layer_set_mode(self.bevels, OVERLAY_MODE)
+      pdb.gimp_layer_set_mode(self.bevels, LAYER_MODE_OVERLAY)
 
     pdb.gimp_displays_flush()
 
@@ -3447,7 +3447,7 @@ class RoadBuild(GlobalBuilder):
     self.roadslayers.append(self.makeunilayer("drawroads" + str(len(self.roadslayers))))
     pdb.gimp_layer_add_alpha(self.roadslayers[-1])
     pdb.plug_in_colortoalpha(self.img, self.roadslayers[-1], (255, 255, 255))
-    pdb.gimp_layer_set_mode(self.roadslayers[-1], OVERLAY_MODE)
+    pdb.gimp_layer_set_mode(self.roadslayers[-1], LAYER_MODE_OVERLAY)
 
     #adding an empty path
     self.paths.append(pdb.gimp_vectors_new(self.img, "roads" + str(len(self.paths))))
