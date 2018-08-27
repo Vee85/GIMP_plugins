@@ -1022,40 +1022,46 @@ class TLSbase(gtk.Dialog):
     noiselayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, 0) #0 (last) = normal mode
     pdb.gimp_image_insert_layer(self.getimg(), noiselayer, self.getgroupl(), 0)
 
-    if self.tilednoise and self.subimgd is None and isinstance(self, GlobalBuilder):
-      #saving the current selection, if present, in a channel
-      savedchannel = None
-      if not pdb.gimp_selection_is_empty(self.img):
-        savedchannel = pdb.gimp_selection_save(self.img)
-        pdb.gimp_selection_none(self.img)
-
-      #calcutaing size of subimage and matrix boundaries
-      subwidth = int(self.img.width / self.noisematrix["w"])
-      subheight = int(self.img.height / self.noisematrix["h"])
-      widthstep = range(0, self.img.width, subwidth)
-      heightstep = range(0, self.img.height, subheight)
-      
-      #making the tiled noise
-      self.subimgd = ImageD(subwidth, subheight, 0)
-      pdb.plug_in_solid_noise(self.getimg(), self.subimgd.getbglayer(), True, turbulent, random.random() * 9999999999, 15, xpix, ypix)
-      pdb.gimp_item_set_visible(self.getmaskl(), False)
-
-      #copying back the noise
-      pdb.gimp_edit_copy_visible(self.getimg())
-      for sx in widthstep:
-        for sy in heightstep:
-          pdb.gimp_image_select_rectangle(self.img, 2, sx, sy, subwidth, subheight)
-          fl_sel = pdb.gimp_edit_paste(noiselayer, True)
-          pdb.gimp_floating_sel_anchor(fl_sel)
-          
-      pdb.gimp_selection_none(self.img)
-      self.deletenewimg()
-
-      #restoring selection saved in a channel, if present
-      if savedchannel is not None:
-        pdb.gimp_image_select_item(self.img, 2, savedchannel)
+    dogn = True
+    if isinstance(self, GlobalBuilder):
+      if self.subimgd is not None:
+        raise RuntimeError("Error! a GlobalBuilder child must not have generated a subimage at this point yet!")
         
-    else:
+      if self.tilednoise:
+        #saving the current selection, if present, in a channel
+        savedchannel = None
+        if not pdb.gimp_selection_is_empty(self.img):
+          savedchannel = pdb.gimp_selection_save(self.img)
+          pdb.gimp_selection_none(self.img)
+
+        #calcutaing size of subimage and matrix boundaries
+        subwidth = int(self.img.width / self.noisematrix["w"])
+        subheight = int(self.img.height / self.noisematrix["h"])
+        widthstep = range(0, self.img.width, subwidth)
+        heightstep = range(0, self.img.height, subheight)
+        
+        #making the tiled noise
+        self.subimgd = ImageD(subwidth, subheight, 0)
+        pdb.plug_in_solid_noise(self.getimg(), self.subimgd.getbglayer(), True, turbulent, random.random() * 9999999999, 15, xpix, ypix)
+        pdb.gimp_item_set_visible(self.getmaskl(), False)
+
+        #copying back the noise
+        pdb.gimp_edit_copy_visible(self.getimg())
+        for sx in widthstep:
+          for sy in heightstep:
+            pdb.gimp_image_select_rectangle(self.img, 2, sx, sy, subwidth, subheight)
+            fl_sel = pdb.gimp_edit_paste(noiselayer, True)
+            pdb.gimp_floating_sel_anchor(fl_sel)
+            
+        dogn = False
+        pdb.gimp_selection_none(self.img)
+        self.deletenewimg()
+
+        #restoring selection saved in a channel, if present
+        if savedchannel is not None:
+          pdb.gimp_image_select_item(self.img, 2, savedchannel)
+        
+    if dogn:
       pdb.plug_in_solid_noise(self.getimg(), noiselayer, False, turbulent, random.random() * 9999999999, 15, xpix, ypix)
 
     pdb.gimp_layer_set_mode(noiselayer, mode)
@@ -2673,10 +2679,10 @@ class MountainsBuild(LocalBuilder):
         
     pdb.gimp_selection_none(self.getimg())
     
-    #editing level modes and color levels
-    pdb.gimp_layer_set_mode(self.noisel, LAYER_MODE_ADDITION)
-    pdb.gimp_layer_set_mode(self.mntangularl, LAYER_MODE_ADDITION)
-    pdb.gimp_layer_set_mode(self.mntedgesl, LAYER_MODE_ADDITION)
+    #editing level modes and color levels, using legacy mode here, it gives better results
+    pdb.gimp_layer_set_mode(self.noisel, LAYER_MODE_ADDITION_LEGACY)
+    pdb.gimp_layer_set_mode(self.mntangularl, LAYER_MODE_ADDITION_LEGACY)
+    pdb.gimp_layer_set_mode(self.mntedgesl, LAYER_MODE_ADDITION_LEGACY)
     pdb.gimp_levels(self.bgl, 0, 0, 255, 1.0, 0, 85) #regulating color levels, channel = #0 (second parameter) is for histogram value
     inhh = self.get_brightness_max(self.noisel)
     pdb.gimp_levels(self.noisel, 0, 0, inhh, 1.0, 0, 50) #regulating color levels, channel = #0 (second parameter) is for histogram value
