@@ -29,7 +29,7 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ make rotation instead of directions in maskprofile
-
+#@@@ edit system: don't delete the full step when clicking previous, just hide everything. Add a cancel button to cancel the step also in global builders.
 
 import sys
 import os
@@ -634,6 +634,9 @@ class TLSbase(gtk.Dialog):
   #class constants
   PREVIOUS = 0
   NEXT = 1
+  DHSACT_DELETE = 0
+  DHSACT_HIDE = 1
+  DHSACT_SHOW = 2
   MAXGAUSSPIX = 500
   
   #constructor
@@ -708,7 +711,7 @@ class TLSbase(gtk.Dialog):
     self.chosen = None
     self.afterclosing(0)
     if not self.generated:
-      self.cleandrawables()
+      self.dhsdrawables(self.DHSACT_DELETE)
     self.on_job_done()
 
   #method, getting the image
@@ -786,12 +789,13 @@ class TLSbase(gtk.Dialog):
   def generatestep(self):
     raise NotImplementedError("child class must implement on_butgen_clicked method")
   
-  #callback method, set the next or previous instance which will be called by another method
+  #callback method, set the next or previous instance which will be called by the builder loop
   def on_setting_np(self, widget, pp):
     close = True
     if pp == TLSbase.PREVIOUS:
-      self.cleandrawables()
-      self.setgenerated(False)
+      self.dhsdrawables(self.DHSACT_HIDE)
+      # ~ self.dhsdrawables(self.DHSACT_DELETE)
+      # ~ self.setgenerated(False)
       self.chosen = self.prevd
     elif pp == TLSbase.NEXT:
       if self.mandatorystep and not self.generated:
@@ -804,9 +808,9 @@ class TLSbase(gtk.Dialog):
     if close:
       self.on_job_done()
   
-  #empty method to clean layer during regeneration. It will be overrided by child classes
-  def cleandrawables(self):
-    raise NotImplementedError("Child class must implement cleandrawables method")
+  #empty method to delete, hide or show drawables. It will be overrided by child classes
+  def dhsdrawables(self, action):
+    raise NotImplementedError("Child class must implement dhsdrawables method")
 
   #method to get the last grouplayer (the one in use) or None
   def getgroupl(self, checksubim=True):
@@ -913,10 +917,27 @@ class TLSbase(gtk.Dialog):
           pdb.gimp_image_remove_channel(self.img, dr)
         elif isinstance(dr, gimp.Vectors):
           pdb.gimp_image_remove_vectors(self.img, dr)
-      except RuntimeError, e:   #catching and neglecting runtime errors due to not valid ID, likely due to merged layers which do not exist anymore
+      except RuntimeError, e:   #catching and neglecting runtime errors, likely due to not valid ID of merged layers which do not exist anymore
         pass
     
     pdb.gimp_plugin_set_pdb_error_handler(0)
+
+  #method to edit visibility of layers associated to the TLSbase child instance. Layers of TLSbase are shown/hidden, layers of childs must be given as arguments
+  def editvislayers(self, visible, *drawables):
+    basetuple = (self.bgl, self.noisel, self.clipl) #not deleting self.baselm, self.maskl, self.channelms and self.groupl as they are shared by various instances
+    edittuple = basetuple + drawables
+
+    #hiding the list
+    pdb.gimp_plugin_set_pdb_error_handler(1)
+    for dr in edittuple:
+      try:
+        if isinstance(dr, (gimp.Layer, gimp.GroupLayer)):
+          pdb.gimp_item_set_visible(dr, visible)
+      except RuntimeError, e:   #catching and neglecting runtime errors, likely due to not valid ID of merged layers which do not exist anymore
+        pass
+
+    pdb.gimp_plugin_set_pdb_error_handler(0)
+    pdb.gimp_displays_flush()
 
   #method to get the maximum brightness from the pixel histogram of a layer
   def get_brightness_max(self, layer, channel=HISTOGRAM_VALUE):
@@ -1282,7 +1303,8 @@ class GlobalBuilder(TLSbase):
   #callback method acting on the generate button
   def on_butgen_clicked(self, widget):
     if self.generated and not self.multigen:
-      self.cleandrawables()
+      self.dhsdrawables(self.DHSACT_DELETE)
+      self.beforegen()
     self.generatestep()
     self.setgenerated(True)
     if self.multigen:
@@ -1463,13 +1485,18 @@ class LocalBuilder(TLSbase):
   def on_cbsubmap_toggled(self, widget):
     self.onsubmap = widget.get_active()
 
-  #override cleaning method, common to all LocalBuild childs
-  def cleandrawables(self):
+  #override deleting, hiding or showing method, common to all LocalBuild childs
+  def dhsdrawables(self, action):
     fuldr = self.groupl + self.getallmasks()
-    self.deletedrawables(*fuldr)
-    del self.groupl[:]
-    del self.allmasks[:]
-    
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(*fuldr)
+      del self.groupl[:]
+      del self.allmasks[:]
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, *fuldr)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, *fuldr)
+      
   #override loading method, common to all LocalBuild childs
   def loaddrawables(self):
     self.loadgrouplayer(self.textes["baseln"] + "group")
@@ -1489,7 +1516,7 @@ class LocalBuilder(TLSbase):
       grouptod = groupselecter.getselected()
 
       if grouptod == -1:
-        self.cleandrawables()
+        self.dhsdrawables(self.DHSACT_DELETE)
         self.setgenerated(False)
         self.beforegen()
       else:
@@ -1545,7 +1572,7 @@ class LocalBuilder(TLSbase):
   #callback method to generate random selection (mask profile)
   def on_butgenrdn_clicked(self, widget):
     if self.generated and not self.multigen:
-      self.cleandrawables()
+      self.dhsdrawables(self.DHSACT_DELETE)
     self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
 
     cpmap, cpmask = self.setsubmap()
@@ -1580,7 +1607,7 @@ class LocalBuilder(TLSbase):
   #callback method to let the user to select the area by hand and generate the mask profile.
   def on_butgenhnp_clicked(self, widget):
     if self.generated and not self.multigen:
-      self.cleandrawables()
+      self.dhsdrawables(self.DHSACT_DELETE)
 
     #making the grouplayer
     if len(self.groupl) == 0:
@@ -1804,10 +1831,15 @@ class MaskProfile(GlobalBuilder):
     else:
       self.on_job_done()
   
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables(self.maskl, self.channelms)
-  
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.maskl, self.channelms)
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.maskl, self.channelms)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.maskl, self.channelms)
+      
   #override method, generate the profile
   def generatestep(self):
     if self.generated:
@@ -1947,9 +1979,14 @@ class WaterBuild(GlobalBuilder):
   def on_chb_toggled(self, widget):
     self.addshore = widget.get_active()
   
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables(self.seal, self.shorel)    
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.seal, self.shorel)
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.seal, self.shorel)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.seal, self.shorel)
 
   #override loading method
   def loaddrawables(self):
@@ -1961,7 +1998,7 @@ class WaterBuild(GlobalBuilder):
       if ll.name == self.namelist[2]:
         self.shorel = ll
     return self.loaded()
-        
+    
   #override method, generate water profile
   def generatestep(self):
     #getting bgl as copy of land mask
@@ -2116,10 +2153,15 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       rr = infodial.run()
       infodial.destroy()
 
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables(self.bumpmapl, self.basebumpsl)
-    self.localbuilder.cleandrawables()
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.bumpmapl, self.basebumpsl)
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.bumpmapl, self.basebumpsl)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.bumpmapl, self.basebumpsl)
+    self.localbuilder.dhsdrawables(action)
 
   #ovverride loading method
   def loaddrawables(self):
@@ -2308,9 +2350,14 @@ class DirtDetails(GlobalBuilder):
     cld.destroy()
     return resl
 
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables()
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables()
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True)
 
   #ovverride loading method
   def loaddrawables(self):
@@ -2600,7 +2647,8 @@ class MountainsBuild(LocalBuilder):
 
   #override method, creating the base with the mask
   def beforerun(self, *args):
-    self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
+    if not self.generated:
+      self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
   
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def generatestep(self):    
@@ -2679,7 +2727,7 @@ class MountainsBuild(LocalBuilder):
         
     pdb.gimp_selection_none(self.getimg())
     
-    #editing level modes and color levels, using legacy mode here, it gives better results
+    #editing level modes and color levels, using legacy mode here because it gives better mountains
     pdb.gimp_layer_set_mode(self.noisel, LAYER_MODE_ADDITION_LEGACY)
     pdb.gimp_layer_set_mode(self.mntangularl, LAYER_MODE_ADDITION_LEGACY)
     pdb.gimp_layer_set_mode(self.mntedgesl, LAYER_MODE_ADDITION_LEGACY)
@@ -2931,9 +2979,14 @@ class RiversBuild(GlobalBuilder):
     
     return mwin
     
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables(self.bevels, self.bumpsmap)
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.bevels, self.bumpsmap)
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.bevels, self.bumpsmap)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.bevels, self.bumpsmap)
 
   #override loading method
   def loaddrawables(self):
@@ -3151,11 +3204,16 @@ class SymbolsBuild(GlobalBuilder):
 
     return butres
 
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables(self.symbols)
-    self.bgl = None
-    self.symbols = None
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.symbols)
+      self.bgl = None
+      self.symbols = None
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.symbols)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(Trye, self.symbols)
 
   #override loading method
   def loaddrawables(self):
@@ -3251,9 +3309,9 @@ class SymbolsBuild(GlobalBuilder):
     
     rnds.destroy()
 
-  #callback method, cancel symbols and close step
+  #callback method, cancel symbols
   def on_cancel_clicked(self, widget):
-    self.cleandrawables()
+    self.dhsdrawables(self.DHSACT_DELETE)
     self.setgenerated(False)
     self.beforerun()
     
@@ -3460,13 +3518,18 @@ class RoadBuild(GlobalBuilder):
     pdb.gimp_image_insert_vectors(self.img, self.paths[-1], None, 0)
     pdb.gimp_image_set_active_vectors(self.img, self.paths[-1])
     pdb.gimp_displays_flush()
-    
-  #override cleaning method 
-  def cleandrawables(self):
+
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
     fullist = self.roadslayers + self.paths
-    self.deletedrawables(*fullist)
-    del self.roadslayers[:]
-    del self.paths[:]
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(*fullist)
+      del self.roadslayers[:]
+      del self.paths[:]
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, *fullist)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, *fullist)
 
   #override loading method
   def loaddrawables(self):
@@ -3505,7 +3568,7 @@ class RoadBuild(GlobalBuilder):
       pathtod, layertod = pathselecter.getselected()
 
       if pathtod == -1 or layertod == -1:
-        self.cleandrawables()
+        self.dhsdrawables(self.DHSACT_DELETE)
         self.setgenerated(False)
         self.beforegen()
       else:
@@ -3647,6 +3710,8 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
   #method calling the object builder, listening to the response, and recursively calling itself
   def buildingmap(self, builder):
     builder.show_all()
+    if builder.generated:
+      builder.dhsdrawables(TLSbase.DHSACT_SHOW)
     builder.beforerun()
     builder.beforegen()
     builder.run()
