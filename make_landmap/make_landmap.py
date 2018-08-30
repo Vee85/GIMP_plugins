@@ -29,8 +29,8 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ make rotation instead of directions in maskprofile
-#@@@ edit system: don't delete the full step when clicking previous, just hide everything. Add a cancel button to cancel the step also in global builders.
-#@@@ fix bug in local area generation: if done after, they are added later the last layer created
+#@@@ fix edit system: if gone previous and regenerate a step / add other local mutilgen steps, let the new layers be created in the right position. Sure about this?
+#@@@ convert gimp_histogram (deprecated in gimp 2.10) to gimp_drawable_histogram. Some lines abou this have been added and commented
 
 import sys
 import os
@@ -546,6 +546,7 @@ class CCurveDialog(BDrawDial):
 
   #method to get the counts in the pixel histogram
   def getcounts(self):
+    # ~ fullres = [pdb.gimp_drawable_histogram(self.origlayer, 0, i, i) for i in range(255)]
     fullres = [pdb.gimp_histogram(self.origlayer, 0, i, i) for i in range(255)]
     self.cns = [(j, math.log(i[4]) if i[4] != 0 else -1) for i, j in zip(fullres, range(len(fullres)))]
 
@@ -806,9 +807,9 @@ class TLSbase(gtk.Dialog):
         self.chosen = None
       else:
         self.chosen = self.nextd
-      self.afterclosing(1)
 
     if close:
+      self.afterclosing(1)
       self.on_job_done()
   
   #empty method to delete, hide or show drawables. It will be overrided by child classes
@@ -949,11 +950,13 @@ class TLSbase(gtk.Dialog):
   def get_brightness_max(self, layer, channel=HISTOGRAM_VALUE):
     endr = 255
     found = False
+    # ~ _, _, _, _, chk, _ = pdb.gimp_drawable_histogram(layer, channel, 0, endr)
     _, _, _, _, chk, _ = pdb.gimp_histogram(layer, channel, 0, endr)
     if chk == 0:
       return -1
     while not found:
-      _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, 0, endr)
+      # ~ _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, 0, endr)
+      _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, 0, endr)      
       if count < pixels or endr == 0:
         found = True
       else:
@@ -965,10 +968,12 @@ class TLSbase(gtk.Dialog):
   def get_brightness_min(self, layer, channel=HISTOGRAM_VALUE):
     startr = 0
     found = False
+    # ~ _, _, _, _, chk, _ = pdb.gimp_drawable_histogram(layer, channel, startr, 255)
     _, _, _, _, chk, _ = pdb.gimp_histogram(layer, channel, startr, 255)
     if chk == 0:
       return -1
     while not found:
+      # ~ _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, startr, 255)
       _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, startr, 255)
       if count < pixels or startr == 255:
         found = True
@@ -1632,7 +1637,7 @@ class LocalBuilder(TLSbase):
     infodi = MsgDialog("Info", self, imess, "Intersect selection with land mass if present\nPrevent the sea from being covered by the new area.")
     diresp = infodi.run()
 
-    if (diresp == gtk.RESPONSE_OK):
+    if diresp == gtk.RESPONSE_OK:
       if not pdb.gimp_selection_is_empty(self.getimg()):
         if self.smoothbeforecomb and self.smoothval > 0:
           pdb.gimp_selection_feather(self.getimg(), self.smoothval)
@@ -1660,7 +1665,7 @@ class LocalBuilder(TLSbase):
             self.deletenewimg()
           self.on_butgenhnp_clicked(widget)
 
-    elif (diresp == gtk.RESPONSE_CANCEL):
+    elif diresp == gtk.RESPONSE_CANCEL:
       pdb.gimp_selection_none(self.getimg())
       pdb.gimp_image_remove_layer(self.getimg(), self.groupl[-1])
       del self.groupl[-1]
@@ -2145,6 +2150,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       pdb.gimp_displays_flush()
       self.localbuilder.show_all()
       self.localbuilder.beforerun(None)
+      self.localbuilder.beforegen()
       self.localbuilder.run()
 
       try:
@@ -2213,6 +2219,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     #adding small areas of other region types
     self.localbuilder.show_all()
     self.localbuilder.beforerun(self.bgl)
+    self.localbuilder.beforegen()
     self.localbuilder.run()
     
     #generating noise
@@ -2269,7 +2276,7 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
       if isinstance(args[0], gimp.Layer):
         self.refbase = args[0]
       else:
-        raise RuntimeError("Error, Wrong type passed to AdditionalDetBuild.beforerun. It should be a gimp.Layer")
+        raise RuntimeError("Error, Wrong type passed to AdditionalDetBuild.beforerun(*args). It should be a gimp.Layer")
 
   #override method to set insertindex 
   def beforegen(self):
@@ -3074,6 +3081,7 @@ class SymbolsBuild(GlobalBuilder):
 
     self.symbols = None
 
+    self.pixsymb = 0
     self.basepath = os.path.dirname(os.path.abspath(__file__)) + "/make_landmap_brushes/"
     self.defsize = 0.025 * (self.img.width + self.img.height)
     self.chsize = self.defsize
@@ -3231,7 +3239,16 @@ class SymbolsBuild(GlobalBuilder):
       if ll.name == self.namelist[1]:
         self.symbols = ll
     return self.loaded()
-        
+
+  #method, check and update pixsymb attribute
+  def checkpixsymb(self):
+    _, _, _, newpixsymb, _, _ = pdb.gimp_histogram(self.symbols, HISTOGRAM_VALUE, 0, 255)
+    if self.pixsymb != newpixsymb:
+      self.pixsymb = newpixsymb
+      return True
+    else:
+      return False
+    
   #override method to prepare the symbols drawing (args not used)
   def beforerun(self, *args):
     if self.bgl is None:
@@ -3243,7 +3260,11 @@ class SymbolsBuild(GlobalBuilder):
       self.symbols = self.makeunilayer("symbols")
       pdb.gimp_layer_add_alpha(self.symbols)
       pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
-    
+      self.pixsymb = 0
+    else:
+      _, _, _, self.pixsymb, _, _ = pdb.gimp_histogram(self.symbols, HISTOGRAM_VALUE, 0, 255)
+
+    pdb.gimp_image_set_active_layer(self.img, self.symbols)
     pdb.gimp_displays_flush()
 
   #callback method to set the brush size
@@ -3319,9 +3340,10 @@ class SymbolsBuild(GlobalBuilder):
     
   #override method to fix symbols, add finishing touches and close.
   def afterclosing(self, who):
-    #we cannot know before calling this method the first time if the step has been generated or not as the boolean variable is set here.
+    #we cannot know before calling this method the first time if the step has been generated or not, as there is not a generatestep call in this class
     if self.get_brightness_max(self.symbols) != -1: #check the histogram, verify that is not a fully transparent layer.
-      if not self.generated:
+      if not self.generated or self.checkpixsymb():
+        pdb.gimp_drawable_edit_clear(self.bgl)
         pdb.gimp_image_select_item(self.img, 2, self.symbols) #2 = replace selection, this select everything in the layer which is not transparent
         pdb.gimp_selection_grow(self.img, 2)
         pdb.gimp_selection_feather(self.img, 5)
