@@ -30,6 +30,7 @@
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ make rotation instead of directions in maskprofile
 #@@@ edit system: don't delete the full step when clicking previous, just hide everything. Add a cancel button to cancel the step also in global builders.
+#@@@ fix bug in local area generation: if done after, they are added later the last layer created
 
 import sys
 import os
@@ -788,14 +789,16 @@ class TLSbase(gtk.Dialog):
   #method, generate the stuffs. To be overrided by child classes
   def generatestep(self):
     raise NotImplementedError("child class must implement on_butgen_clicked method")
+
+  #callback method, cancel drawables of the step. To be overrided by child classes 
+  def on_butcanc_clicked(self, widget):
+    raise NotImplementedError("child class must implement on_butcanc_clicked method")
   
   #callback method, set the next or previous instance which will be called by the builder loop
   def on_setting_np(self, widget, pp):
     close = True
     if pp == TLSbase.PREVIOUS:
       self.dhsdrawables(self.DHSACT_HIDE)
-      # ~ self.dhsdrawables(self.DHSACT_DELETE)
-      # ~ self.setgenerated(False)
       self.chosen = self.prevd
     elif pp == TLSbase.NEXT:
       if self.mandatorystep and not self.generated:
@@ -864,6 +867,12 @@ class TLSbase(gtk.Dialog):
     self.butquit = gtk.Button("Quit")
     self.action_area.add(self.butquit)
     self.butquit.connect("clicked", self.on_quit)
+
+  #method adding the cancel button
+  def add_button_cancel(self, blab="Cancel"):
+    self.butcanc = gtk.Button(blab)
+    self.action_area.add(self.butcanc)
+    self.butcanc.connect("clicked", self.on_butcanc_clicked)
      
   #method, adding the previous and next button to the button area
   def add_button_nextprev(self): 
@@ -923,10 +932,7 @@ class TLSbase(gtk.Dialog):
     pdb.gimp_plugin_set_pdb_error_handler(0)
 
   #method to edit visibility of layers associated to the TLSbase child instance. Layers of TLSbase are shown/hidden, layers of childs must be given as arguments
-  def editvislayers(self, visible, *drawables):
-    basetuple = (self.bgl, self.noisel, self.clipl) #not deleting self.baselm, self.maskl, self.channelms and self.groupl as they are shared by various instances
-    edittuple = basetuple + drawables
-
+  def editvislayers(self, visible, *edittuple):
     #hiding the list
     pdb.gimp_plugin_set_pdb_error_handler(1)
     for dr in edittuple:
@@ -935,7 +941,7 @@ class TLSbase(gtk.Dialog):
           pdb.gimp_item_set_visible(dr, visible)
       except RuntimeError, e:   #catching and neglecting runtime errors, likely due to not valid ID of merged layers which do not exist anymore
         pass
-
+        
     pdb.gimp_plugin_set_pdb_error_handler(0)
     pdb.gimp_displays_flush()
 
@@ -1300,6 +1306,13 @@ class GlobalBuilder(TLSbase):
     self.action_area.add(self.butgenpr)
     self.butgenpr.connect("clicked", self.on_butgen_clicked)
 
+  #callback method to cancel a single step
+  def on_butcanc_clicked(self, widget):
+    self.dhsdrawables(self.DHSACT_DELETE)
+    self.setgenerated(False)
+    self.beforegen()
+    pdb.gimp_displays_flush()
+
   #callback method acting on the generate button
   def on_butgen_clicked(self, widget):
     if self.generated and not self.multigen:
@@ -1391,12 +1404,6 @@ class LocalBuilder(TLSbase):
       return self.selgroup
 
   #outer class methods
-  #method adding the cancel button
-  def add_button_cancel(self):
-    self.butcanc = gtk.Button("Cancel")
-    self.action_area.add(self.butcanc)
-    self.butcanc.connect("clicked", self.on_butcanc_clicked)
-
   #method adding the random and handmade generate button
   def add_buttons_gen(self):
     self.butgenrnd = gtk.Button("Random")
@@ -1493,9 +1500,9 @@ class LocalBuilder(TLSbase):
       del self.groupl[:]
       del self.allmasks[:]
     elif action == self.DHSACT_HIDE:
-      self.editvislayers(False, *fuldr)
+      self.editvislayers(False, *self.groupl)
     elif action == self.DHSACT_SHOW:
-      self.editvislayers(True, *fuldr)
+      self.editvislayers(True, *self.groupl)
       
   #override loading method, common to all LocalBuild childs
   def loaddrawables(self):
@@ -1836,10 +1843,10 @@ class MaskProfile(GlobalBuilder):
     if action == self.DHSACT_DELETE:
       self.deletedrawables(self.maskl, self.channelms)
     elif action == self.DHSACT_HIDE:
-      self.editvislayers(False, self.maskl, self.channelms)
+      self.editvislayers(False, self.bgl, self.noisel, self.clipl, self.maskl)
     elif action == self.DHSACT_SHOW:
-      self.editvislayers(True, self.maskl, self.channelms)
-      
+      self.editvislayers(True, self.bgl, self.noisel, self.clipl, self.maskl)
+        
   #override method, generate the profile
   def generatestep(self):
     if self.generated:
@@ -1965,6 +1972,7 @@ class WaterBuild(GlobalBuilder):
 
     #button area
     self.add_button_quit()
+    self.add_button_cancel()
     self.add_button_generate("Generate water profile")
     self.add_button_nextprev()
 
@@ -1984,9 +1992,9 @@ class WaterBuild(GlobalBuilder):
     if action == self.DHSACT_DELETE:
       self.deletedrawables(self.seal, self.shorel)
     elif action == self.DHSACT_HIDE:
-      self.editvislayers(False, self.seal, self.shorel)
+      self.editvislayers(False, self.bgl, self.noisel, self.seal, self.shorel)
     elif action == self.DHSACT_SHOW:
-      self.editvislayers(True, self.seal, self.shorel)
+      self.editvislayers(True, self.bgl, self.noisel, self.seal, self.shorel)
 
   #override loading method
   def loaddrawables(self):
@@ -2113,6 +2121,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     
     #button area
     self.add_button_quit()
+    self.add_button_cancel()
     self.add_button_generate("Generate land details")
 
     self.butlocal = gtk.Button("Local areas")
@@ -2158,9 +2167,9 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     if action == self.DHSACT_DELETE:
       self.deletedrawables(self.bumpmapl, self.basebumpsl)
     elif action == self.DHSACT_HIDE:
-      self.editvislayers(False, self.bumpmapl, self.basebumpsl)
+      self.editvislayers(False, self.bgl, self.noisel, self.basebumpsl)
     elif action == self.DHSACT_SHOW:
-      self.editvislayers(True, self.bumpmapl, self.basebumpsl)
+      self.editvislayers(True, self.bgl, self.noisel, self.basebumpsl)
     self.localbuilder.dhsdrawables(action)
 
   #ovverride loading method
@@ -2319,6 +2328,7 @@ class DirtDetails(GlobalBuilder):
     
     #button area
     self.add_button_quit()
+    self.add_button_cancel()
     self.add_button_generate("Generate dirt")
     self.add_button_nextprev()
 
@@ -2355,9 +2365,9 @@ class DirtDetails(GlobalBuilder):
     if action == self.DHSACT_DELETE:
       self.deletedrawables()
     elif action == self.DHSACT_HIDE:
-      self.editvislayers(False)
+      self.editvislayers(False, self.bgl)
     elif action == self.DHSACT_SHOW:
-      self.editvislayers(True)
+      self.editvislayers(True, self.bgl)
 
   #ovverride loading method
   def loaddrawables(self):
@@ -2974,6 +2984,7 @@ class RiversBuild(GlobalBuilder):
     
     #action area
     self.add_button_quit()
+    self.add_button_cancel()
     self.add_button_generate("Draw Rivers")
     self.add_button_nextprev()
     
@@ -2984,9 +2995,9 @@ class RiversBuild(GlobalBuilder):
     if action == self.DHSACT_DELETE:
       self.deletedrawables(self.bevels, self.bumpsmap)
     elif action == self.DHSACT_HIDE:
-      self.editvislayers(False, self.bevels, self.bumpsmap)
+      self.editvislayers(False, self.bgl, self.bevels)
     elif action == self.DHSACT_SHOW:
-      self.editvislayers(True, self.bevels, self.bumpsmap)
+      self.editvislayers(True, self.bgl, self.bevels)
 
   #override loading method
   def loaddrawables(self):
@@ -3122,10 +3133,7 @@ class SymbolsBuild(GlobalBuilder):
 
     #action area
     self.add_button_quit()
-    
-    butcanc = gtk.Button("Cancel Symbols")
-    self.action_area.add(butcanc)
-    butcanc.connect("clicked", self.on_cancel_clicked)
+    self.add_button_cancel("Cancel Symbols")
     
     butrand = gtk.Button("Add randomly")
     self.action_area.add(butrand)
@@ -3211,9 +3219,9 @@ class SymbolsBuild(GlobalBuilder):
       self.bgl = None
       self.symbols = None
     elif action == self.DHSACT_HIDE:
-      self.editvislayers(False, self.symbols)
+      self.editvislayers(False, self.bgl, self.symbols)
     elif action == self.DHSACT_SHOW:
-      self.editvislayers(Trye, self.symbols)
+      self.editvislayers(True, self.bgl, self.symbols)
 
   #override loading method
   def loaddrawables(self):
@@ -3308,12 +3316,6 @@ class SymbolsBuild(GlobalBuilder):
       pdb.gimp_displays_flush()
     
     rnds.destroy()
-
-  #callback method, cancel symbols
-  def on_cancel_clicked(self, widget):
-    self.dhsdrawables(self.DHSACT_DELETE)
-    self.setgenerated(False)
-    self.beforerun()
     
   #override method to fix symbols, add finishing touches and close.
   def afterclosing(self, who):
@@ -3413,10 +3415,7 @@ class RoadBuild(GlobalBuilder):
     
     #action area
     self.add_button_quit()
-
-    butcanc = gtk.Button("Cancel Roads")
-    self.action_area.add(butcanc)
-    butcanc.connect("clicked", self.on_cancel_clicked)
+    self.add_button_cancel("Cancel Roads")
 
     butimpo = gtk.Button("Import from SVG file")
     self.action_area.add(butimpo)
@@ -3559,8 +3558,8 @@ class RoadBuild(GlobalBuilder):
     
     pdb.gimp_context_set_foreground(oldfgcol)
 
-  #callback method to cancel all roads
-  def on_cancel_clicked(self, widget):
+  #override callback method to cancel roads
+  def on_butcanc_clicked(self, widget):
     pathselecter = self.DelPaths(self, "Removing roads", self, gtk.DIALOG_MODAL)
     rr = pathselecter.run()
 
