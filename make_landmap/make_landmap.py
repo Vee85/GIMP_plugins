@@ -29,8 +29,10 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ make rotation instead of directions in maskprofile
-#@@@ fix edit system: if gone previous and regenerate a step / add other local mutilgen steps, let the new layers be created in the right position. Sure about this?
+#@@@ let the user to choose if hide or not when going previous. May be useful to not hide in some cases
+#@@@ fix rivers: do it in a similar way of symbols, so that is easy to add / edit new rivers without deleting the current rivers
 #@@@ convert gimp_histogram (deprecated in gimp 2.10) to gimp_drawable_histogram. Some lines abou this have been added and commented
+
 
 import sys
 import os
@@ -672,6 +674,7 @@ class TLSbase(gtk.Dialog):
     self.smoothprofile = 0
     self.generated = False
 
+    self.insindex = 0
     #nothing in the dialog: labels and buttons are created in the child classes
     
     return mwin
@@ -757,14 +760,14 @@ class TLSbase(gtk.Dialog):
     return non_empty, copybasel, copymaskl
 
   #method, copying back the new image into the main image
-  def copyfromnewimg(self, groupdest=None):
+  def copyfromnewimg(self, groupdest=None, pos=0):
     #saving and clearing the selection
     copiedarea = pdb.gimp_selection_save(self.img)
     pdb.gimp_selection_none(self.img)
 
     #preparing new layer to receive the copied buffer
     newlay = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, "copyback", 100, 0) #0 = normal mode
-    pdb.gimp_image_insert_layer(self.img, newlay, groupdest, 0)
+    pdb.gimp_image_insert_layer(self.img, newlay, groupdest, pos)
     pdb.gimp_layer_add_alpha(newlay)
     pdb.plug_in_colortoalpha(self.img, newlay, (0, 0, 0))
 
@@ -838,6 +841,30 @@ class TLSbase(gtk.Dialog):
     else:
       return self.getgroupl().layers
 
+  #method, set the reference index where to add new layers
+  def setinsindex(self):
+    if self.nextd is None:
+      self.insindex = 0
+    else:
+      refll = self.nextd.getgroupl(False)
+      if refll is None:
+        refll = self.nextd.bgl
+      if refll is None:
+        self.insindex = 0
+      else:
+        self.insindex = [j for i, j in zip(self.img.layers, range(len(self.img.layers))) if i.name == refll.name][0] + 1
+    print self.__class__.__name__, " insindex:", self.insindex
+    sys.stdout.flush()
+
+  #method, get the correct reference index (may vary if we are inside a grouplayer)
+  def getinsindex(self):
+    if self.subimgd is not None:
+      return 0
+    if self.getgroupl(False) is not None:
+      return 0
+    else:
+      return self.insindex
+
   #method, loading the group layer if needed
   def loadgrouplayer(self, namegroup):
     for lg in self.img.layers:
@@ -892,13 +919,13 @@ class TLSbase(gtk.Dialog):
       self.groupl[-1].name = gname
       pdb.gimp_image_insert_layer(self.img, self.groupl[-1], None, pos)
     else:
-      raise RuntimeError("An error as occurred when making a new GroupLayer. The makegrouplayer method must have been called when self.groupl is not a list.")
+      raise RuntimeError("An error as occurred when making a new GroupLayer. The makegrouplayer method must be called when self.groupl is not a list.")
   
   #method to copy the background layer from an already existing layer
   def copybgl(self, blayer, blname):
     self.bgl = blayer.copy()
     self.bgl.name = blname
-    pdb.gimp_image_insert_layer(self.getimg(), self.bgl, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.bgl, self.getgroupl(), self.getinsindex())
     
   #method to perform any action before a run() call showing the dialog interface. To be overrided by the child classes if needed, but not mandatory
   def beforerun(self, *args):
@@ -1041,7 +1068,7 @@ class TLSbase(gtk.Dialog):
   #method to generate a uniformly colored layer (typically the background layer)
   def makeunilayer(self, lname, lcolor=None):
     res = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, 0) #0 = normal mode
-    pdb.gimp_image_insert_layer(self.getimg(), res, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), res, self.getgroupl(), self.getinsindex())
     if lcolor is None:      
       lcolor = (255, 255, 255) #make layer color white
     
@@ -1052,7 +1079,7 @@ class TLSbase(gtk.Dialog):
   #method to generate the noise layer
   def makenoisel(self, lname, xpix, ypix, mode=LAYER_MODE_NORMAL, turbulent=False, normalise=False):
     noiselayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, 0) #0 (last) = normal mode
-    pdb.gimp_image_insert_layer(self.getimg(), noiselayer, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), noiselayer, self.getgroupl(), self.getinsindex())
 
     dogn = True
     if isinstance(self, GlobalBuilder):
@@ -1106,7 +1133,7 @@ class TLSbase(gtk.Dialog):
   #method to generate the clip layer
   def makeclipl(self, lname, commtxt): 
     cliplayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, LAYER_MODE_LIGHTEN_ONLY)
-    pdb.gimp_image_insert_layer(self.getimg(), cliplayer, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), cliplayer, self.getgroupl(), self.getinsindex())
     colfillayer(self.getimg(), cliplayer, (255, 255, 255)) #make layer color white
     
     cld = CLevDialog(self.getimg(), cliplayer, commtxt, CLevDialog.LEVELS, [CLevDialog.OUTPUT_MAX], self.getgroupl(), "Set clip layer level", self, gtk.DIALOG_MODAL)
@@ -1205,13 +1232,13 @@ class TLSbase(gtk.Dialog):
     #make a copy of the basenoise layer, so that the original layer is not overwritten
     copybn = basenoise.copy()
     copybn.name = lname + "copy"
-    pdb.gimp_image_insert_layer(self.getimg(), copybn, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), copybn, self.getgroupl(), self.getinsindex())
     if hideoriginal:
       pdb.gimp_item_set_visible(basenoise, False)
 
     extralev = copybn.copy()
     extralev.name = lname + "level"
-    pdb.gimp_image_insert_layer(self.getimg(), extralev, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), extralev, self.getgroupl(), self.getinsindex())
     pdb.gimp_levels(extralev, 0, 0, 255, 1, 80, 255) #regulating color levels, channel = #0 (second parameter) is for histogram value
     
     shapelayer = self.makeunilayer(lname + "shape", (0, 0, 0))
@@ -1322,10 +1349,12 @@ class GlobalBuilder(TLSbase):
   def on_butgen_clicked(self, widget):
     if self.generated and not self.multigen:
       self.dhsdrawables(self.DHSACT_DELETE)
+      self.setinsindex()
       self.beforegen()
     self.generatestep()
     self.setgenerated(True)
     if self.multigen:
+      self.setinsindex()
       self.beforegen()
 
 
@@ -1577,7 +1606,7 @@ class LocalBuilder(TLSbase):
     if self.onsubmap:
       if copymap is not None:
         pdb.gimp_item_set_visible(copymap, False)
-      self.copyfromnewimg(self.getgroupl(False))
+      self.copyfromnewimg(self.getgroupl(False), self.getinsindex())
       self.deletenewimg()
       pdb.gimp_displays_flush()
 
@@ -1585,7 +1614,8 @@ class LocalBuilder(TLSbase):
   def on_butgenrdn_clicked(self, widget):
     if self.generated and not self.multigen:
       self.dhsdrawables(self.DHSACT_DELETE)
-    self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
+      self.setinsindex()
+    self.makegrouplayer(self.textes["baseln"] + "group", self.insindex)
 
     cpmap, cpmask = self.setsubmap()
     baselayer = self.makeunilayer(self.textes["baseln"] + "base")
@@ -1610,6 +1640,7 @@ class LocalBuilder(TLSbase):
       self.generatestep()
       self.setgenerated(True)
       if self.multigen:
+        self.setinsindex()
         self.beforegen()
     else:
       pdb.gimp_image_remove_layer(self.getimg(), newmp.bgl)
@@ -1620,12 +1651,13 @@ class LocalBuilder(TLSbase):
   def on_butgenhnp_clicked(self, widget):
     if self.generated and not self.multigen:
       self.dhsdrawables(self.DHSACT_DELETE)
-
-    #making the grouplayer
+      self.setinsindex()
+      
+    #making the grouplayer only if needed (an empty grouplayer may be ready to be used from a previous call of this method) 
     if len(self.groupl) == 0:
-      self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
+      self.makegrouplayer(self.textes["baseln"] + "group", self.insindex)
     elif len(self.getlayerlist()) > 0:
-      self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
+      self.makegrouplayer(self.textes["baseln"] + "group", self.insindex)
 
     cpmap, cpmask = self.setsubmap()
     #dialog telling to select the area where to place the stuff
@@ -1655,6 +1687,7 @@ class LocalBuilder(TLSbase):
         self.takefromsubmap(cpmap)
         if self.multigen:
           self.beforegen()
+          self.setinsindex()
       else:
         infodib = MsgDialog("Warning", infodi, "You have to create a selection!")
         rr = infodib.run()
@@ -2027,7 +2060,7 @@ class WaterBuild(GlobalBuilder):
     #copy bgl layer into a new layer 
     self.seal = self.bgl.copy()
     self.seal.name = "sea"
-    pdb.gimp_image_insert_layer(self.getimg(), self.seal, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.seal, self.getgroupl(), self.getinsindex())
     
     self.addmaskp(self.seal, self.channelms, True, True)
     pdb.plug_in_normalize(self.getimg(), self.seal)
@@ -2132,8 +2165,6 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     self.butlocal = gtk.Button("Local areas")
     self.action_area.add(self.butlocal)
     self.butlocal.connect("clicked", self.on_local_clicked)
-    #self.butlocal.set_sensitive(False)
-
     self.add_button_nextprev()
 
     return mwin
@@ -2165,7 +2196,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       labtxt = "You cannot generate / delete the smaller areas until you generate the land details before.\n"
       labtxt += "Press 'Generate land details' button."
       infodial = MsgDialog("Warning", self, labtxt)
-      rr = infodial.run()
+      infodial.run()
       infodial.destroy()
 
   #override deleting, hiding or showing method
@@ -2278,14 +2309,14 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
       else:
         raise RuntimeError("Error, Wrong type passed to AdditionalDetBuild.beforerun(*args). It should be a gimp.Layer")
 
-  #override method to set insertindex 
+  #override method to reset the correct insindex 
   def beforegen(self):
     if len(self.groupl) == 0:
       refll = self.refbase
     else:
       refll = self.getgroupl()
 
-    self.insertindex = [j for i, j in zip(self.img.layers, range(len(self.img.layers))) if i.name == refll.name][0]
+    self.insindex = [j for i, j in zip(self.img.layers, range(len(self.img.layers))) if i.name == refll.name][0]
     
   #override method, drawing the area
   def generatestep(self):
@@ -2346,7 +2377,7 @@ class DirtDetails(GlobalBuilder):
     #preparing the noiselayer generation
     if self.maskl is not None:
       masklcopy = self.maskl.copy()
-      pdb.gimp_image_insert_layer(self.getimg(), masklcopy, self.getgroupl(), 0)
+      pdb.gimp_image_insert_layer(self.getimg(), masklcopy, self.getgroupl(), self.getinsindex())
       self.gaussblur(masklcopy, self.smp, self.smp, 0)
     
       #adding the noise layer mixed with the copy mask
@@ -2408,7 +2439,7 @@ class DirtDetails(GlobalBuilder):
     #applying the mask, final step
     if self.maskl is not None:
       masklcopy = self.maskl.copy()
-      pdb.gimp_image_insert_layer(self.getimg(), masklcopy, self.getgroupl(), 1)      
+      pdb.gimp_image_insert_layer(self.getimg(), masklcopy, self.getgroupl(), self.getinsindex() + 1)
       self.noisel = pdb.gimp_image_merge_down(self.getimg(), self.noisel, 0)
 
     self.noisel.name = "dirtnoise"
@@ -2693,7 +2724,7 @@ class MountainsBuild(LocalBuilder):
     else:
       basebis = self.base.copy()
     basebis.name = self.textes["baseln"] + "mapbase"
-    pdb.gimp_image_insert_layer(self.getimg(), basebis, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), basebis, self.getgroupl(), self.getinsindex())
     maskbase = self.addmaskp(basebis, self.addingchannel)
     if self.smoothval > 0:
       self.gaussblur(maskbase, self.smoothval, self.smoothval, 0)
@@ -2761,7 +2792,7 @@ class MountainsBuild(LocalBuilder):
     self.mntangularl = cdd.reslayer
     
     self.cpvlayer = pdb.gimp_layer_new_from_visible(self.getimg(), self.getimg(), self.textes["baseln"] + "visible")
-    pdb.gimp_image_insert_layer(self.getimg(), self.cpvlayer, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.cpvlayer, self.getgroupl(), self.getinsindex())
     cdd.destroy()
     
     #editing color curves, again
@@ -2774,7 +2805,7 @@ class MountainsBuild(LocalBuilder):
     if self.addcol:
       self.mntcolorl = cddb.reslayer.copy()
       self.mntcolorl.name = self.textes["baseln"] + "colors"
-      pdb.gimp_image_insert_layer(self.getimg(), self.mntcolorl, self.getgroupl(), 0)
+      pdb.gimp_image_insert_layer(self.getimg(), self.mntcolorl, self.getgroupl(), self.getinsindex())
       ctrlcl = self.ControlColor()
       rr = ctrlcl.run()
       if rr == gtk.RESPONSE_OK:
@@ -2791,7 +2822,7 @@ class MountainsBuild(LocalBuilder):
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
     self.embosslayer.name = self.textes["baseln"] + "emboss"
-    pdb.gimp_image_insert_layer(self.getimg(), self.embosslayer, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.embosslayer, self.getgroupl(), self.getinsindex())
     cddb.destroy()
     pdb.plug_in_emboss(self.getimg(), self.embosslayer, 30.0, 30.0, 20.0, 1)
     
@@ -3533,6 +3564,8 @@ class RoadBuild(GlobalBuilder):
     pdb.gimp_layer_add_alpha(self.roadslayers[-1])
     pdb.plug_in_colortoalpha(self.img, self.roadslayers[-1], (255, 255, 255))
     pdb.gimp_layer_set_mode(self.roadslayers[-1], LAYER_MODE_OVERLAY)
+    if len(self.roadslayers) == 1:
+      self.bgl = self.roadslayers[0]
 
     #adding an empty path
     self.paths.append(pdb.gimp_vectors_new(self.img, "roads" + str(len(self.paths))))
@@ -3560,6 +3593,8 @@ class RoadBuild(GlobalBuilder):
     for ll in self.img.layers:
       if self.namelist[1] in ll.name:
         self.roadslayers.append(ll)
+      if len(self.roadslayers) > 0:
+        self.bgl = self.roadslayers[-1]
     return self.loaded()
 
   #drawing the roads
@@ -3570,13 +3605,13 @@ class RoadBuild(GlobalBuilder):
     try:
       pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize, 0)
     except:
-      pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
+      pdb.gimp_edit_stroke_vectors(self.roadslayers[-1], self.paths[-1])
 
-    pdb.gimp_context_set_foreground(self.roadcolor) #set foreground color to black
+    pdb.gimp_context_set_foreground(self.roadcolor) #set foreground color to selected color
     try:
       pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize/2, self.chtype)
     except:
-      pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
+      pdb.gimp_edit_stroke_vectors(self.roadslayers[-1], self.paths[-1])
     
     pdb.gimp_context_set_foreground(oldfgcol)
 
@@ -3597,7 +3632,9 @@ class RoadBuild(GlobalBuilder):
         pdb.gimp_image_remove_layer(self.img, self.roadslayers[layertod])
         del self.paths[pathtod]
         del self.roadslayers[layertod]
-        if len(self.roadslayers) == 0:
+        if len(self.roadslayers) > 0:
+          self.bgl = self.roadslayers[-1]
+        else:
           self.setgenerated(False)
 
       pdb.gimp_displays_flush()
@@ -3733,6 +3770,7 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
     builder.show_all()
     if builder.generated:
       builder.dhsdrawables(TLSbase.DHSACT_SHOW)
+    builder.setinsindex()
     builder.beforerun()
     builder.beforegen()
     builder.run()
