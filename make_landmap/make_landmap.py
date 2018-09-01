@@ -33,7 +33,6 @@
 #@@@ fix rivers: do it in a similar way of symbols, so that is easy to add / edit new rivers without deleting the current rivers
 #@@@ convert gimp_histogram (deprecated in gimp 2.10) to gimp_drawable_histogram. Some lines abou this have been added and commented
 
-
 import sys
 import os
 import math
@@ -210,13 +209,20 @@ class CLevDialog(gtk.Dialog):
       llst = self.groupref.layers
     self.lapos = [j for i, j in zip(llst, range(len(llst))) if i.name == self.origlayer.name][0]
 
-    self.inlow = 0 #threshold color set to minimum (if used in the three channel (RGB) is black)
-    self.inhigh = 255 #threshold color set to maximum (if used in the three channel (RGB) is white)
+    # ~ self.inlow = 0 #threshold color set to minimum (if used in the three channel (RGB) is black)
+    # ~ self.inhigh = 255 #threshold color set to maximum (if used in the three channel (RGB) is white)
+    # ~ self.gamma = 1.0 #gamma value for input color
+    # ~ self.outlow = 0 #threshold color set to minimum (if used in the three channel (RGB) is black)
+    # ~ self.outhigh = 255 #threshold color set to maximum (if used in the three channel (RGB) is white)
+    # ~ self.thrmin = 127 #threshold color set to middle 
+    # ~ self.thrmax = 255 #threshold color set to max
+    self.inlow = 0.0 #threshold color set to minimum (if used in the three channel (RGB) is black)
+    self.inhigh = 1.0 #threshold color set to maximum (if used in the three channel (RGB) is white)
     self.gamma = 1.0 #gamma value for input color
-    self.outlow = 0 #threshold color set to minimum (if used in the three channel (RGB) is black)
-    self.outhigh = 255 #threshold color set to maximum (if used in the three channel (RGB) is white)
-    self.thrmin = 127 #threshold color set to middle 
-    self.thrmax = 255 #threshold color set to max
+    self.outlow = 0.0 #threshold color set to minimum (if used in the three channel (RGB) is black)
+    self.outhigh = 1.0 #threshold color set to maximum (if used in the three channel (RGB) is white)
+    self.thrmin = 0.5 #threshold color set to middle 
+    self.thrmax = 1.0 #threshold color set to max
     self.opa = 50
     
     if self.ctype not in [CLevDialog.LEVELS, CLevDialog.THRESHOLD, CLevDialog.OPACITY]:
@@ -252,28 +258,57 @@ class CLevDialog(gtk.Dialog):
           adjlist.append(gtk.Adjustment(self.gamma, 0.10, 10.00, 0.01, 0.1))
           labtxt.append("Gamma")
         if (m == CLevDialog.INPUT_MIN):
-          adjlist.append(gtk.Adjustment(self.inlow, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.inlow, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Low Input")
         if (m == CLevDialog.INPUT_MAX):
-          adjlist.append(gtk.Adjustment(self.inhigh, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.inhigh, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("High Input")
         if (m == CLevDialog.OUTPUT_MIN):
-          adjlist.append(gtk.Adjustment(self.outlow, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.outlow, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Low Output")
         if (m == CLevDialog.OUTPUT_MAX):
-          adjlist.append(gtk.Adjustment(self.outhigh, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.outhigh, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("High Output")
     elif self.ctype == CLevDialog.THRESHOLD:
       for m in self.modes:
         if (m == CLevDialog.THR_MIN):
-          adjlist.append(gtk.Adjustment(self.thrmin, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.thrmin, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Min Threshold")
         if (m == CLevDialog.THR_MAX):
-          adjlist.append(gtk.Adjustment(self.thrmax, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.thrmax, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Max Threshold")
     elif self.ctype == CLevDialog.OPACITY:
       adjlist.append(gtk.Adjustment(self.opa, 0, 100, 1, 10))
       labtxt.append("Opacity")
+
+    # ~ if self.ctype == CLevDialog.LEVELS:
+      # ~ for m in self.modes:
+        # ~ if (m == CLevDialog.GAMMA):
+          # ~ adjlist.append(gtk.Adjustment(self.gamma, 0.10, 10.00, 0.01, 0.1))
+          # ~ labtxt.append("Gamma")
+        # ~ if (m == CLevDialog.INPUT_MIN):
+          # ~ adjlist.append(gtk.Adjustment(self.inlow, 0, 255, 1, 10))
+          # ~ labtxt.append("Low Input")
+        # ~ if (m == CLevDialog.INPUT_MAX):
+          # ~ adjlist.append(gtk.Adjustment(self.inhigh, 0, 255, 1, 10))
+          # ~ labtxt.append("High Input")
+        # ~ if (m == CLevDialog.OUTPUT_MIN):
+          # ~ adjlist.append(gtk.Adjustment(self.outlow, 0, 255, 1, 10))
+          # ~ labtxt.append("Low Output")
+        # ~ if (m == CLevDialog.OUTPUT_MAX):
+          # ~ adjlist.append(gtk.Adjustment(self.outhigh, 0, 255, 1, 10))
+          # ~ labtxt.append("High Output")
+    # ~ elif self.ctype == CLevDialog.THRESHOLD:
+      # ~ for m in self.modes:
+        # ~ if (m == CLevDialog.THR_MIN):
+          # ~ adjlist.append(gtk.Adjustment(self.thrmin, 0, 255, 1, 10))
+          # ~ labtxt.append("Min Threshold")
+        # ~ if (m == CLevDialog.THR_MAX):
+          # ~ adjlist.append(gtk.Adjustment(self.thrmax, 0, 255, 1, 10))
+          # ~ labtxt.append("Max Threshold")
+    # ~ elif self.ctype == CLevDialog.OPACITY:
+      # ~ adjlist.append(gtk.Adjustment(self.opa, 0, 100, 1, 10))
+      # ~ labtxt.append("Opacity")
           
     #making the scale and spinbuttons for the adjustments
     for adj, ww, lt in zip(adjlist, self.modes, labtxt):
@@ -289,7 +324,7 @@ class CLevDialog(gtk.Dialog):
       scab[-1].connect("value-changed", self.on_value_changed, ww)
       hboxes[-1].add(scab[-1])
       
-      spbutc.append(gtk.SpinButton(adj, 0, 2))
+      spbutc.append(gtk.SpinButton(adj, 0, 3))
       spbutc[-1].connect("output", self.on_value_changed, ww)
       hboxes[-1].add(spbutc[-1])
       
@@ -326,8 +361,9 @@ class CLevDialog(gtk.Dialog):
         self.outlow = widget.get_value()
       if (m == CLevDialog.OUTPUT_MAX):
         self.outhigh = widget.get_value()
-            
-      pdb.gimp_levels(self.reslayer, 0, self.inlow, self.inhigh, self.gamma, self.outlow, self.outhigh) #regulating color levels, channel = #0 (second parameter) is for histogram value
+
+      pdb.gimp_drawable_levels(self.reslayer, 0, self.inlow, self.inhigh, False, self.gamma, self.outlow, self.outhigh, False)
+      # ~ pdb.gimp_levels(self.reslayer, 0, self.inlow, self.inhigh, self.gamma, self.outlow, self.outhigh) #regulating color levels, channel = #0 (second parameter) is for histogram value
 
     elif self.ctype == CLevDialog.THRESHOLD:
       self.make_reslayer()
@@ -335,8 +371,9 @@ class CLevDialog(gtk.Dialog):
         self.thrmin = widget.get_value()
       if (m == CLevDialog.THR_MAX):
         self.thrmax = widget.get_value()
-      
-      pdb.gimp_threshold(self.reslayer, self.thrmin, self.thrmax) #regulating threshold levels
+
+      pdb.gimp_drawable_threshold(self.reslayer, 0, self.thrmin, self.thrmax)
+      # ~ pdb.gimp_threshold(self.reslayer, self.thrmin, self.thrmax) #regulating threshold levels
     
     elif self.ctype == CLevDialog.OPACITY:
       self.opa = widget.get_value()
@@ -506,6 +543,8 @@ class BDrawDial(gtk.Dialog):
 
 #class to adjust the color levels of a layer, reproducing a simpler interface to the GIMP color curves dialog. 
 class CCurveDialog(BDrawDial):
+  SCALE = 256.0
+  
   #constructor
   def __init__(self, image, layer, grouplayer, ltext, *args):
     dwin = BDrawDial.__init__(self, ltext, *args)
@@ -537,8 +576,8 @@ class CCurveDialog(BDrawDial):
     
     self.show_all()
     self.getcounts()
-    self.xunit = (self.drw - 2*self.xfr) / 255.0
-    self.yunit = (self.drh - 2*self.yfr) / 255.0
+    self.xunit = (self.drw - 2*self.xfr) / self.SCALE
+    self.yunit = (self.drh - 2*self.yfr) / self.SCALE
     
     #here adding some basic markers to control the curve
     self.on_butrest_clicked(self.butrest, False)
@@ -548,14 +587,17 @@ class CCurveDialog(BDrawDial):
 
   #method to get the counts in the pixel histogram
   def getcounts(self):
-    # ~ fullres = [pdb.gimp_drawable_histogram(self.origlayer, 0, i, i) for i in range(255)]
-    fullres = [pdb.gimp_histogram(self.origlayer, 0, i, i) for i in range(255)]
+    ptaxis = [x/self.SCALE for x in range(int(self.SCALE))]
+    fullres = [pdb.gimp_drawable_histogram(self.origlayer, 0, i, i) for i in ptaxis]
+    # ~ fullres = [pdb.gimp_histogram(self.origlayer, 0, i, i) for i in range(255)]
     self.cns = [(j, math.log(i[4]) if i[4] != 0 else -1) for i, j in zip(fullres, range(len(fullres)))]
 
   #method to convert a marker coordinate from pixel to color scale unit (0 - 255) 
   def markerconvert(self, mm):
     mx = (mm.getx() - self.xfr) / self.xunit
-    my = 255.0 - ((mm.gety() - self.yfr) / self.yunit)
+    my = self.SCALE - ((mm.gety() - self.yfr) / self.yunit)
+    print "mx my", mx, my
+    sys.stdout.flush()
     return mx, my
 
   #method, create the result layer
@@ -618,9 +660,9 @@ class CCurveDialog(BDrawDial):
     self.markers = actmarks
     ctrlptem = [self.markerconvert(m) for m in self.markers]
     ctrlp = list(sum(ctrlptem, ())) #this flatten the list of tuples
-    corrctrlp = [i if i >= 0 and i <= 255 else 0 if i < 0 else 255 for i in ctrlp] #ensuring that there are not values outside allowed range
-    pdb.gimp_curves_spline(self.reslayer, 0, len(corrctrlp), corrctrlp) #0 (second) = editing histogram value.
-    pdb.gimp_displays_flush()
+    corrctrlp = [i if i >= 0 and i <= 1.0 else 0 if i < 0.0 else 1.0 for i in ctrlp] #ensuring that there are not values outside allowed range
+    pdb.gimp_drawable_curves_spline(self.reslayer, 0, len(corrctrlp), corrctrlp) #0 (second) = editing histogram value.
+    # ~ pdb.gimp_curves_spline(self.reslayer, 0, len(corrctrlp), corrctrlp) #0 (second) = editing histogram value.
 
   #callback method, accept the preview
   def on_butok_clicked(self, widget):
@@ -975,37 +1017,37 @@ class TLSbase(gtk.Dialog):
 
   #method to get the maximum brightness from the pixel histogram of a layer
   def get_brightness_max(self, layer, channel=HISTOGRAM_VALUE):
-    endr = 255
+    endr = 1.0
     found = False
-    # ~ _, _, _, _, chk, _ = pdb.gimp_drawable_histogram(layer, channel, 0, endr)
-    _, _, _, _, chk, _ = pdb.gimp_histogram(layer, channel, 0, endr)
+    _, _, _, _, chk, _ = pdb.gimp_drawable_histogram(layer, channel, 0.0, endr)
+    # ~ _, _, _, _, chk, _ = pdb.gimp_histogram(layer, channel, 0, endr)
     if chk == 0:
       return -1
     while not found:
-      # ~ _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, 0, endr)
-      _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, 0, endr)      
+      _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, 0, endr)
+      # ~ _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, 0, endr)      
       if count < pixels or endr == 0:
         found = True
       else:
-        endr = endr - 1
+        endr = endr - 0.001 #@@@ figure out what is the correct step
         
     return endr
     
   #method to get the minimum brightness from the pixel histogram of a layer
   def get_brightness_min(self, layer, channel=HISTOGRAM_VALUE):
-    startr = 0
+    startr = 0.0
     found = False
-    # ~ _, _, _, _, chk, _ = pdb.gimp_drawable_histogram(layer, channel, startr, 255)
-    _, _, _, _, chk, _ = pdb.gimp_histogram(layer, channel, startr, 255)
+    _, _, _, _, chk, _ = pdb.gimp_drawable_histogram(layer, channel, startr, 1.0)
+    # ~ _, _, _, _, chk, _ = pdb.gimp_histogram(layer, channel, startr, 255)
     if chk == 0:
       return -1
     while not found:
-      # ~ _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, startr, 255)
-      _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, startr, 255)
-      if count < pixels or startr == 255:
+      _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, startr, 1.0)
+      # ~ _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, startr, 255)
+      if count < pixels or startr == 1.0:
         found = True
       else:
-        startr = startr + 1
+        startr = startr + 0.001 #@@@ figure out what is the correct step
         
     return startr
 
@@ -1157,7 +1199,8 @@ class TLSbase(gtk.Dialog):
   #remember: white = transparent, black = blocked
   def makeprofilel(self, lname):
     pdb.gimp_context_set_sample_merged(True)
-    pdb.gimp_image_select_color(self.getimg(), 2, self.clipl, (int(self.thrc), int(self.thrc), int(self.thrc))) #2 = selection replace
+    # ~ pdb.gimp_image_select_color(self.getimg(), 2, self.clipl, (int(self.thrc), int(self.thrc), int(self.thrc))) #2 = selection replace
+    pdb.gimp_image_select_color(self.getimg(), 2, self.clipl, (self.thrc, self.thrc, self.thrc)) #2 = selection replace
     pdb.gimp_context_set_sample_merged(False)
     pdb.gimp_selection_invert(self.getimg()) #inverting selection
     self.maskl = self.makeunilayer(lname)
@@ -1239,7 +1282,7 @@ class TLSbase(gtk.Dialog):
     extralev = copybn.copy()
     extralev.name = lname + "level"
     pdb.gimp_image_insert_layer(self.getimg(), extralev, self.getgroupl(), self.getinsindex())
-    pdb.gimp_levels(extralev, 0, 0, 255, 1, 80, 255) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    pdb.gimp_drawable_levels(extralev, 0, 0.0, 1.0, False, 1, 0.3137, 1.0, False) #regulating color levels, channel = #0 (second parameter) is for histogram value
     
     shapelayer = self.makeunilayer(lname + "shape", (0, 0, 0))
     pdb.gimp_image_select_item(self.getimg(), 2, chmask)
@@ -3273,7 +3316,8 @@ class SymbolsBuild(GlobalBuilder):
 
   #method, check and update pixsymb attribute
   def checkpixsymb(self):
-    _, _, _, newpixsymb, _, _ = pdb.gimp_histogram(self.symbols, HISTOGRAM_VALUE, 0, 255)
+    # ~ _, _, _, newpixsymb, _, _ = pdb.gimp_drawable_histogram(self.symbols, HISTOGRAM_VALUE, 0, 255)
+    _, _, _, newpixsymb, _, _ = pdb.gimp_drawable_histogram(self.symbols, HISTOGRAM_VALUE, 0.0, 1.0)
     if self.pixsymb != newpixsymb:
       self.pixsymb = newpixsymb
       return True
@@ -3293,8 +3337,9 @@ class SymbolsBuild(GlobalBuilder):
       pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
       self.pixsymb = 0
     else:
-      _, _, _, self.pixsymb, _, _ = pdb.gimp_histogram(self.symbols, HISTOGRAM_VALUE, 0, 255)
-
+      # ~ _, _, _, self.pixsymb, _, _ = pdb.gimp_histogram(self.symbols, HISTOGRAM_VALUE, 0, 255)
+      _, _, _, self.pixsymb, _, _ = pdb.gimp_drawable_histogram(self.symbols, HISTOGRAM_VALUE, 0.0, 1.0)
+      
     pdb.gimp_image_set_active_layer(self.img, self.symbols)
     pdb.gimp_displays_flush()
 
