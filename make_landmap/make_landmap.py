@@ -31,7 +31,9 @@
 #@@@ make rotation instead of directions in maskprofile
 #@@@ let the user to choose if hide or not when going previous. May be useful to not hide in some cases
 #@@@ fix rivers: do it in a similar way of symbols, so that is easy to add / edit new rivers without deleting the current rivers
-#@@@ convert gimp_histogram (deprecated in gimp 2.10) to gimp_drawable_histogram. Some lines abou this have been added and commented
+#@@@ convert gimp_histogram (deprecated in gimp 2.10) to gimp_drawable_histogram | Done
+#@@@ convert gimp_levels (deprecated in gimp 2.10) to gimp_drawable_levels | Done
+#@@@ convert gimp_threshold (deprecated in gimp 2.10) to gimp_drawable_threshold | Done
 
 import sys
 import os
@@ -543,7 +545,8 @@ class BDrawDial(gtk.Dialog):
 
 #class to adjust the color levels of a layer, reproducing a simpler interface to the GIMP color curves dialog. 
 class CCurveDialog(BDrawDial):
-  SCALE = 256.0
+  SCALE = 1.0
+  HISTPOINT = 250
   
   #constructor
   def __init__(self, image, layer, grouplayer, ltext, *args):
@@ -587,7 +590,7 @@ class CCurveDialog(BDrawDial):
 
   #method to get the counts in the pixel histogram
   def getcounts(self):
-    ptaxis = [x/self.SCALE for x in range(int(self.SCALE))]
+    ptaxis = [x*(self.SCALE/self.HISTPOINT) for x in range(int(self.HISTPOINT))]
     fullres = [pdb.gimp_drawable_histogram(self.origlayer, 0, i, i) for i in ptaxis]
     # ~ fullres = [pdb.gimp_histogram(self.origlayer, 0, i, i) for i in range(255)]
     self.cns = [(j, math.log(i[4]) if i[4] != 0 else -1) for i, j in zip(fullres, range(len(fullres)))]
@@ -663,6 +666,7 @@ class CCurveDialog(BDrawDial):
     corrctrlp = [i if i >= 0 and i <= 1.0 else 0 if i < 0.0 else 1.0 for i in ctrlp] #ensuring that there are not values outside allowed range
     pdb.gimp_drawable_curves_spline(self.reslayer, 0, len(corrctrlp), corrctrlp) #0 (second) = editing histogram value.
     # ~ pdb.gimp_curves_spline(self.reslayer, 0, len(corrctrlp), corrctrlp) #0 (second) = editing histogram value.
+    pdb.gimp_displays_flush()
 
   #callback method, accept the preview
   def on_butok_clicked(self, widget):
@@ -1024,12 +1028,12 @@ class TLSbase(gtk.Dialog):
     if chk == 0:
       return -1
     while not found:
-      _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, 0, endr)
+      _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, 0.0, endr)
       # ~ _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, 0, endr)      
-      if count < pixels or endr == 0:
+      if count < pixels or endr <= 0.005:
         found = True
       else:
-        endr = endr - 0.001 #@@@ figure out what is the correct step
+        endr = endr - 0.005 #@@@ figure out what is the correct step
         
     return endr
     
@@ -1044,10 +1048,10 @@ class TLSbase(gtk.Dialog):
     while not found:
       _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, startr, 1.0)
       # ~ _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, startr, 255)
-      if count < pixels or startr == 1.0:
+      if count < pixels or startr >= 0.005:
         found = True
       else:
-        startr = startr + 0.001 #@@@ figure out what is the correct step
+        startr = startr + 0.005 #@@@ figure out what is the correct step
         
     return startr
 
@@ -2822,11 +2826,10 @@ class MountainsBuild(LocalBuilder):
     pdb.gimp_layer_set_mode(self.noisel, LAYER_MODE_ADDITION_LEGACY)
     pdb.gimp_layer_set_mode(self.mntangularl, LAYER_MODE_ADDITION_LEGACY)
     pdb.gimp_layer_set_mode(self.mntedgesl, LAYER_MODE_ADDITION_LEGACY)
-    pdb.gimp_levels(self.bgl, 0, 0, 255, 1.0, 0, 85) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    pdb.gimp_drawable_levels(self.bgl, 0, 0.0, 1.0, False, 1.0, 0.0, 0.333, False) #regulating color levels, channel = #0 (second parameter) is for histogram value
     inhh = self.get_brightness_max(self.noisel)
-    pdb.gimp_levels(self.noisel, 0, 0, inhh, 1.0, 0, 50) #regulating color levels, channel = #0 (second parameter) is for histogram value
-    pdb.gimp_levels(self.mntedgesl, 0, 0, 255, 1.0, 0, 100) #regulating color levels, channel = #0 (second parameter) is for histogram value
-    pdb.gimp_levels(self.mntedgesl, 0, 0, 255, 1.0, 0, 100) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    pdb.gimp_drawable_levels(self.noisel, 0, 0.0, inhh, False, 1.0, 0.0, 0.196, False) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    pdb.gimp_drawable_levels(self.mntedgesl, 0, 0.0, 1.0, False, 1.0, 0.0, 0.392, False) #regulating color levels, channel = #0 (second parameter) is for histogram value
     
     #editing color curves
     ditext = "Try to eliminate most of the brightness by lowering the top-right control point\nand adding other points at the level of the histogram counts."
@@ -3316,7 +3319,7 @@ class SymbolsBuild(GlobalBuilder):
 
   #method, check and update pixsymb attribute
   def checkpixsymb(self):
-    # ~ _, _, _, newpixsymb, _, _ = pdb.gimp_drawable_histogram(self.symbols, HISTOGRAM_VALUE, 0, 255)
+    # ~ _, _, _, newpixsymb, _, _ = pdb.gimp_histogram(self.symbols, HISTOGRAM_VALUE, 0, 255)
     _, _, _, newpixsymb, _, _ = pdb.gimp_drawable_histogram(self.symbols, HISTOGRAM_VALUE, 0.0, 1.0)
     if self.pixsymb != newpixsymb:
       self.pixsymb = newpixsymb
