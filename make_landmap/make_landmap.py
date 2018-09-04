@@ -30,7 +30,6 @@
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ make rotation instead of directions in maskprofile
 #@@@ let the user to choose if hide or not when going previous. May be useful to not hide in some cases
-#@@@ fix rivers: do it in a similar way of symbols, so that is easy to add / edit new rivers without deleting the current rivers
 
 import sys
 import os
@@ -949,15 +948,13 @@ class TLSbase(gtk.Dialog):
     #deleting the list
     pdb.gimp_plugin_set_pdb_error_handler(1)
     for dr in deltuple:
-      try:
+      if pdb.gimp_item_is_valid(dr):
         if isinstance(dr, (gimp.Layer, gimp.GroupLayer)):
           pdb.gimp_image_remove_layer(self.img, dr)
         elif isinstance(dr, gimp.Channel):
           pdb.gimp_image_remove_channel(self.img, dr)
         elif isinstance(dr, gimp.Vectors):
           pdb.gimp_image_remove_vectors(self.img, dr)
-      except RuntimeError, e:   #catching and neglecting runtime errors, likely due to not valid ID of merged layers which do not exist anymore
-        pass
     
     pdb.gimp_plugin_set_pdb_error_handler(0)
 
@@ -966,12 +963,10 @@ class TLSbase(gtk.Dialog):
     #hiding the list
     pdb.gimp_plugin_set_pdb_error_handler(1)
     for dr in edittuple:
-      try:
+      if pdb.gimp_item_is_valid(dr):
         if isinstance(dr, (gimp.Layer, gimp.GroupLayer)):
           pdb.gimp_item_set_visible(dr, visible)
-      except RuntimeError, e:   #catching and neglecting runtime errors, likely due to not valid ID of merged layers which do not exist anymore
-        pass
-        
+
     pdb.gimp_plugin_set_pdb_error_handler(0)
     pdb.gimp_displays_flush()
 
@@ -3001,14 +2996,17 @@ class RiversBuild(GlobalBuilder):
   def __init__(self, image, layermask, channelmask, *args):
     mwin = GlobalBuilder.__init__(self, image, None, layermask, channelmask, False, False, *args)
     
-    self.riversmask = None
     self.bumpsmap = None
     self.bevels = None
+    self.difflayer = None
     self.watercol = (49, 64, 119)
     self.defsize = 0.01 * (self.img.width + self.img.height)
 
     self.namelist = ["rivers", "riversbumps", "riversbevels"]
-    
+    self.oldfgcol = None
+    self.origmean = -1.0
+    self.currmean = -1.0
+        
     #new row
     labtxt = "Adding rivers to the map. If you do not want to draw rivers, just press Next.\n"
     labtxt += "Rivers can not be added randomly, you must draw them.\nThe script will instruct you when you have to do it." 
@@ -3018,7 +3016,6 @@ class RiversBuild(GlobalBuilder):
     #action area
     self.add_button_quit()
     self.add_button_cancel()
-    self.add_button_generate("Draw Rivers")
     self.add_button_nextprev()
     
     return mwin
@@ -3042,63 +3039,90 @@ class RiversBuild(GlobalBuilder):
       elif ll.name == self.namelist[2]:
         self.bevels = ll
     return self.loaded()
+
+  #method, check and update currivmean attribute
+  def checkrivmean(self):
+    rivmask = pdb.gimp_layer_get_mask(self.bgl)
+    mean, _, _, _, _, _ = pdb.gimp_drawable_histogram(rivmask, HISTOGRAM_VALUE, 0.0, 1.0)
+    if self.currmean != mean:
+      self.currmean = mean
+      return True
+    else:
+      return False
     
-  #override method, do rivers step
-  def generatestep(self):    
-    #creating the color layer and applying masks
-    self.bgl = self.makeunilayer("rivers", self.watercol)
-    self.addmaskp(self.bgl, self.channelms, False, True)
-    maskdiff = self.addmaskp(self.bgl, self.channelms, True)
-    
-    #saving the difference mask in a layer for bevels
-    difflayer = self.makeunilayer("riversdiff")
-    pdb.gimp_edit_copy(maskdiff)
-    flsel = pdb.gimp_edit_paste(difflayer, False)
-    pdb.gimp_floating_sel_anchor(flsel)
-    pdb.gimp_item_set_visible(difflayer, False)
+  #override method to prepare the rivers drawing (args not used)
+  def beforegen(self, *args):
+    if not pdb.gimp_item_is_valid(self.bgl):
+      #creating the color layer and applying masks
+      self.bgl = self.makeunilayer("rivers", self.watercol)
+      self.addmaskp(self.bgl, self.channelms, False, True)
+      maskdiff = self.addmaskp(self.bgl, self.channelms, True)
+      
+      #saving the difference mask in a layer for bevels
+      self.difflayer = self.makeunilayer("riversdiff")
+      pdb.gimp_edit_copy(maskdiff)
+      flsel = pdb.gimp_edit_paste(self.difflayer, False)
+      pdb.gimp_floating_sel_anchor(flsel)
+      self.origmean, _, _, _, _, _ = pdb.gimp_drawable_histogram(self.difflayer, HISTOGRAM_VALUE, 0.0, 1.0)
+      self.currmean = self.origmean
+      pdb.gimp_item_set_visible(self.difflayer, False)
+    else:
+      rivmask = pdb.gimp_layer_get_mask(self.bgl)
+      self.currmean, _, _, _, _, _ = pdb.gimp_drawable_histogram(rivmask, HISTOGRAM_VALUE, 0.0, 1.0)
 
     #setting stuffs for the user
     pdb.gimp_image_set_active_layer(self.img, self.bgl)
-    oldfgcol = pdb.gimp_context_get_foreground()
+    self.oldfgcol = pdb.gimp_context_get_foreground()
     pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color
     pdb.gimp_context_set_brush_size(self.defsize)
-
-    #dialog to explain the user that is time to draw
-    labtxt = "Draw the rivers on the map. Regulate the size of the pencil if needed.\n"
-    labtxt += "Use the pencil and do not worry of drawing on the sea.\n"
-    labtxt += "Do not change the foreground color (it has to be white as you are actually editing the layer mask).\n"
-    labtxt += "Press OK when you have finished to draw the rivers."
-    infodial = MsgDialog("Drawing rivers", self, labtxt)
-    rr = infodial.run()
-    
-    #steps after the rivers have been drawn
-    if rr == gtk.RESPONSE_OK:
-      infodial.destroy()
-      pdb.gimp_context_set_foreground(oldfgcol)
-      
-      #saving the edited mask in a layer for bevels
-      self.bumpsmap = self.makeunilayer("riversbumps")
-      self.riversmask = pdb.gimp_layer_get_mask(self.bgl)
-      pdb.gimp_edit_copy(self.riversmask)
-      flsel = pdb.gimp_edit_paste(self.bumpsmap, False)
-      pdb.gimp_floating_sel_anchor(flsel)
-
-      #merging the layer to have only the rivers for the bump map
-      pdb.gimp_item_set_visible(difflayer, True)
-      pdb.gimp_layer_set_mode(self.bumpsmap, LAYER_MODE_DIFFERENCE)
-      self.bumpsmap = pdb.gimp_image_merge_down(self.img, self.bumpsmap, 0)
-      self.bumpsmap.name = "riversbumps"
-      pdb.gimp_invert(self.bumpsmap)
-      pdb.gimp_item_set_visible(self.bumpsmap, False)
-      
-      #making the bevels with a bump map
-      self.bevels = self.makeunilayer("riversbevels", (127, 127, 127))
-      pdb.plug_in_bump_map_tiled(self.img, self.bevels, self.bumpsmap, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
-      pdb.gimp_layer_set_mode(self.bevels, LAYER_MODE_OVERLAY)
-
     pdb.gimp_displays_flush()
 
+  #override method to fix rivers, add finishing touches and close.
+  def afterclosing(self, who):
+    #we cannot know before calling this method the first time if the step has been generated or not, as there is not a generatestep call in this class
+    rivmask = pdb.gimp_layer_get_mask(self.bgl)
+    mean, _, _, _, _, _ = pdb.gimp_drawable_histogram(rivmask, HISTOGRAM_VALUE, 0.0, 1.0)
+    if mean != self.origmean: #check the histogram of the rivers mask, verify that is different from the mask without rivers
+      if self.checkrivmean():
+        pdb.gimp_context_set_foreground(self.oldfgcol)
+        if self.generated:
+          #deleting and setting some stuffs to redraw correctly the rivers
+          pdb.gimp_image_remove_layer(self.img, self.bumpsmap)
+          pdb.gimp_image_remove_layer(self.img, self.bevels)
+          self.difflayer = self.makeunilayer("riversdiff")
+          pdb.gimp_edit_copy(self.maskl)
+          flsel = pdb.gimp_edit_paste(self.difflayer, False)
+          pdb.gimp_floating_sel_anchor(flsel)
+          pdb.gimp_invert(self.difflayer)
 
+        #saving the edited mask in a layer for bevels
+        self.bumpsmap = self.makeunilayer("riversbumps")
+        riversmask = pdb.gimp_layer_get_mask(self.bgl)
+        pdb.gimp_edit_copy(riversmask)
+        flsel = pdb.gimp_edit_paste(self.bumpsmap, False)
+        pdb.gimp_floating_sel_anchor(flsel)
+
+        #merging the layer to have only the rivers for the bump map
+        if not self.generated:
+          pdb.gimp_item_set_visible(self.difflayer, True)
+        pdb.gimp_layer_set_mode(self.bumpsmap, LAYER_MODE_DIFFERENCE)
+        self.bumpsmap = pdb.gimp_image_merge_down(self.img, self.bumpsmap, 0)
+        self.bumpsmap.name = "riversbumps"
+        pdb.gimp_invert(self.bumpsmap)
+        pdb.gimp_item_set_visible(self.bumpsmap, False)
+        
+        #making the bevels with a bump map
+        self.bevels = self.makeunilayer("riversbevels", (127, 127, 127))
+        pdb.plug_in_bump_map_tiled(self.img, self.bevels, self.bumpsmap, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
+        pdb.gimp_layer_set_mode(self.bevels, LAYER_MODE_OVERLAY)
+        self.setgenerated(True)
+    else:
+      pdb.gimp_image_remove_layer(self.img, self.bgl)
+      pdb.gimp_image_remove_layer(self.img, self.difflayer)
+            
+    pdb.gimp_displays_flush()
+
+    
 #class to add symbols (towns, capital towns, and so on)
 class SymbolsBuild(GlobalBuilder):
   #constructor
@@ -3761,7 +3785,7 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
     return firstbuilder
 
   #method calling the object builder, listening to the response, and recursively calling itself
-  def buildingmap(self, builder):    
+  def buildingmap(self, builder):
     builder.show_all()
     if builder.generated:
       builder.dhsdrawables(TLSbase.DHSACT_SHOW)
