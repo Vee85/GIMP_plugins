@@ -558,8 +558,6 @@ class CCurveDialog(BDrawDial):
   def markerconvert(self, mm):
     mx = (mm.getx() - self.xfr) / self.xunit
     my = self.SCALE - ((mm.gety() - self.yfr) / self.yunit)
-    print "mx my", mx, my
-    sys.stdout.flush()
     return mx, my
 
   #method, create the result layer
@@ -853,13 +851,12 @@ class TLSbase(gtk.Dialog):
     else:
       refll = self.nextd.getgroupl(False)
       if refll is None:
-        refll = self.nextd.bgl
+        if pdb.gimp_item_is_valid(self.nextd.bgl):
+          refll = self.nextd.bgl
       if refll is None:
         self.insindex = 0
       else:
         self.insindex = [j for i, j in zip(self.img.layers, range(len(self.img.layers))) if i.name == refll.name][0] + 1
-    print self.__class__.__name__, " insindex:", self.insindex
-    sys.stdout.flush()
 
   #method, get the correct reference index (may vary if we are inside a grouplayer)
   def getinsindex(self):
@@ -3279,13 +3276,13 @@ class SymbolsBuild(GlobalBuilder):
       return False
     
   #override method to prepare the symbols drawing (args not used)
-  def beforerun(self, *args):
-    if self.bgl is None:
+  def beforegen(self, *args):
+    if not pdb.gimp_item_is_valid(self.bgl):
       self.bgl = self.makeunilayer("symbols outline")
       pdb.gimp_layer_add_alpha(self.bgl)
       pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
 
-    if self.symbols is None:
+    if not pdb.gimp_item_is_valid(self.symbols):
       self.symbols = self.makeunilayer("symbols")
       pdb.gimp_layer_add_alpha(self.symbols)
       pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
@@ -3386,7 +3383,7 @@ class SymbolsBuild(GlobalBuilder):
     else:
       pdb.gimp_image_remove_layer(self.img, self.bgl)
       pdb.gimp_image_remove_layer(self.img, self.symbols)
-      
+            
     pdb.gimp_displays_flush()
 
 
@@ -3764,7 +3761,7 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
     return firstbuilder
 
   #method calling the object builder, listening to the response, and recursively calling itself
-  def buildingmap(self, builder):
+  def buildingmap(self, builder):    
     builder.show_all()
     if builder.generated:
       builder.dhsdrawables(TLSbase.DHSACT_SHOW)
