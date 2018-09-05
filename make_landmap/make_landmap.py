@@ -29,7 +29,6 @@
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ make rotation instead of directions in maskprofile
-#@@@ let the user to choose if hide or not when going previous. May be useful to not hide in some cases
 
 import sys
 import os
@@ -644,6 +643,7 @@ class TLSbase(gtk.Dialog):
   DHSACT_SHOW = 2
   MAXGAUSSPIX = 500
   HISTSTEP = 0.005
+  autohide = False
   
   #constructor
   def __init__(self, image, basemask, layermask, channelmask, mandst, *args):
@@ -675,6 +675,7 @@ class TLSbase(gtk.Dialog):
     self.thrc = 0 #will be selected later
     self.smoothprofile = 0
     self.generated = False
+    self.shown = True
 
     self.insindex = 0
     #nothing in the dialog: labels and buttons are created in the child classes
@@ -720,6 +721,15 @@ class TLSbase(gtk.Dialog):
     if not self.generated:
       self.dhsdrawables(self.DHSACT_DELETE)
     self.on_job_done()
+
+  #callback method to show / hide the current step
+  def on_showhide_clicked(self, widget):
+    if self.generated:
+      self.dhsdrawables(self.DHSACT_HIDE) if self.shown else self.dhsdrawables(self.DHSACT_SHOW)
+
+  #callback method to set the autohide instance
+  def on_chbahi_toggled(self, widget):
+    TLSbase.autohide = widget.get_active()
 
   #method, getting the image
   def getimg(self):
@@ -804,7 +814,8 @@ class TLSbase(gtk.Dialog):
   def on_setting_np(self, widget, pp):
     close = True
     if pp == TLSbase.PREVIOUS:
-      self.dhsdrawables(self.DHSACT_HIDE)
+      if TLSbase.autohide:
+        self.dhsdrawables(self.DHSACT_HIDE)
       self.chosen = self.prevd
     elif pp == TLSbase.NEXT:
       if self.mandatorystep and not self.generated:
@@ -849,9 +860,8 @@ class TLSbase(gtk.Dialog):
       self.insindex = 0
     else:
       refll = self.nextd.getgroupl(False)
-      if refll is None:
-        if pdb.gimp_item_is_valid(self.nextd.bgl):
-          refll = self.nextd.bgl
+      if refll is None and pdb.gimp_item_is_valid(self.nextd.bgl):
+        refll = self.nextd.bgl
       if refll is None:
         self.insindex = 0
       else:
@@ -891,13 +901,19 @@ class TLSbase(gtk.Dialog):
       self.setgenerated(True)
     return res
     
-  #method, adding the cancel button to the button area 
+  #method, adding the quit button to the button area 
   def add_button_quit(self):
     self.butquit = gtk.Button("Quit")
     self.action_area.add(self.butquit)
     self.butquit.connect("clicked", self.on_quit)
 
-  #method adding the cancel button
+  #method, adding the hide / show button to the button area 
+  def add_button_showhide(self):
+    self.butshhi = gtk.Button("Show/Hide")
+    self.action_area.add(self.butshhi)
+    self.butshhi.connect("clicked", self.on_showhide_clicked)
+
+  #method adding the cancel button to the button area
   def add_button_cancel(self, blab="Cancel"):
     self.butcanc = gtk.Button(blab)
     self.action_area.add(self.butcanc)
@@ -912,6 +928,17 @@ class TLSbase(gtk.Dialog):
     self.butnext = gtk.Button("Next")
     self.action_area.add(self.butnext)
     self.butnext.connect("clicked", self.on_setting_np, TLSbase.NEXT)
+
+  #method, adding a checkbutton to the dialog vbox
+  def add_checkbutton_autohide(self):
+    #adding second row to the GUI
+    self.hbxahi = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(self.hbxahi)
+    
+    self.chbahi = gtk.CheckButton("Hide when moving to previous step.")
+    self.chbahi.set_active(TLSbase.autohide)
+    self.chbahi.connect("toggled", self.on_chbahi_toggled)
+    self.hbxahi.add(self.chbahi)
 
   #method to set a group layer for the object
   def makegrouplayer(self, gname, pos):
@@ -968,6 +995,7 @@ class TLSbase(gtk.Dialog):
           pdb.gimp_item_set_visible(dr, visible)
 
     pdb.gimp_plugin_set_pdb_error_handler(0)
+    self.shown = visible  #sync the status with the action
     pdb.gimp_displays_flush()
 
   #method to get the maximum brightness from the pixel histogram of a layer
@@ -1863,7 +1891,6 @@ class MaskProfile(GlobalBuilder):
         infodi = MsgDialog("Warning", self, "You cannot go to the next step until you generate a profile.\nPress the \"Generate profile\" button first.")
         infodi.run()
         infodi.destroy()
-        
     else:
       self.on_job_done()
   
@@ -1998,6 +2025,9 @@ class WaterBuild(GlobalBuilder):
     chbb.set_active(self.addshore)
     chbb.connect("toggled", self.on_chb_toggled)
     hbxb.add(chbb)
+
+    #new row
+    self.add_checkbutton_autohide()
 
     #button area
     self.add_button_quit()
@@ -2147,10 +2177,14 @@ class BaseDetails(GlobalBuilder, RegionChooser):
 
     #new row
     self.tilednoisedef()
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #button area
     self.add_button_quit()
     self.add_button_cancel()
+    self.add_button_showhide()
     self.add_button_generate("Generate land details")
 
     self.butlocal = gtk.Button("Local areas")
@@ -2288,6 +2322,7 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
     #button area
     self.add_button_quit()
     self.add_button_cancel()
+    self.add_button_showhide()
     self.add_buttons_gen()
 
     return mwin
@@ -2354,10 +2389,14 @@ class DirtDetails(GlobalBuilder):
 
     #new row
     self.tilednoisedef()
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #button area
     self.add_button_quit()
     self.add_button_cancel()
+    self.add_button_showhide()
     self.add_button_generate("Generate dirt")
     self.add_button_nextprev()
 
@@ -2530,10 +2569,14 @@ class MountainsBuild(LocalBuilder):
     hbxf.add(chbfc)
     chbfd = self.addingchbegde(self.raisedge.keys()[3])
     hbxf.add(chbfd)
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #button area
     self.add_button_quit()
     self.add_button_cancel()
+    self.add_button_showhide()
     self.add_buttons_gen()
     self.add_button_nextprev()
 
@@ -2930,10 +2973,14 @@ class ForestBuild(LocalBuilder):
     hbxb.add(cboxb)
 
     self.setftype(0)
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #button area
     self.add_button_quit()
     self.add_button_cancel()
+    self.add_button_showhide()
     self.add_buttons_gen()
     self.add_button_nextprev()
     
@@ -3006,20 +3053,46 @@ class RiversBuild(GlobalBuilder):
     self.oldfgcol = None
     self.origmean = -1.0
     self.currmean = -1.0
-        
+    self.rbdrawing = 0
+    
     #new row
     labtxt = "Adding rivers to the map. If you do not want to draw rivers, just press Next.\n"
-    labtxt += "Rivers can not be added randomly, you must draw them.\nThe script will instruct you when you have to do it." 
+    labtxt += "Rivers can not be added randomly, you must draw them.\nDraw the rivers on the map. Regulate the size of the pencil if needed.\n"
+    labtxt += "Use the pencil and do not worry of drawing on the sea.\nTo delete rivers select the relative button.\n"
+    labtxt += "Press 'Next' when you have finished to draw the rivers."
     laba = gtk.Label(labtxt)
     self.vbox.add(laba)
+
+    #new row
+    vbxb = gtk.VBox(spacing=10, homogeneous=True)
+    self.vbox.add(vbxb)
+
+    self.raba = gtk.RadioButton(None, "Draw rivers")
+    self.raba.connect("toggled", self.on_radiob_toggled, 0)
+    vbxb.add(self.raba)
+    self.rabb = gtk.RadioButton(self.raba, "Delete rivers")
+    self.rabb.connect("toggled", self.on_radiob_toggled, 1)
+    vbxb.add(self.rabb)
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #action area
     self.add_button_quit()
     self.add_button_cancel()
+    self.add_button_showhide()
     self.add_button_nextprev()
     
     return mwin
-    
+
+  #callback method, set the rbdrawing value from radiobutton
+  def on_radiob_toggled(self, widget, vv):
+    self.rbdrawing = vv
+    if self.rbdrawing == 0:
+      pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color to white (adding)
+    elif self.rbdrawing == 1:
+      pdb.gimp_context_set_foreground((0, 0, 0)) #set foreground color to black (deleting)
+  
   #override deleting, hiding or showing method
   def dhsdrawables(self, action):
     if action == self.DHSACT_DELETE:
@@ -3073,18 +3146,18 @@ class RiversBuild(GlobalBuilder):
     #setting stuffs for the user
     pdb.gimp_image_set_active_layer(self.img, self.bgl)
     self.oldfgcol = pdb.gimp_context_get_foreground()
-    pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color
+    self.on_radiob_toggled(None, 0)
     pdb.gimp_context_set_brush_size(self.defsize)
     pdb.gimp_displays_flush()
 
   #override method to fix rivers, add finishing touches and close.
   def afterclosing(self, who):
+    pdb.gimp_context_set_foreground(self.oldfgcol)
     #we cannot know before calling this method the first time if the step has been generated or not, as there is not a generatestep call in this class
     rivmask = pdb.gimp_layer_get_mask(self.bgl)
     mean, _, _, _, _, _ = pdb.gimp_drawable_histogram(rivmask, HISTOGRAM_VALUE, 0.0, 1.0)
     if mean != self.origmean: #check the histogram of the rivers mask, verify that is different from the mask without rivers
       if self.checkrivmean():
-        pdb.gimp_context_set_foreground(self.oldfgcol)
         if self.generated:
           #deleting and setting some stuffs to redraw correctly the rivers
           pdb.gimp_image_remove_layer(self.img, self.bumpsmap)
@@ -3115,6 +3188,7 @@ class RiversBuild(GlobalBuilder):
         self.bevels = self.makeunilayer("riversbevels", (127, 127, 127))
         pdb.plug_in_bump_map_tiled(self.img, self.bevels, self.bumpsmap, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
         pdb.gimp_layer_set_mode(self.bevels, LAYER_MODE_OVERLAY)
+        self.addmaskp(self.bevels, self.channelms, False, True)
         self.setgenerated(True)
     else:
       pdb.gimp_image_remove_layer(self.img, self.bgl)
@@ -3189,10 +3263,14 @@ class SymbolsBuild(GlobalBuilder):
     spbutc.connect("output", self.on_brsize_changed)
     hbxc.add(spbutc)
 
+    #new row
+    self.add_checkbutton_autohide()
+
     #action area
     self.add_button_quit()
     self.add_button_cancel("Cancel Symbols")
-    
+    self.add_button_showhide()
+        
     butrand = gtk.Button("Add randomly")
     self.action_area.add(butrand)
     butrand.connect("clicked", self.on_random_clicked)
@@ -3429,17 +3507,14 @@ class RoadBuild(GlobalBuilder):
     self.namelist = ["roads", "drawroads"]
 
     #Designing the interface
-    #new row
-    hboxa = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hboxa)
-    
+    #new row    
     labatxt = "Adding roads. You are going to use paths. Click on the top path in the Paths panel to activate the path tool.\n"
     labatxt += "Place paths between cities, place nodes and curves. The roads will be drawn on the paths you are going to place by clicking the 'Draw Roads' button.\n"
     labatxt += "You can repeat this step: just select the new Path that is created each time the roads are drawn and place new paths.\n"
     labatxt += "If you have a svg file with paths that you wish to import to use as roads, import it through the Import from SVG file button.\n"
     labatxt += "Change color, size or type line if you wish and click again the 'Draw Roads' button."
     laba = gtk.Label(labatxt)
-    hboxa.add(laba)
+    self.vbox.add(laba)
 
     #new row
     hboxb = gtk.HBox(spacing=10, homogeneous=True)
@@ -3484,11 +3559,15 @@ class RoadBuild(GlobalBuilder):
     spbutc = gtk.SpinButton(rsizadj, 0, 0)
     spbutc.connect("output", self.on_rsize_changed)
     hboxc.add(spbutc)
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #action area
     self.add_button_quit()
     self.add_button_cancel("Cancel Roads")
-
+    self.add_button_showhide()
+    
     butimpo = gtk.Button("Import from SVG file")
     self.action_area.add(butimpo)
     butimpo.connect("clicked", self.on_import_clicked)
@@ -3787,9 +3866,13 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
   #method calling the object builder, listening to the response, and recursively calling itself
   def buildingmap(self, builder):
     builder.show_all()
-    if builder.generated:
+    if builder.generated and not builder.shown:
       builder.dhsdrawables(TLSbase.DHSACT_SHOW)
     builder.setinsindex()
+    try:
+      builder.chbahi.set_active(TLSbase.autohide)
+    except AttributeError:
+      pass
     builder.beforerun()
     builder.beforegen()
     builder.run()
