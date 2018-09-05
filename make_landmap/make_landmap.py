@@ -30,7 +30,6 @@
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
 #@@@ make rotation instead of directions in maskprofile
 
-
 import sys
 import os
 import math
@@ -207,13 +206,13 @@ class CLevDialog(gtk.Dialog):
       llst = self.groupref.layers
     self.lapos = [j for i, j in zip(llst, range(len(llst))) if i.name == self.origlayer.name][0]
 
-    self.inlow = 0 #threshold color set to minimum (if used in the three channel (RGB) is black)
-    self.inhigh = 255 #threshold color set to maximum (if used in the three channel (RGB) is white)
+    self.inlow = 0.0 #threshold color set to minimum (if used in the three channel (RGB) is black)
+    self.inhigh = 1.0 #threshold color set to maximum (if used in the three channel (RGB) is white)
     self.gamma = 1.0 #gamma value for input color
-    self.outlow = 0 #threshold color set to minimum (if used in the three channel (RGB) is black)
-    self.outhigh = 255 #threshold color set to maximum (if used in the three channel (RGB) is white)
-    self.thrmin = 127 #threshold color set to middle 
-    self.thrmax = 255 #threshold color set to max
+    self.outlow = 0.0 #threshold color set to minimum (if used in the three channel (RGB) is black)
+    self.outhigh = 1.0 #threshold color set to maximum (if used in the three channel (RGB) is white)
+    self.thrmin = 0.5 #threshold color set to middle 
+    self.thrmax = 1.0 #threshold color set to max
     self.opa = 50
     
     if self.ctype not in [CLevDialog.LEVELS, CLevDialog.THRESHOLD, CLevDialog.OPACITY]:
@@ -249,24 +248,24 @@ class CLevDialog(gtk.Dialog):
           adjlist.append(gtk.Adjustment(self.gamma, 0.10, 10.00, 0.01, 0.1))
           labtxt.append("Gamma")
         if (m == CLevDialog.INPUT_MIN):
-          adjlist.append(gtk.Adjustment(self.inlow, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.inlow, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Low Input")
         if (m == CLevDialog.INPUT_MAX):
-          adjlist.append(gtk.Adjustment(self.inhigh, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.inhigh, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("High Input")
         if (m == CLevDialog.OUTPUT_MIN):
-          adjlist.append(gtk.Adjustment(self.outlow, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.outlow, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Low Output")
         if (m == CLevDialog.OUTPUT_MAX):
-          adjlist.append(gtk.Adjustment(self.outhigh, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.outhigh, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("High Output")
     elif self.ctype == CLevDialog.THRESHOLD:
       for m in self.modes:
         if (m == CLevDialog.THR_MIN):
-          adjlist.append(gtk.Adjustment(self.thrmin, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.thrmin, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Min Threshold")
         if (m == CLevDialog.THR_MAX):
-          adjlist.append(gtk.Adjustment(self.thrmax, 0, 255, 1, 10))
+          adjlist.append(gtk.Adjustment(self.thrmax, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Max Threshold")
     elif self.ctype == CLevDialog.OPACITY:
       adjlist.append(gtk.Adjustment(self.opa, 0, 100, 1, 10))
@@ -282,11 +281,12 @@ class CLevDialog(gtk.Dialog):
       hboxes[-1].add(labb[-1])
       
       scab.append(gtk.HScale(adj))
+      scab[-1].set_digits(2)
       scab[-1].set_size_request(120, 45)
       scab[-1].connect("value-changed", self.on_value_changed, ww)
       hboxes[-1].add(scab[-1])
       
-      spbutc.append(gtk.SpinButton(adj, 0, 2))
+      spbutc.append(gtk.SpinButton(adj, 0, 3))
       spbutc[-1].connect("output", self.on_value_changed, ww)
       hboxes[-1].add(spbutc[-1])
       
@@ -323,8 +323,8 @@ class CLevDialog(gtk.Dialog):
         self.outlow = widget.get_value()
       if (m == CLevDialog.OUTPUT_MAX):
         self.outhigh = widget.get_value()
-            
-      pdb.gimp_levels(self.reslayer, 0, self.inlow, self.inhigh, self.gamma, self.outlow, self.outhigh) #regulating color levels, channel = #0 (second parameter) is for histogram value
+
+      pdb.gimp_drawable_levels(self.reslayer, 0, self.inlow, self.inhigh, False, self.gamma, self.outlow, self.outhigh, False)
 
     elif self.ctype == CLevDialog.THRESHOLD:
       self.make_reslayer()
@@ -332,8 +332,8 @@ class CLevDialog(gtk.Dialog):
         self.thrmin = widget.get_value()
       if (m == CLevDialog.THR_MAX):
         self.thrmax = widget.get_value()
-      
-      pdb.gimp_threshold(self.reslayer, self.thrmin, self.thrmax) #regulating threshold levels
+
+      pdb.gimp_drawable_threshold(self.reslayer, 0, self.thrmin, self.thrmax)
     
     elif self.ctype == CLevDialog.OPACITY:
       self.opa = widget.get_value()
@@ -503,6 +503,9 @@ class BDrawDial(gtk.Dialog):
 
 #class to adjust the color levels of a layer, reproducing a simpler interface to the GIMP color curves dialog. 
 class CCurveDialog(BDrawDial):
+  SCALE = 1.0
+  HISTPOINTS = 250
+  
   #constructor
   def __init__(self, image, layer, grouplayer, ltext, *args):
     dwin = BDrawDial.__init__(self, ltext, *args)
@@ -534,8 +537,8 @@ class CCurveDialog(BDrawDial):
     
     self.show_all()
     self.getcounts()
-    self.xunit = (self.drw - 2*self.xfr) / 255.0
-    self.yunit = (self.drh - 2*self.yfr) / 255.0
+    self.xunit = (self.drw - 2*self.xfr) / self.SCALE
+    self.yunit = (self.drh - 2*self.yfr) / self.SCALE
     
     #here adding some basic markers to control the curve
     self.on_butrest_clicked(self.butrest, False)
@@ -545,13 +548,14 @@ class CCurveDialog(BDrawDial):
 
   #method to get the counts in the pixel histogram
   def getcounts(self):
-    fullres = [pdb.gimp_histogram(self.origlayer, 0, i, i) for i in range(255)]
+    ptaxis = [x*(self.SCALE/self.HISTPOINTS) for x in range(self.HISTPOINTS+1)]
+    fullres = [pdb.gimp_drawable_histogram(self.origlayer, 0, i, i) for i in ptaxis]
     self.cns = [(j, math.log(i[4]) if i[4] != 0 else -1) for i, j in zip(fullres, range(len(fullres)))]
 
   #method to convert a marker coordinate from pixel to color scale unit (0 - 255) 
   def markerconvert(self, mm):
     mx = (mm.getx() - self.xfr) / self.xunit
-    my = 255.0 - ((mm.gety() - self.yfr) / self.yunit)
+    my = self.SCALE - ((mm.gety() - self.yfr) / self.yunit)
     return mx, my
 
   #method, create the result layer
@@ -614,8 +618,8 @@ class CCurveDialog(BDrawDial):
     self.markers = actmarks
     ctrlptem = [self.markerconvert(m) for m in self.markers]
     ctrlp = list(sum(ctrlptem, ())) #this flatten the list of tuples
-    corrctrlp = [i if i >= 0 and i <= 255 else 0 if i < 0 else 255 for i in ctrlp] #ensuring that there are not values outside allowed range
-    pdb.gimp_curves_spline(self.reslayer, 0, len(corrctrlp), corrctrlp) #0 (second) = editing histogram value.
+    corrctrlp = [i if i >= 0 and i <= 1.0 else 0 if i < 0.0 else 1.0 for i in ctrlp] #ensuring that there are not values outside allowed range
+    pdb.gimp_drawable_curves_spline(self.reslayer, 0, len(corrctrlp), corrctrlp) #0 (second) = editing histogram value.
     pdb.gimp_displays_flush()
 
   #callback method, accept the preview
@@ -634,7 +638,12 @@ class TLSbase(gtk.Dialog):
   #class constants
   PREVIOUS = 0
   NEXT = 1
+  DHSACT_DELETE = 0
+  DHSACT_HIDE = 1
+  DHSACT_SHOW = 2
   MAXGAUSSPIX = 500
+  HISTSTEP = 0.005
+  autohide = False
   
   #constructor
   def __init__(self, image, basemask, layermask, channelmask, mandst, *args):
@@ -666,7 +675,9 @@ class TLSbase(gtk.Dialog):
     self.thrc = 0 #will be selected later
     self.smoothprofile = 0
     self.generated = False
+    self.shown = True
 
+    self.insindex = 0
     #nothing in the dialog: labels and buttons are created in the child classes
     
     return mwin
@@ -708,8 +719,17 @@ class TLSbase(gtk.Dialog):
     self.chosen = None
     self.afterclosing(0)
     if not self.generated:
-      self.cleandrawables()
+      self.dhsdrawables(self.DHSACT_DELETE)
     self.on_job_done()
+
+  #callback method to show / hide the current step
+  def on_showhide_clicked(self, widget):
+    if self.generated:
+      self.dhsdrawables(self.DHSACT_HIDE) if self.shown else self.dhsdrawables(self.DHSACT_SHOW)
+
+  #callback method to set the autohide instance
+  def on_chbahi_toggled(self, widget):
+    TLSbase.autohide = widget.get_active()
 
   #method, getting the image
   def getimg(self):
@@ -752,14 +772,14 @@ class TLSbase(gtk.Dialog):
     return non_empty, copybasel, copymaskl
 
   #method, copying back the new image into the main image
-  def copyfromnewimg(self, groupdest=None):
+  def copyfromnewimg(self, groupdest=None, pos=0):
     #saving and clearing the selection
     copiedarea = pdb.gimp_selection_save(self.img)
     pdb.gimp_selection_none(self.img)
 
     #preparing new layer to receive the copied buffer
     newlay = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, "copyback", 100, 0) #0 = normal mode
-    pdb.gimp_image_insert_layer(self.img, newlay, groupdest, 0)
+    pdb.gimp_image_insert_layer(self.img, newlay, groupdest, pos)
     pdb.gimp_layer_add_alpha(newlay)
     pdb.plug_in_colortoalpha(self.img, newlay, (0, 0, 0))
 
@@ -785,13 +805,17 @@ class TLSbase(gtk.Dialog):
   #method, generate the stuffs. To be overrided by child classes
   def generatestep(self):
     raise NotImplementedError("child class must implement on_butgen_clicked method")
+
+  #callback method, cancel drawables of the step. To be overrided by child classes 
+  def on_butcanc_clicked(self, widget):
+    raise NotImplementedError("child class must implement on_butcanc_clicked method")
   
-  #callback method, set the next or previous instance which will be called by another method
+  #callback method, set the next or previous instance which will be called by the builder loop
   def on_setting_np(self, widget, pp):
     close = True
     if pp == TLSbase.PREVIOUS:
-      self.cleandrawables()
-      self.setgenerated(False)
+      if TLSbase.autohide:
+        self.dhsdrawables(self.DHSACT_HIDE)
       self.chosen = self.prevd
     elif pp == TLSbase.NEXT:
       if self.mandatorystep and not self.generated:
@@ -799,14 +823,14 @@ class TLSbase(gtk.Dialog):
         self.chosen = None
       else:
         self.chosen = self.nextd
-      self.afterclosing(1)
 
     if close:
+      self.afterclosing(1)
       self.on_job_done()
   
-  #empty method to clean layer during regeneration. It will be overrided by child classes
-  def cleandrawables(self):
-    raise NotImplementedError("Child class must implement cleandrawables method")
+  #empty method to delete, hide or show drawables. It will be overrided by child classes
+  def dhsdrawables(self, action):
+    raise NotImplementedError("Child class must implement dhsdrawables method")
 
   #method to get the last grouplayer (the one in use) or None
   def getgroupl(self, checksubim=True):
@@ -829,6 +853,28 @@ class TLSbase(gtk.Dialog):
       return self.getimg().layers
     else:
       return self.getgroupl().layers
+
+  #method, set the reference index where to add new layers
+  def setinsindex(self):
+    if self.nextd is None:
+      self.insindex = 0
+    else:
+      refll = self.nextd.getgroupl(False)
+      if refll is None and pdb.gimp_item_is_valid(self.nextd.bgl):
+        refll = self.nextd.bgl
+      if refll is None:
+        self.insindex = 0
+      else:
+        self.insindex = [j for i, j in zip(self.img.layers, range(len(self.img.layers))) if i.name == refll.name][0] + 1
+
+  #method, get the correct reference index (may vary if we are inside a grouplayer)
+  def getinsindex(self):
+    if self.subimgd is not None:
+      return 0
+    if self.getgroupl(False) is not None:
+      return 0
+    else:
+      return self.insindex
 
   #method, loading the group layer if needed
   def loadgrouplayer(self, namegroup):
@@ -855,11 +901,23 @@ class TLSbase(gtk.Dialog):
       self.setgenerated(True)
     return res
     
-  #method, adding the cancel button to the button area 
+  #method, adding the quit button to the button area 
   def add_button_quit(self):
     self.butquit = gtk.Button("Quit")
     self.action_area.add(self.butquit)
     self.butquit.connect("clicked", self.on_quit)
+
+  #method, adding the hide / show button to the button area 
+  def add_button_showhide(self):
+    self.butshhi = gtk.Button("Show/Hide")
+    self.action_area.add(self.butshhi)
+    self.butshhi.connect("clicked", self.on_showhide_clicked)
+
+  #method adding the cancel button to the button area
+  def add_button_cancel(self, blab="Cancel"):
+    self.butcanc = gtk.Button(blab)
+    self.action_area.add(self.butcanc)
+    self.butcanc.connect("clicked", self.on_butcanc_clicked)
      
   #method, adding the previous and next button to the button area
   def add_button_nextprev(self): 
@@ -871,6 +929,17 @@ class TLSbase(gtk.Dialog):
     self.action_area.add(self.butnext)
     self.butnext.connect("clicked", self.on_setting_np, TLSbase.NEXT)
 
+  #method, adding a checkbutton to the dialog vbox
+  def add_checkbutton_autohide(self):
+    #adding second row to the GUI
+    self.hbxahi = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(self.hbxahi)
+    
+    self.chbahi = gtk.CheckButton("Hide when moving to previous step.")
+    self.chbahi.set_active(TLSbase.autohide)
+    self.chbahi.connect("toggled", self.on_chbahi_toggled)
+    self.hbxahi.add(self.chbahi)
+
   #method to set a group layer for the object
   def makegrouplayer(self, gname, pos):
     if isinstance(self.groupl, list):
@@ -878,13 +947,13 @@ class TLSbase(gtk.Dialog):
       self.groupl[-1].name = gname
       pdb.gimp_image_insert_layer(self.img, self.groupl[-1], None, pos)
     else:
-      raise RuntimeError("An error as occurred when making a new GroupLayer. The makegrouplayer method must have been called when self.groupl is not a list.")
+      raise RuntimeError("An error as occurred when making a new GroupLayer. The makegrouplayer method must be called when self.groupl is not a list.")
   
   #method to copy the background layer from an already existing layer
   def copybgl(self, blayer, blname):
     self.bgl = blayer.copy()
     self.bgl.name = blname
-    pdb.gimp_image_insert_layer(self.getimg(), self.bgl, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.bgl, self.getgroupl(), self.getinsindex())
     
   #method to perform any action before a run() call showing the dialog interface. To be overrided by the child classes if needed, but not mandatory
   def beforerun(self, *args):
@@ -906,48 +975,57 @@ class TLSbase(gtk.Dialog):
     #deleting the list
     pdb.gimp_plugin_set_pdb_error_handler(1)
     for dr in deltuple:
-      try:
+      if pdb.gimp_item_is_valid(dr):
         if isinstance(dr, (gimp.Layer, gimp.GroupLayer)):
           pdb.gimp_image_remove_layer(self.img, dr)
         elif isinstance(dr, gimp.Channel):
           pdb.gimp_image_remove_channel(self.img, dr)
         elif isinstance(dr, gimp.Vectors):
           pdb.gimp_image_remove_vectors(self.img, dr)
-      except RuntimeError, e:   #catching and neglecting runtime errors due to not valid ID, likely due to merged layers which do not exist anymore
-        pass
     
     pdb.gimp_plugin_set_pdb_error_handler(0)
 
+  #method to edit visibility of layers associated to the TLSbase child instance. Layers of TLSbase are shown/hidden, layers of childs must be given as arguments
+  def editvislayers(self, visible, *edittuple):
+    #hiding the list
+    pdb.gimp_plugin_set_pdb_error_handler(1)
+    for dr in edittuple:
+      if pdb.gimp_item_is_valid(dr):
+        if isinstance(dr, (gimp.Layer, gimp.GroupLayer)):
+          pdb.gimp_item_set_visible(dr, visible)
+
+    pdb.gimp_plugin_set_pdb_error_handler(0)
+    self.shown = visible  #sync the status with the action
+    pdb.gimp_displays_flush()
+
   #method to get the maximum brightness from the pixel histogram of a layer
   def get_brightness_max(self, layer, channel=HISTOGRAM_VALUE):
-    endr = 255
+    endr = 1.0
     found = False
-    _, _, _, _, chk, _ = pdb.gimp_histogram(layer, channel, 0, endr)
+    _, _, _, _, chk, _ = pdb.gimp_drawable_histogram(layer, channel, 0.0, endr)
     if chk == 0:
       return -1
     while not found:
-      _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, 0, endr)
-      if count < pixels or endr == 0:
+      _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, 0.0, endr)
+      if count < pixels or endr <= self.HISTSTEP:
         found = True
       else:
-        endr = endr - 1
-        
+        endr = endr - self.HISTSTEP
     return endr
     
   #method to get the minimum brightness from the pixel histogram of a layer
   def get_brightness_min(self, layer, channel=HISTOGRAM_VALUE):
-    startr = 0
+    startr = 0.0
     found = False
-    _, _, _, _, chk, _ = pdb.gimp_histogram(layer, channel, startr, 255)
+    _, _, _, _, chk, _ = pdb.gimp_drawable_histogram(layer, channel, startr, 1.0)
     if chk == 0:
       return -1
     while not found:
-      _, _, _, pixels, count, _ = pdb.gimp_histogram(layer, channel, startr, 255)
-      if count < pixels or startr == 255:
+      _, _, _, pixels, count, _ = pdb.gimp_drawable_histogram(layer, channel, startr, 1.0)
+      if count < pixels or startr >= 1.0 - self.HISTSTEP:
         found = True
       else:
-        startr = startr + 1
-        
+        startr = startr + self.HISTSTEP
     return startr
 
   #method to check if a pixel belongs to the area which would be selected using the given channel selection mask.
@@ -1009,7 +1087,7 @@ class TLSbase(gtk.Dialog):
   #method to generate a uniformly colored layer (typically the background layer)
   def makeunilayer(self, lname, lcolor=None):
     res = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, 0) #0 = normal mode
-    pdb.gimp_image_insert_layer(self.getimg(), res, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), res, self.getgroupl(), self.getinsindex())
     if lcolor is None:      
       lcolor = (255, 255, 255) #make layer color white
     
@@ -1020,7 +1098,7 @@ class TLSbase(gtk.Dialog):
   #method to generate the noise layer
   def makenoisel(self, lname, xpix, ypix, mode=LAYER_MODE_NORMAL, turbulent=False, normalise=False):
     noiselayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, 0) #0 (last) = normal mode
-    pdb.gimp_image_insert_layer(self.getimg(), noiselayer, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), noiselayer, self.getgroupl(), self.getinsindex())
 
     dogn = True
     if isinstance(self, GlobalBuilder):
@@ -1074,7 +1152,7 @@ class TLSbase(gtk.Dialog):
   #method to generate the clip layer
   def makeclipl(self, lname, commtxt): 
     cliplayer = pdb.gimp_layer_new(self.getimg(), self.refwidth, self.refheight, 0, lname, 100, LAYER_MODE_LIGHTEN_ONLY)
-    pdb.gimp_image_insert_layer(self.getimg(), cliplayer, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), cliplayer, self.getgroupl(), self.getinsindex())
     colfillayer(self.getimg(), cliplayer, (255, 255, 255)) #make layer color white
     
     cld = CLevDialog(self.getimg(), cliplayer, commtxt, CLevDialog.LEVELS, [CLevDialog.OUTPUT_MAX], self.getgroupl(), "Set clip layer level", self, gtk.DIALOG_MODAL)
@@ -1098,7 +1176,7 @@ class TLSbase(gtk.Dialog):
   #remember: white = transparent, black = blocked
   def makeprofilel(self, lname):
     pdb.gimp_context_set_sample_merged(True)
-    pdb.gimp_image_select_color(self.getimg(), 2, self.clipl, (int(self.thrc), int(self.thrc), int(self.thrc))) #2 = selection replace
+    pdb.gimp_image_select_color(self.getimg(), 2, self.clipl, (self.thrc, self.thrc, self.thrc)) #2 = selection replace
     pdb.gimp_context_set_sample_merged(False)
     pdb.gimp_selection_invert(self.getimg()) #inverting selection
     self.maskl = self.makeunilayer(lname)
@@ -1173,14 +1251,14 @@ class TLSbase(gtk.Dialog):
     #make a copy of the basenoise layer, so that the original layer is not overwritten
     copybn = basenoise.copy()
     copybn.name = lname + "copy"
-    pdb.gimp_image_insert_layer(self.getimg(), copybn, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), copybn, self.getgroupl(), self.getinsindex())
     if hideoriginal:
       pdb.gimp_item_set_visible(basenoise, False)
 
     extralev = copybn.copy()
     extralev.name = lname + "level"
-    pdb.gimp_image_insert_layer(self.getimg(), extralev, self.getgroupl(), 0)
-    pdb.gimp_levels(extralev, 0, 0, 255, 1, 80, 255) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    pdb.gimp_image_insert_layer(self.getimg(), extralev, self.getgroupl(), self.getinsindex())
+    pdb.gimp_drawable_levels(extralev, 0, 0.0, 1.0, False, 1, 0.3137, 1.0, False) #regulating color levels, channel = #0 (second parameter) is for histogram value
     
     shapelayer = self.makeunilayer(lname + "shape", (0, 0, 0))
     pdb.gimp_image_select_item(self.getimg(), 2, chmask)
@@ -1279,13 +1357,23 @@ class GlobalBuilder(TLSbase):
     self.action_area.add(self.butgenpr)
     self.butgenpr.connect("clicked", self.on_butgen_clicked)
 
+  #callback method to cancel a single step
+  def on_butcanc_clicked(self, widget):
+    self.dhsdrawables(self.DHSACT_DELETE)
+    self.setgenerated(False)
+    self.beforegen()
+    pdb.gimp_displays_flush()
+
   #callback method acting on the generate button
   def on_butgen_clicked(self, widget):
     if self.generated and not self.multigen:
-      self.cleandrawables()
+      self.dhsdrawables(self.DHSACT_DELETE)
+      self.setinsindex()
+      self.beforegen()
     self.generatestep()
     self.setgenerated(True)
     if self.multigen:
+      self.setinsindex()
       self.beforegen()
 
 
@@ -1369,12 +1457,6 @@ class LocalBuilder(TLSbase):
       return self.selgroup
 
   #outer class methods
-  #method adding the cancel button
-  def add_button_cancel(self):
-    self.butcanc = gtk.Button("Cancel")
-    self.action_area.add(self.butcanc)
-    self.butcanc.connect("clicked", self.on_butcanc_clicked)
-
   #method adding the random and handmade generate button
   def add_buttons_gen(self):
     self.butgenrnd = gtk.Button("Random")
@@ -1463,13 +1545,18 @@ class LocalBuilder(TLSbase):
   def on_cbsubmap_toggled(self, widget):
     self.onsubmap = widget.get_active()
 
-  #override cleaning method, common to all LocalBuild childs
-  def cleandrawables(self):
+  #override deleting, hiding or showing method, common to all LocalBuild childs
+  def dhsdrawables(self, action):
     fuldr = self.groupl + self.getallmasks()
-    self.deletedrawables(*fuldr)
-    del self.groupl[:]
-    del self.allmasks[:]
-    
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(*fuldr)
+      del self.groupl[:]
+      del self.allmasks[:]
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, *self.groupl)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, *self.groupl)
+      
   #override loading method, common to all LocalBuild childs
   def loaddrawables(self):
     self.loadgrouplayer(self.textes["baseln"] + "group")
@@ -1489,7 +1576,7 @@ class LocalBuilder(TLSbase):
       grouptod = groupselecter.getselected()
 
       if grouptod == -1:
-        self.cleandrawables()
+        self.dhsdrawables(self.DHSACT_DELETE)
         self.setgenerated(False)
         self.beforegen()
       else:
@@ -1538,15 +1625,16 @@ class LocalBuilder(TLSbase):
     if self.onsubmap:
       if copymap is not None:
         pdb.gimp_item_set_visible(copymap, False)
-      self.copyfromnewimg(self.getgroupl(False))
+      self.copyfromnewimg(self.getgroupl(False), self.getinsindex())
       self.deletenewimg()
       pdb.gimp_displays_flush()
 
   #callback method to generate random selection (mask profile)
   def on_butgenrdn_clicked(self, widget):
     if self.generated and not self.multigen:
-      self.cleandrawables()
-    self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
+      self.dhsdrawables(self.DHSACT_DELETE)
+      self.setinsindex()
+    self.makegrouplayer(self.textes["baseln"] + "group", self.insindex)
 
     cpmap, cpmask = self.setsubmap()
     baselayer = self.makeunilayer(self.textes["baseln"] + "base")
@@ -1571,6 +1659,7 @@ class LocalBuilder(TLSbase):
       self.generatestep()
       self.setgenerated(True)
       if self.multigen:
+        self.setinsindex()
         self.beforegen()
     else:
       pdb.gimp_image_remove_layer(self.getimg(), newmp.bgl)
@@ -1580,13 +1669,14 @@ class LocalBuilder(TLSbase):
   #callback method to let the user to select the area by hand and generate the mask profile.
   def on_butgenhnp_clicked(self, widget):
     if self.generated and not self.multigen:
-      self.cleandrawables()
-
-    #making the grouplayer
+      self.dhsdrawables(self.DHSACT_DELETE)
+      self.setinsindex()
+      
+    #making the grouplayer only if needed (an empty grouplayer may be ready to be used from a previous call of this method) 
     if len(self.groupl) == 0:
-      self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
+      self.makegrouplayer(self.textes["baseln"] + "group", self.insindex)
     elif len(self.getlayerlist()) > 0:
-      self.makegrouplayer(self.textes["baseln"] + "group", self.insertindex)
+      self.makegrouplayer(self.textes["baseln"] + "group", self.insindex)
 
     cpmap, cpmask = self.setsubmap()
     #dialog telling to select the area where to place the stuff
@@ -1598,7 +1688,7 @@ class LocalBuilder(TLSbase):
     infodi = MsgDialog("Info", self, imess, "Intersect selection with land mass if present\nPrevent the sea from being covered by the new area.")
     diresp = infodi.run()
 
-    if (diresp == gtk.RESPONSE_OK):
+    if diresp == gtk.RESPONSE_OK:
       if not pdb.gimp_selection_is_empty(self.getimg()):
         if self.smoothbeforecomb and self.smoothval > 0:
           pdb.gimp_selection_feather(self.getimg(), self.smoothval)
@@ -1616,6 +1706,7 @@ class LocalBuilder(TLSbase):
         self.takefromsubmap(cpmap)
         if self.multigen:
           self.beforegen()
+          self.setinsindex()
       else:
         infodib = MsgDialog("Warning", infodi, "You have to create a selection!")
         rr = infodib.run()
@@ -1626,7 +1717,7 @@ class LocalBuilder(TLSbase):
             self.deletenewimg()
           self.on_butgenhnp_clicked(widget)
 
-    elif (diresp == gtk.RESPONSE_CANCEL):
+    elif diresp == gtk.RESPONSE_CANCEL:
       pdb.gimp_selection_none(self.getimg())
       pdb.gimp_image_remove_layer(self.getimg(), self.groupl[-1])
       del self.groupl[-1]
@@ -1640,7 +1731,7 @@ class MaskProfile(GlobalBuilder):
     mwin = GlobalBuilder.__init__(self, image, basemask, None, None, True, False, *args)
     
     self.bgl = tdraw
-    
+
     #internal arguments
     self.fsg = 10
     self.textes = textes
@@ -1800,14 +1891,18 @@ class MaskProfile(GlobalBuilder):
         infodi = MsgDialog("Warning", self, "You cannot go to the next step until you generate a profile.\nPress the \"Generate profile\" button first.")
         infodi.run()
         infodi.destroy()
-        
     else:
       self.on_job_done()
   
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables(self.maskl, self.channelms)
-  
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.maskl, self.channelms)
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.bgl, self.noisel, self.clipl, self.maskl)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.bgl, self.noisel, self.clipl, self.maskl)
+        
   #override method, generate the profile
   def generatestep(self):
     if self.generated:
@@ -1931,8 +2026,12 @@ class WaterBuild(GlobalBuilder):
     chbb.connect("toggled", self.on_chb_toggled)
     hbxb.add(chbb)
 
+    #new row
+    self.add_checkbutton_autohide()
+
     #button area
     self.add_button_quit()
+    self.add_button_cancel()
     self.add_button_generate("Generate water profile")
     self.add_button_nextprev()
 
@@ -1947,9 +2046,14 @@ class WaterBuild(GlobalBuilder):
   def on_chb_toggled(self, widget):
     self.addshore = widget.get_active()
   
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables(self.seal, self.shorel)    
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.seal, self.shorel)
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.bgl, self.noisel, self.seal, self.shorel)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.bgl, self.noisel, self.seal, self.shorel)
 
   #override loading method
   def loaddrawables(self):
@@ -1961,7 +2065,7 @@ class WaterBuild(GlobalBuilder):
       if ll.name == self.namelist[2]:
         self.shorel = ll
     return self.loaded()
-        
+    
   #override method, generate water profile
   def generatestep(self):
     #getting bgl as copy of land mask
@@ -1977,7 +2081,7 @@ class WaterBuild(GlobalBuilder):
     #copy bgl layer into a new layer 
     self.seal = self.bgl.copy()
     self.seal.name = "sea"
-    pdb.gimp_image_insert_layer(self.getimg(), self.seal, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.seal, self.getgroupl(), self.getinsindex())
     
     self.addmaskp(self.seal, self.channelms, True, True)
     pdb.plug_in_normalize(self.getimg(), self.seal)
@@ -2073,16 +2177,19 @@ class BaseDetails(GlobalBuilder, RegionChooser):
 
     #new row
     self.tilednoisedef()
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #button area
     self.add_button_quit()
+    self.add_button_cancel()
+    self.add_button_showhide()
     self.add_button_generate("Generate land details")
 
     self.butlocal = gtk.Button("Local areas")
     self.action_area.add(self.butlocal)
     self.butlocal.connect("clicked", self.on_local_clicked)
-    #self.butlocal.set_sensitive(False)
-
     self.add_button_nextprev()
 
     return mwin
@@ -2099,6 +2206,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       pdb.gimp_displays_flush()
       self.localbuilder.show_all()
       self.localbuilder.beforerun(None)
+      self.localbuilder.beforegen()
       self.localbuilder.run()
 
       try:
@@ -2113,13 +2221,18 @@ class BaseDetails(GlobalBuilder, RegionChooser):
       labtxt = "You cannot generate / delete the smaller areas until you generate the land details before.\n"
       labtxt += "Press 'Generate land details' button."
       infodial = MsgDialog("Warning", self, labtxt)
-      rr = infodial.run()
+      infodial.run()
       infodial.destroy()
 
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables(self.bumpmapl, self.basebumpsl)
-    self.localbuilder.cleandrawables()
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.bumpmapl, self.basebumpsl)
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.bgl, self.noisel, self.basebumpsl)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.bgl, self.noisel, self.basebumpsl)
+    self.localbuilder.dhsdrawables(action)
 
   #ovverride loading method
   def loaddrawables(self):
@@ -2162,6 +2275,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     #adding small areas of other region types
     self.localbuilder.show_all()
     self.localbuilder.beforerun(self.bgl)
+    self.localbuilder.beforegen()
     self.localbuilder.run()
     
     #generating noise
@@ -2208,6 +2322,7 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
     #button area
     self.add_button_quit()
     self.add_button_cancel()
+    self.add_button_showhide()
     self.add_buttons_gen()
 
     return mwin
@@ -2218,16 +2333,16 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
       if isinstance(args[0], gimp.Layer):
         self.refbase = args[0]
       else:
-        raise RuntimeError("Error, Wrong type passed to AdditionalDetBuild.beforerun. It should be a gimp.Layer")
+        raise RuntimeError("Error, Wrong type passed to AdditionalDetBuild.beforerun(*args). It should be a gimp.Layer")
 
-  #override method to set insertindex 
+  #override method to reset the correct insindex 
   def beforegen(self):
     if len(self.groupl) == 0:
       refll = self.refbase
     else:
       refll = self.getgroupl()
 
-    self.insertindex = [j for i, j in zip(self.img.layers, range(len(self.img.layers))) if i.name == refll.name][0]
+    self.insindex = [j for i, j in zip(self.img.layers, range(len(self.img.layers))) if i.name == refll.name][0]
     
   #override method, drawing the area
   def generatestep(self):
@@ -2274,9 +2389,14 @@ class DirtDetails(GlobalBuilder):
 
     #new row
     self.tilednoisedef()
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #button area
     self.add_button_quit()
+    self.add_button_cancel()
+    self.add_button_showhide()
     self.add_button_generate("Generate dirt")
     self.add_button_nextprev()
 
@@ -2287,7 +2407,7 @@ class DirtDetails(GlobalBuilder):
     #preparing the noiselayer generation
     if self.maskl is not None:
       masklcopy = self.maskl.copy()
-      pdb.gimp_image_insert_layer(self.getimg(), masklcopy, self.getgroupl(), 0)
+      pdb.gimp_image_insert_layer(self.getimg(), masklcopy, self.getgroupl(), self.getinsindex())
       self.gaussblur(masklcopy, self.smp, self.smp, 0)
     
       #adding the noise layer mixed with the copy mask
@@ -2308,9 +2428,14 @@ class DirtDetails(GlobalBuilder):
     cld.destroy()
     return resl
 
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables()
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables()
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.bgl)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.bgl)
 
   #ovverride loading method
   def loaddrawables(self):
@@ -2344,7 +2469,7 @@ class DirtDetails(GlobalBuilder):
     #applying the mask, final step
     if self.maskl is not None:
       masklcopy = self.maskl.copy()
-      pdb.gimp_image_insert_layer(self.getimg(), masklcopy, self.getgroupl(), 1)      
+      pdb.gimp_image_insert_layer(self.getimg(), masklcopy, self.getgroupl(), self.getinsindex() + 1)
       self.noisel = pdb.gimp_image_merge_down(self.getimg(), self.noisel, 0)
 
     self.noisel.name = "dirtnoise"
@@ -2444,10 +2569,14 @@ class MountainsBuild(LocalBuilder):
     hbxf.add(chbfc)
     chbfd = self.addingchbegde(self.raisedge.keys()[3])
     hbxf.add(chbfd)
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #button area
     self.add_button_quit()
     self.add_button_cancel()
+    self.add_button_showhide()
     self.add_buttons_gen()
     self.add_button_nextprev()
 
@@ -2600,7 +2729,8 @@ class MountainsBuild(LocalBuilder):
 
   #override method, creating the base with the mask
   def beforerun(self, *args):
-    self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
+    if not self.generated:
+      self.base = pdb.gimp_layer_new_from_visible(self.img, self.img, self.textes["baseln"] + "mapbasehidden")
   
   #override method, drawing the mountains in the selection (when the method is called, a selection channel for the mountains should be already present)
   def generatestep(self):    
@@ -2628,7 +2758,7 @@ class MountainsBuild(LocalBuilder):
     else:
       basebis = self.base.copy()
     basebis.name = self.textes["baseln"] + "mapbase"
-    pdb.gimp_image_insert_layer(self.getimg(), basebis, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), basebis, self.getgroupl(), self.getinsindex())
     maskbase = self.addmaskp(basebis, self.addingchannel)
     if self.smoothval > 0:
       self.gaussblur(maskbase, self.smoothval, self.smoothval, 0)
@@ -2679,15 +2809,14 @@ class MountainsBuild(LocalBuilder):
         
     pdb.gimp_selection_none(self.getimg())
     
-    #editing level modes and color levels, using legacy mode here, it gives better results
+    #editing level modes and color levels, using legacy mode here because it gives better mountains
     pdb.gimp_layer_set_mode(self.noisel, LAYER_MODE_ADDITION_LEGACY)
     pdb.gimp_layer_set_mode(self.mntangularl, LAYER_MODE_ADDITION_LEGACY)
     pdb.gimp_layer_set_mode(self.mntedgesl, LAYER_MODE_ADDITION_LEGACY)
-    pdb.gimp_levels(self.bgl, 0, 0, 255, 1.0, 0, 85) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    pdb.gimp_drawable_levels(self.bgl, 0, 0.0, 1.0, False, 1.0, 0.0, 0.333, False) #regulating color levels, channel = #0 (second parameter) is for histogram value
     inhh = self.get_brightness_max(self.noisel)
-    pdb.gimp_levels(self.noisel, 0, 0, inhh, 1.0, 0, 50) #regulating color levels, channel = #0 (second parameter) is for histogram value
-    pdb.gimp_levels(self.mntedgesl, 0, 0, 255, 1.0, 0, 100) #regulating color levels, channel = #0 (second parameter) is for histogram value
-    pdb.gimp_levels(self.mntedgesl, 0, 0, 255, 1.0, 0, 100) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    pdb.gimp_drawable_levels(self.noisel, 0, 0.0, inhh, False, 1.0, 0.0, 0.196, False) #regulating color levels, channel = #0 (second parameter) is for histogram value
+    pdb.gimp_drawable_levels(self.mntedgesl, 0, 0.0, 1.0, False, 1.0, 0.0, 0.392, False) #regulating color levels, channel = #0 (second parameter) is for histogram value
     
     #editing color curves
     ditext = "Try to eliminate most of the brightness by lowering the top-right control point\nand adding other points at the level of the histogram counts."
@@ -2696,7 +2825,7 @@ class MountainsBuild(LocalBuilder):
     self.mntangularl = cdd.reslayer
     
     self.cpvlayer = pdb.gimp_layer_new_from_visible(self.getimg(), self.getimg(), self.textes["baseln"] + "visible")
-    pdb.gimp_image_insert_layer(self.getimg(), self.cpvlayer, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.cpvlayer, self.getgroupl(), self.getinsindex())
     cdd.destroy()
     
     #editing color curves, again
@@ -2709,7 +2838,7 @@ class MountainsBuild(LocalBuilder):
     if self.addcol:
       self.mntcolorl = cddb.reslayer.copy()
       self.mntcolorl.name = self.textes["baseln"] + "colors"
-      pdb.gimp_image_insert_layer(self.getimg(), self.mntcolorl, self.getgroupl(), 0)
+      pdb.gimp_image_insert_layer(self.getimg(), self.mntcolorl, self.getgroupl(), self.getinsindex())
       ctrlcl = self.ControlColor()
       rr = ctrlcl.run()
       if rr == gtk.RESPONSE_OK:
@@ -2726,7 +2855,7 @@ class MountainsBuild(LocalBuilder):
     #adding emboss effect
     self.embosslayer = cddb.reslayer.copy()
     self.embosslayer.name = self.textes["baseln"] + "emboss"
-    pdb.gimp_image_insert_layer(self.getimg(), self.embosslayer, self.getgroupl(), 0)
+    pdb.gimp_image_insert_layer(self.getimg(), self.embosslayer, self.getgroupl(), self.getinsindex())
     cddb.destroy()
     pdb.plug_in_emboss(self.getimg(), self.embosslayer, 30.0, 30.0, 20.0, 1)
     
@@ -2844,10 +2973,14 @@ class ForestBuild(LocalBuilder):
     hbxb.add(cboxb)
 
     self.setftype(0)
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #button area
     self.add_button_quit()
     self.add_button_cancel()
+    self.add_button_showhide()
     self.add_buttons_gen()
     self.add_button_nextprev()
     
@@ -2910,30 +3043,64 @@ class RiversBuild(GlobalBuilder):
   def __init__(self, image, layermask, channelmask, *args):
     mwin = GlobalBuilder.__init__(self, image, None, layermask, channelmask, False, False, *args)
     
-    self.riversmask = None
     self.bumpsmap = None
     self.bevels = None
+    self.difflayer = None
     self.watercol = (49, 64, 119)
     self.defsize = 0.01 * (self.img.width + self.img.height)
 
     self.namelist = ["rivers", "riversbumps", "riversbevels"]
+    self.oldfgcol = None
+    self.origmean = -1.0
+    self.currmean = -1.0
+    self.rbdrawing = 0
     
     #new row
     labtxt = "Adding rivers to the map. If you do not want to draw rivers, just press Next.\n"
-    labtxt += "Rivers can not be added randomly, you must draw them.\nThe script will instruct you when you have to do it." 
+    labtxt += "Rivers can not be added randomly, you must draw them.\nDraw the rivers on the map. Regulate the size of the pencil if needed.\n"
+    labtxt += "Use the pencil and do not worry of drawing on the sea.\nTo delete rivers select the relative button.\n"
+    labtxt += "Press 'Next' when you have finished to draw the rivers."
     laba = gtk.Label(labtxt)
     self.vbox.add(laba)
+
+    #new row
+    vbxb = gtk.VBox(spacing=10, homogeneous=True)
+    self.vbox.add(vbxb)
+
+    self.raba = gtk.RadioButton(None, "Draw rivers")
+    self.raba.connect("toggled", self.on_radiob_toggled, 0)
+    vbxb.add(self.raba)
+    self.rabb = gtk.RadioButton(self.raba, "Delete rivers")
+    self.rabb.connect("toggled", self.on_radiob_toggled, 1)
+    vbxb.add(self.rabb)
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #action area
     self.add_button_quit()
-    self.add_button_generate("Draw Rivers")
+    self.add_button_cancel()
+    self.add_button_showhide()
     self.add_button_nextprev()
     
     return mwin
-    
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables(self.bevels, self.bumpsmap)
+
+  #callback method, set the rbdrawing value from radiobutton
+  def on_radiob_toggled(self, widget, vv):
+    self.rbdrawing = vv
+    if self.rbdrawing == 0:
+      pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color to white (adding)
+    elif self.rbdrawing == 1:
+      pdb.gimp_context_set_foreground((0, 0, 0)) #set foreground color to black (deleting)
+  
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.bevels, self.bumpsmap)
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.bgl, self.bevels)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.bgl, self.bevels)
 
   #override loading method
   def loaddrawables(self):
@@ -2945,63 +3112,91 @@ class RiversBuild(GlobalBuilder):
       elif ll.name == self.namelist[2]:
         self.bevels = ll
     return self.loaded()
+
+  #method, check and update currivmean attribute
+  def checkrivmean(self):
+    rivmask = pdb.gimp_layer_get_mask(self.bgl)
+    mean, _, _, _, _, _ = pdb.gimp_drawable_histogram(rivmask, HISTOGRAM_VALUE, 0.0, 1.0)
+    if self.currmean != mean:
+      self.currmean = mean
+      return True
+    else:
+      return False
     
-  #override method, do rivers step
-  def generatestep(self):    
-    #creating the color layer and applying masks
-    self.bgl = self.makeunilayer("rivers", self.watercol)
-    self.addmaskp(self.bgl, self.channelms, False, True)
-    maskdiff = self.addmaskp(self.bgl, self.channelms, True)
-    
-    #saving the difference mask in a layer for bevels
-    difflayer = self.makeunilayer("riversdiff")
-    pdb.gimp_edit_copy(maskdiff)
-    flsel = pdb.gimp_edit_paste(difflayer, False)
-    pdb.gimp_floating_sel_anchor(flsel)
-    pdb.gimp_item_set_visible(difflayer, False)
+  #override method to prepare the rivers drawing (args not used)
+  def beforegen(self, *args):
+    if not pdb.gimp_item_is_valid(self.bgl):
+      #creating the color layer and applying masks
+      self.bgl = self.makeunilayer("rivers", self.watercol)
+      self.addmaskp(self.bgl, self.channelms, False, True)
+      maskdiff = self.addmaskp(self.bgl, self.channelms, True)
+      
+      #saving the difference mask in a layer for bevels
+      self.difflayer = self.makeunilayer("riversdiff")
+      pdb.gimp_edit_copy(maskdiff)
+      flsel = pdb.gimp_edit_paste(self.difflayer, False)
+      pdb.gimp_floating_sel_anchor(flsel)
+      self.origmean, _, _, _, _, _ = pdb.gimp_drawable_histogram(self.difflayer, HISTOGRAM_VALUE, 0.0, 1.0)
+      self.currmean = self.origmean
+      pdb.gimp_item_set_visible(self.difflayer, False)
+    else:
+      rivmask = pdb.gimp_layer_get_mask(self.bgl)
+      self.currmean, _, _, _, _, _ = pdb.gimp_drawable_histogram(rivmask, HISTOGRAM_VALUE, 0.0, 1.0)
 
     #setting stuffs for the user
     pdb.gimp_image_set_active_layer(self.img, self.bgl)
-    oldfgcol = pdb.gimp_context_get_foreground()
-    pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color
+    self.oldfgcol = pdb.gimp_context_get_foreground()
+    self.on_radiob_toggled(None, 0)
     pdb.gimp_context_set_brush_size(self.defsize)
-
-    #dialog to explain the user that is time to draw
-    labtxt = "Draw the rivers on the map. Regulate the size of the pencil if needed.\n"
-    labtxt += "Use the pencil and do not worry of drawing on the sea.\n"
-    labtxt += "Do not change the foreground color (it has to be white as you are actually editing the layer mask).\n"
-    labtxt += "Press OK when you have finished to draw the rivers."
-    infodial = MsgDialog("Drawing rivers", self, labtxt)
-    rr = infodial.run()
-    
-    #steps after the rivers have been drawn
-    if rr == gtk.RESPONSE_OK:
-      infodial.destroy()
-      pdb.gimp_context_set_foreground(oldfgcol)
-      
-      #saving the edited mask in a layer for bevels
-      self.bumpsmap = self.makeunilayer("riversbumps")
-      self.riversmask = pdb.gimp_layer_get_mask(self.bgl)
-      pdb.gimp_edit_copy(self.riversmask)
-      flsel = pdb.gimp_edit_paste(self.bumpsmap, False)
-      pdb.gimp_floating_sel_anchor(flsel)
-
-      #merging the layer to have only the rivers for the bump map
-      pdb.gimp_item_set_visible(difflayer, True)
-      pdb.gimp_layer_set_mode(self.bumpsmap, LAYER_MODE_DIFFERENCE)
-      self.bumpsmap = pdb.gimp_image_merge_down(self.img, self.bumpsmap, 0)
-      self.bumpsmap.name = "riversbumps"
-      pdb.gimp_invert(self.bumpsmap)
-      pdb.gimp_item_set_visible(self.bumpsmap, False)
-      
-      #making the bevels with a bump map
-      self.bevels = self.makeunilayer("riversbevels", (127, 127, 127))
-      pdb.plug_in_bump_map_tiled(self.img, self.bevels, self.bumpsmap, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
-      pdb.gimp_layer_set_mode(self.bevels, LAYER_MODE_OVERLAY)
-
     pdb.gimp_displays_flush()
 
+  #override method to fix rivers, add finishing touches and close.
+  def afterclosing(self, who):
+    pdb.gimp_context_set_foreground(self.oldfgcol)
+    #we cannot know before calling this method the first time if the step has been generated or not, as there is not a generatestep call in this class
+    rivmask = pdb.gimp_layer_get_mask(self.bgl)
+    mean, _, _, _, _, _ = pdb.gimp_drawable_histogram(rivmask, HISTOGRAM_VALUE, 0.0, 1.0)
+    if mean != self.origmean: #check the histogram of the rivers mask, verify that is different from the mask without rivers
+      if self.checkrivmean():
+        if self.generated:
+          #deleting and setting some stuffs to redraw correctly the rivers
+          pdb.gimp_image_remove_layer(self.img, self.bumpsmap)
+          pdb.gimp_image_remove_layer(self.img, self.bevels)
+          self.difflayer = self.makeunilayer("riversdiff")
+          pdb.gimp_edit_copy(self.maskl)
+          flsel = pdb.gimp_edit_paste(self.difflayer, False)
+          pdb.gimp_floating_sel_anchor(flsel)
+          pdb.gimp_invert(self.difflayer)
 
+        #saving the edited mask in a layer for bevels
+        self.bumpsmap = self.makeunilayer("riversbumps")
+        riversmask = pdb.gimp_layer_get_mask(self.bgl)
+        pdb.gimp_edit_copy(riversmask)
+        flsel = pdb.gimp_edit_paste(self.bumpsmap, False)
+        pdb.gimp_floating_sel_anchor(flsel)
+
+        #merging the layer to have only the rivers for the bump map
+        if not self.generated:
+          pdb.gimp_item_set_visible(self.difflayer, True)
+        pdb.gimp_layer_set_mode(self.bumpsmap, LAYER_MODE_DIFFERENCE)
+        self.bumpsmap = pdb.gimp_image_merge_down(self.img, self.bumpsmap, 0)
+        self.bumpsmap.name = "riversbumps"
+        pdb.gimp_invert(self.bumpsmap)
+        pdb.gimp_item_set_visible(self.bumpsmap, False)
+        
+        #making the bevels with a bump map
+        self.bevels = self.makeunilayer("riversbevels", (127, 127, 127))
+        pdb.plug_in_bump_map_tiled(self.img, self.bevels, self.bumpsmap, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
+        pdb.gimp_layer_set_mode(self.bevels, LAYER_MODE_OVERLAY)
+        self.addmaskp(self.bevels, self.channelms, False, True)
+        self.setgenerated(True)
+    else:
+      pdb.gimp_image_remove_layer(self.img, self.bgl)
+      pdb.gimp_image_remove_layer(self.img, self.difflayer)
+            
+    pdb.gimp_displays_flush()
+
+    
 #class to add symbols (towns, capital towns, and so on)
 class SymbolsBuild(GlobalBuilder):
   #constructor
@@ -3010,6 +3205,7 @@ class SymbolsBuild(GlobalBuilder):
 
     self.symbols = None
 
+    self.pixsymb = 0
     self.basepath = os.path.dirname(os.path.abspath(__file__)) + "/make_landmap_brushes/"
     self.defsize = 0.025 * (self.img.width + self.img.height)
     self.chsize = self.defsize
@@ -3067,13 +3263,14 @@ class SymbolsBuild(GlobalBuilder):
     spbutc.connect("output", self.on_brsize_changed)
     hbxc.add(spbutc)
 
+    #new row
+    self.add_checkbutton_autohide()
+
     #action area
     self.add_button_quit()
-    
-    butcanc = gtk.Button("Cancel Symbols")
-    self.action_area.add(butcanc)
-    butcanc.connect("clicked", self.on_cancel_clicked)
-    
+    self.add_button_cancel("Cancel Symbols")
+    self.add_button_showhide()
+        
     butrand = gtk.Button("Add randomly")
     self.action_area.add(butrand)
     butrand.connect("clicked", self.on_random_clicked)
@@ -3151,11 +3348,16 @@ class SymbolsBuild(GlobalBuilder):
 
     return butres
 
-  #override cleaning method
-  def cleandrawables(self):
-    self.deletedrawables(self.symbols)
-    self.bgl = None
-    self.symbols = None
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.symbols)
+      self.bgl = None
+      self.symbols = None
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.bgl, self.symbols)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.bgl, self.symbols)
 
   #override loading method
   def loaddrawables(self):
@@ -3165,19 +3367,32 @@ class SymbolsBuild(GlobalBuilder):
       if ll.name == self.namelist[1]:
         self.symbols = ll
     return self.loaded()
-        
+
+  #method, check and update pixsymb attribute
+  def checkpixsymb(self):
+    _, _, _, newpixsymb, _, _ = pdb.gimp_drawable_histogram(self.symbols, HISTOGRAM_VALUE, 0.0, 1.0)
+    if self.pixsymb != newpixsymb:
+      self.pixsymb = newpixsymb
+      return True
+    else:
+      return False
+    
   #override method to prepare the symbols drawing (args not used)
-  def beforerun(self, *args):
-    if self.bgl is None:
+  def beforegen(self, *args):
+    if not pdb.gimp_item_is_valid(self.bgl):
       self.bgl = self.makeunilayer("symbols outline")
       pdb.gimp_layer_add_alpha(self.bgl)
       pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
 
-    if self.symbols is None:
+    if not pdb.gimp_item_is_valid(self.symbols):
       self.symbols = self.makeunilayer("symbols")
       pdb.gimp_layer_add_alpha(self.symbols)
       pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
-    
+      self.pixsymb = 0
+    else:
+      _, _, _, self.pixsymb, _, _ = pdb.gimp_drawable_histogram(self.symbols, HISTOGRAM_VALUE, 0.0, 1.0)
+      
+    pdb.gimp_image_set_active_layer(self.img, self.symbols)
     pdb.gimp_displays_flush()
 
   #callback method to set the brush size
@@ -3250,18 +3465,13 @@ class SymbolsBuild(GlobalBuilder):
       pdb.gimp_displays_flush()
     
     rnds.destroy()
-
-  #callback method, cancel symbols and close step
-  def on_cancel_clicked(self, widget):
-    self.cleandrawables()
-    self.setgenerated(False)
-    self.beforerun()
     
   #override method to fix symbols, add finishing touches and close.
   def afterclosing(self, who):
-    #we cannot know before calling this method the first time if the step has been generated or not as the boolean variable is set here.
+    #we cannot know before calling this method the first time if the step has been generated or not, as there is not a generatestep call in this class
     if self.get_brightness_max(self.symbols) != -1: #check the histogram, verify that is not a fully transparent layer.
-      if not self.generated:
+      if not self.generated or self.checkpixsymb():
+        pdb.gimp_drawable_edit_clear(self.bgl)
         pdb.gimp_image_select_item(self.img, 2, self.symbols) #2 = replace selection, this select everything in the layer which is not transparent
         pdb.gimp_selection_grow(self.img, 2)
         pdb.gimp_selection_feather(self.img, 5)
@@ -3275,7 +3485,7 @@ class SymbolsBuild(GlobalBuilder):
     else:
       pdb.gimp_image_remove_layer(self.img, self.bgl)
       pdb.gimp_image_remove_layer(self.img, self.symbols)
-      
+            
     pdb.gimp_displays_flush()
 
 
@@ -3297,17 +3507,14 @@ class RoadBuild(GlobalBuilder):
     self.namelist = ["roads", "drawroads"]
 
     #Designing the interface
-    #new row
-    hboxa = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hboxa)
-    
+    #new row    
     labatxt = "Adding roads. You are going to use paths. Click on the top path in the Paths panel to activate the path tool.\n"
     labatxt += "Place paths between cities, place nodes and curves. The roads will be drawn on the paths you are going to place by clicking the 'Draw Roads' button.\n"
     labatxt += "You can repeat this step: just select the new Path that is created each time the roads are drawn and place new paths.\n"
     labatxt += "If you have a svg file with paths that you wish to import to use as roads, import it through the Import from SVG file button.\n"
     labatxt += "Change color, size or type line if you wish and click again the 'Draw Roads' button."
     laba = gtk.Label(labatxt)
-    hboxa.add(laba)
+    self.vbox.add(laba)
 
     #new row
     hboxb = gtk.HBox(spacing=10, homogeneous=True)
@@ -3352,14 +3559,15 @@ class RoadBuild(GlobalBuilder):
     spbutc = gtk.SpinButton(rsizadj, 0, 0)
     spbutc.connect("output", self.on_rsize_changed)
     hboxc.add(spbutc)
+
+    #new row
+    self.add_checkbutton_autohide()
     
     #action area
     self.add_button_quit()
-
-    butcanc = gtk.Button("Cancel Roads")
-    self.action_area.add(butcanc)
-    butcanc.connect("clicked", self.on_cancel_clicked)
-
+    self.add_button_cancel("Cancel Roads")
+    self.add_button_showhide()
+    
     butimpo = gtk.Button("Import from SVG file")
     self.action_area.add(butimpo)
     butimpo.connect("clicked", self.on_import_clicked)
@@ -3454,19 +3662,26 @@ class RoadBuild(GlobalBuilder):
     pdb.gimp_layer_add_alpha(self.roadslayers[-1])
     pdb.plug_in_colortoalpha(self.img, self.roadslayers[-1], (255, 255, 255))
     pdb.gimp_layer_set_mode(self.roadslayers[-1], LAYER_MODE_OVERLAY)
+    if len(self.roadslayers) == 1:
+      self.bgl = self.roadslayers[0]
 
     #adding an empty path
     self.paths.append(pdb.gimp_vectors_new(self.img, "roads" + str(len(self.paths))))
     pdb.gimp_image_insert_vectors(self.img, self.paths[-1], None, 0)
     pdb.gimp_image_set_active_vectors(self.img, self.paths[-1])
     pdb.gimp_displays_flush()
-    
-  #override cleaning method 
-  def cleandrawables(self):
+
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
     fullist = self.roadslayers + self.paths
-    self.deletedrawables(*fullist)
-    del self.roadslayers[:]
-    del self.paths[:]
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(*fullist)
+      del self.roadslayers[:]
+      del self.paths[:]
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, *fullist)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, *fullist)
 
   #override loading method
   def loaddrawables(self):
@@ -3476,6 +3691,8 @@ class RoadBuild(GlobalBuilder):
     for ll in self.img.layers:
       if self.namelist[1] in ll.name:
         self.roadslayers.append(ll)
+      if len(self.roadslayers) > 0:
+        self.bgl = self.roadslayers[-1]
     return self.loaded()
 
   #drawing the roads
@@ -3486,18 +3703,18 @@ class RoadBuild(GlobalBuilder):
     try:
       pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize, 0)
     except:
-      pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
+      pdb.gimp_edit_stroke_vectors(self.roadslayers[-1], self.paths[-1])
 
-    pdb.gimp_context_set_foreground(self.roadcolor) #set foreground color to black
+    pdb.gimp_context_set_foreground(self.roadcolor) #set foreground color to selected color
     try:
       pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize/2, self.chtype)
     except:
-      pdb.gimp_edit_stroke_vectors(self.bgl, self.paths[-1])
+      pdb.gimp_edit_stroke_vectors(self.roadslayers[-1], self.paths[-1])
     
     pdb.gimp_context_set_foreground(oldfgcol)
 
-  #callback method to cancel all roads
-  def on_cancel_clicked(self, widget):
+  #override callback method to cancel roads
+  def on_butcanc_clicked(self, widget):
     pathselecter = self.DelPaths(self, "Removing roads", self, gtk.DIALOG_MODAL)
     rr = pathselecter.run()
 
@@ -3505,7 +3722,7 @@ class RoadBuild(GlobalBuilder):
       pathtod, layertod = pathselecter.getselected()
 
       if pathtod == -1 or layertod == -1:
-        self.cleandrawables()
+        self.dhsdrawables(self.DHSACT_DELETE)
         self.setgenerated(False)
         self.beforegen()
       else:
@@ -3513,7 +3730,9 @@ class RoadBuild(GlobalBuilder):
         pdb.gimp_image_remove_layer(self.img, self.roadslayers[layertod])
         del self.paths[pathtod]
         del self.roadslayers[layertod]
-        if len(self.roadslayers) == 0:
+        if len(self.roadslayers) > 0:
+          self.bgl = self.roadslayers[-1]
+        else:
           self.setgenerated(False)
 
       pdb.gimp_displays_flush()
@@ -3647,6 +3866,13 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
   #method calling the object builder, listening to the response, and recursively calling itself
   def buildingmap(self, builder):
     builder.show_all()
+    if builder.generated and not builder.shown:
+      builder.dhsdrawables(TLSbase.DHSACT_SHOW)
+    builder.setinsindex()
+    try:
+      builder.chbahi.set_active(TLSbase.autohide)
+    except AttributeError:
+      pass
     builder.beforerun()
     builder.beforegen()
     builder.run()
