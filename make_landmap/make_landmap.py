@@ -92,7 +92,7 @@ class ImageD:
 #class, dialog with label and optional checkbutton pl
 class MsgDialog(gtk.Dialog):
   #constructor
-  def __init__(self, title, parent, message, chbmess=None):
+  def __init__(self, title, parent, message, addcanc=False, chbmess=None):
     mwin = gtk.Dialog.__init__(self, title, parent, gtk.DIALOG_MODAL)
     self.icv = False
     self.set_border_width(10)
@@ -105,8 +105,9 @@ class MsgDialog(gtk.Dialog):
       self.icv = self.ichb.get_active()
       self.ichb.connect("toggled", self.on_ichb_toggled)
       self.vbox.add(self.ichb)
-      
-    self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+
+    if addcanc:
+      self.add_button("Cancel", gtk.RESPONSE_CANCEL)
     self.add_button("Ok", gtk.RESPONSE_OK)
 
     self.show_all()
@@ -3058,13 +3059,13 @@ class RiversBuild(GlobalBuilder):
     #new row
     labtxt = "Adding rivers to the map. If you do not want to draw rivers, just press Next.\n"
     labtxt += "Rivers can not be added randomly, you must draw them.\nDraw the rivers on the map. Regulate the size of the pencil if needed.\n"
-    labtxt += "Use the pencil and do not worry of drawing on the sea.\nTo delete rivers select the relative button.\n"
+    labtxt += "Use the pencil and do not worry of drawing on the sea.\nTo delete rivers select the relative entry.\n"
     labtxt += "Press 'Next' when you have finished to draw the rivers."
     laba = gtk.Label(labtxt)
     self.vbox.add(laba)
 
     #new row
-    vbxb = gtk.VBox(spacing=10, homogeneous=True)
+    vbxb = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(vbxb)
 
     self.raba = gtk.RadioButton(None, "Draw rivers")
@@ -3855,6 +3856,7 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
 
     #loading already present layers and setting the first drawable to launch
     if loading:
+      firstbuilder = None
       foundlast = False
       for bb in builderlist[::-1]: #working on a reversed list
         if bb.loaddrawables() and not foundlast:
@@ -3882,6 +3884,24 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
 
   #callback method to generate the map randomly
   def on_butgenmap_clicked(self, widget):
+    if len(self.img.layers) > 1:
+      inidi = MsgDialog("Warning!", self, "Multiple layers detected. They are going to be deleted.\nAre you sure?\n", True)
+      rr = inidi.run()
+      if rr == gtk.RESPONSE_OK:
+        inidi.destroy()
+        for ll in self.img.layers:
+          pdb.gimp_image_remove_layer(self.img, ll)
+        nl = pdb.gimp_layer_new(self.img, self.img.width, self.img.height, 0, "Background", 100, 0) #0 = normal mode
+        pdb.gimp_image_insert_layer(self.img, nl, None, 0)
+        colfillayer(self.img, nl, (255, 255, 255))
+        pdb.gimp_displays_flush()
+      else:
+        inidi.destroy()
+        inidibi = MsgDialog("Warning!", self, "Better not generate the map if there are others layers.\nPlug-in aborted.")
+        inidibi.run()
+        inidibi.destroy()
+        return
+      
     pdb.gimp_context_set_foreground((0, 0, 0)) #set foreground color to black
     pdb.gimp_context_set_background((255, 255, 255)) #set background to white
     pdb.gimp_selection_none(self.img) #unselect if there is an active selection
@@ -3924,9 +3944,12 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
       dowater = True
 
     fb = self.instantiatebuilders(layermask, channelmask, dowater, True)
-    
-    self.buildingmap(fb)
-
+    if fb is not None:
+      self.buildingmap(fb)
+    else:
+      inidi = MsgDialog("Warning!", self, "No map in gimp format detected\n.Plug-in aborted.")
+      inidi.run()
+      inidi.destroy()
 
 #The function to be registered in GIMP
 def python_make_landmap(img, tdraw):
