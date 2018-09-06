@@ -2033,6 +2033,7 @@ class WaterBuild(GlobalBuilder):
     #button area
     self.add_button_quit()
     self.add_button_cancel()
+    self.add_button_showhide()
     self.add_button_generate("Generate water profile")
     self.add_button_nextprev()
 
@@ -3200,6 +3201,8 @@ class RiversBuild(GlobalBuilder):
     
 #class to add symbols (towns, capital towns, and so on)
 class SymbolsBuild(GlobalBuilder):
+  INAROW = 5
+  
   #constructor
   def __init__(self, image, layermask, channelmask, *args):
     mwin = GlobalBuilder.__init__(self, image, None, layermask, channelmask, False, False, *args)
@@ -3211,44 +3214,42 @@ class SymbolsBuild(GlobalBuilder):
     self.defsize = 0.025 * (self.img.width + self.img.height)
     self.chsize = self.defsize
     self.bgcol = (223, 223, 83)
-    self.brushnames = ["Town", "Capital", "Port", "Wallfort", "Ruin"]
     self.prevbrush = None
     self.prevbrushsize = None
 
     self.namelist = ["symbols outline", "symbols"]
+    self.brushnum, self.brushlist = pdb.gimp_brushes_get_list("make_landmap brush")
 
     #Designing the interface
     #new row
-    hbxa = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hbxa)
-    
     labatxt = "Adding symbols for towns and similars. Click on the button to select the brush with the proper symbol.\n"
     labatxt += "Use the pencil and set the pencil size as appropriate if you wish bigger or smaller symbols.\n"
     labatxt += "You must have a copy of the brushes which come with this plug-in saved in the GIMP brushes directory." 
     laba = gtk.Label(labatxt)
-    hbxa.add(laba)
+    self.vbox.add(laba)
     
-    #new row
-    hbxb = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hbxb)
+    #new row containing a grid
+    vbxb = gtk.VBox(spacing=10, homogeneous=False)
+    self.vbox.add(vbxb)
+    nrows = int(math.ceil(1.0*self.brushnum/self.INAROW))
+    if nrows == 0:
+      errdi = MsgDialog("Error", self, "There is not any symbol to be loaded.\nDid you add the make_landmap brushes to the GIMP brushes folder?")
+      errdi.run()
+      errdi.destroy()
+      
+    symrows = [gtk.HBox(spacing=10, homogeneous=False) for i in range(nrows)]
+    for c in symrows:
+      vbxb.add(c)
 
-    buttown = self.addbuttonimage(self.brushnames[0], self. basepath + "brushtown.png")
-    hbxb.add(buttown)
-    
-    butcap = self.addbuttonimage(self.brushnames[1], self. basepath + "brushcapital.png")
-    hbxb.add(butcap)
-    
-    butport = self.addbuttonimage(self.brushnames[2], self. basepath + "brushport.png")
-    hbxb.add(butport)
-    
-    butfort = self.addbuttonimage(self.brushnames[3], self. basepath + "brushwallfort.png")
-    hbxb.add(butfort)
-    
-    butruin = self.addbuttonimage(self.brushnames[4], self. basepath + "brushruin.png")
-    hbxb.add(butruin)
+    idx = [[x] * int(self.INAROW) for x in range(nrows)]
+    fidx = [ii for ti in idx for ii in ti]
+    for br, i in zip(self.brushlist, fidx):
+      icstr = br.split()[-1]
+      sb = self.addbuttonimage(br, self.basepath + icstr + ".png")
+      symrows[i].add(sb)
 
     #new row
-    hbxc = gtk.HBox(spacing=10, homogeneous=False)
+    hbxc = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hbxc)
 
     labc = gtk.Label("Set brush size")
@@ -3264,6 +3265,14 @@ class SymbolsBuild(GlobalBuilder):
     spbutc.connect("output", self.on_brsize_changed)
     hbxc.add(spbutc)
 
+    #new row
+    hbxd = gtk.HBox(spacing=10, homogeneous=False)
+    self.vbox.add(hbxd)
+
+    butsyminfo = gtk.Button("Adding new symbols")
+    hbxd.add(butsyminfo)
+    butsyminfo.connect("clicked", self.on_info_clicked)
+    
     #new row
     self.add_checkbutton_autohide()
 
@@ -3341,7 +3350,7 @@ class SymbolsBuild(GlobalBuilder):
     img.set_from_file(iconfile)
     vbx.add(img)
 
-    lab = gtk.Label(brname)
+    lab = gtk.Label(brname.split()[-1])
     vbx.add(lab)
 
     butres.add(vbx)
@@ -3408,27 +3417,31 @@ class SymbolsBuild(GlobalBuilder):
       self.prevbrush = pdb.gimp_context_get_brush()
     if self.prevbrushsize is None:
       self.prevbrushsize = pdb.gimp_context_get_brush_size()
-    
-    try:
-      pdb.gimp_context_set_brush('make_landmap brush ' + brushstr)
-    except RuntimeError, errtxt:
-      #dialog explaining the occurred error
-      errdi = gtk.Dialog(title="Error", parent=self)
-      elabtxt = "Error message: " + errtxt.message + "\nDid you add the make_landmap brushes to the GIMP brushes folder?"
-      elabel = gtk.Label(elabtxt)
-      errdi.vbox.add(elabel)
-      elabel.show()
-      errdi.add_button("Ok", gtk.RESPONSE_OK)
-      rr = errdi.run()
-      if rr == gtk.RESPONSE_OK:
-        errdi.destroy()
-
+      
+    pdb.gimp_context_set_brush(brushstr)
     pdb.gimp_context_set_brush_size(self.chsize)
     pdb.gimp_plugin_set_pdb_error_handler(0)
 
+  #callback method, show a dialog
+  def on_info_clicked(self, widget):
+    messtxt = "Adding new symbols is very easy, and does not require to edit the plug-in source code.\n\
+Symbols are brushes. You can create a new brush in GIMP. Be sure that there is a transparent background.\n\
+Export the image in .gbr format and use the following parameters:\n\
+  Description: 'make_landmap brush Name'\n\
+  Spacing: 100\n\
+Where 'Name' is the name of the brush (e.g. Town, Wallfort, etc.). Be sure to follow this format as the\n\
+plug-in uses the description to find the brushes corresponding to map symbols.\n\
+The brush must then be copied in the brushes folder in your local directory.\n\
+You should also provide a 50x50 pixel png image of the brush, named 'Name.png'. This image must be copied\n\
+in the make_landmap_brushes folder. This folder should have been created during plug-in installation\n\
+in the plugin folder. You can export the png image from GIMP after you have created the brush, using the same image.\n"
+    infodi = MsgDialog("Adding new symbols", self, messtxt)
+    infodi.run()
+    infodi.destroy()
+
   #callback method, add randomly a given number of symbols.
   def on_random_clicked(self, widget):
-    rnds = self.RandomSymbols("Adding symbols randomly", self, gtk.DIALOG_MODAL)
+    rnds = self.RandomSymbols(widget.get_title(), self, gtk.DIALOG_MODAL)
     rr = rnds.run()
     if rr == gtk.RESPONSE_OK:
       i = 0
