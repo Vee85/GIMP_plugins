@@ -1686,7 +1686,7 @@ class LocalBuilder(TLSbase):
       pdb.gimp_displays_flush()
     imess = "Select the area where you want to place the "+ self.textes["labelext"] + " with the lazo tool or another selection tool.\n"
     imess += "When you have a selection, press Ok. Press Cancel to clear the current selection and start it again."
-    infodi = MsgDialog("Info", self, imess, "Intersect selection with land mass if present\nPrevent the sea from being covered by the new area.")
+    infodi = MsgDialog("Info", self, imess, True, "Intersect selection with land mass if present\nPrevent the sea from being covered by the new area.")
     diresp = infodi.run()
 
     if diresp == gtk.RESPONSE_OK:
@@ -3456,7 +3456,7 @@ class SymbolsBuild(GlobalBuilder):
           else:
             infodi = MsgDialog("Info", self, "Select the area where you want to place the symbols with the lazo tool or another selection tool first!\n")
             diresp = infodi.run()
-            if (diresp == gtk.RESPONSE_OK):
+            if diresp == gtk.RESPONSE_OK:
               infodi.destroy()
               break
 
@@ -3895,7 +3895,7 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
         pdb.gimp_image_insert_layer(self.img, nl, None, 0)
         colfillayer(self.img, nl, (255, 255, 255))
         pdb.gimp_displays_flush()
-      else:
+      elif rr == gtk.RESPONSE_CANCEL:
         inidi.destroy()
         inidibi = MsgDialog("Warning!", self, "Better not generate the map if there are others layers.\nPlug-in aborted.")
         inidibi.run()
@@ -3947,7 +3947,7 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
     if fb is not None:
       self.buildingmap(fb)
     else:
-      inidi = MsgDialog("Warning!", self, "No map in gimp format detected\n.Plug-in aborted.")
+      inidi = MsgDialog("Warning!", self, "No map detected in the gimp image.\nPlug-in aborted.")
       inidi.run()
       inidi.destroy()
 
