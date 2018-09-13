@@ -105,13 +105,13 @@ class CompBezierCurve:
       '''Distance from Point to another Point ap'''
       return math.sqrt(math.pow((self.x - ap.x), 2) + math.pow((self.y - ap.y), 2))
 
-    def getcofpat(self, ap, t):
-      '''Get the coordinate of a point ad distance t from this point in direction of another point ap.
-      t is in units of the point - ap distance (e.g. t = 1 is the point ap).
+    def pointatdist(self, ap, d):
+      '''Get the coordinate of a point ad distance d from this point in direction of another point ap.
+      d is in units of the point - ap distance (e.g. t = 1 is the point ap).
       '''
       res = CompBezierCurve.Point()
       for l in ['x', 'y']:
-        res[l] = self[l] + t*(ap[l] - self[l])
+        res[l] = self[l] + d*(ap[l] - self[l])
       return res
 
 
@@ -333,11 +333,11 @@ class CompBezierCurve:
         pthree = cps[k+1].getctrlp(1)
 
         #calculating intermediate points (de Casteljau's algorithm)
-        ponefh = pzero.getcofpat(pone, t)
-        pmed = pone.getcofpat(ptwo, t)
-        ptwosh = ptwo.getcofpat(pthree, t)
-        ptwofh = ponefh.getcofpat(pmed, t)
-        ponesh = pmed.getcofpat(ptwosh, t)
+        ponefh = pzero.pointatdist(pone, t)
+        pmed = pone.pointatdist(ptwo, t)
+        ptwosh = ptwo.pointatdist(pthree, t)
+        ptwofh = ponefh.pointatdist(pmed, t)
+        ponesh = pmed.pointatdist(ptwosh, t)
 
         #building the new composite Bézier curve
         splitcpl.extend([pzero, ponefh, ptwofh, sp, ponesh, ptwosh])
@@ -383,6 +383,12 @@ class CompBezierCurve:
       cc = cc+1
 
     return ll, err, cc
+
+  def lenfullcurve(self, precision=1, maxiter=10):
+    '''Calculate the approximated length of the composite Bézier curve using lencurve method'''
+    allenc = [self.lencurve(i, 1.0, precision, maxiter)[0] for i in range(1, self.numbezc()+1)]
+    integrlenc = [sum(allenc[:i+1]) for i in range(len(allenc))]
+    return integrlenc[-1]
     
   def getpointcbc(self, d, delta=5):
     '''It calculates the coordinate of the point at distance d from the beginning of the composite Bézier curve
@@ -394,25 +400,31 @@ class CompBezierCurve:
     integrlenc = [sum(allenc[:i+1]) for i in range(len(allenc))]
     if d > integrlenc[-1] or d < 0:
       raise ValueError("length outside range: must be greater than 0 or lesser than the total length of the composite Bézier curve")
-    else:
-      slope = None
-      if d == 0:
-        ptcoor = self[0].getctrlp(1)
-      elif d in integrlenc:
-        refd = [j for i, j in zip(integrlenc, range(len(integrlenc))) if j == d]
-        ptcoor = self[refd].getctrlp(1)
-      else:
-        shiftlenc = [0] + integrlenc[:-1]
-        refcurve = [(i+1, l, sil) for i, l, il, sil in zip(range(len(integrlenc)), allenc, integrlenc, shiftlenc) if d < il and d > sil][0]
-        tt = (d - refcurve[2])/refcurve[1]
-        ptcoor = self.getpat(refcurve[0], tt)
+    else:        
+      shiftlenc = [0] + integrlenc[:-1]
+      refcurve = [(i+1, l, sil) for i, l, il, sil in zip(range(len(integrlenc)), allenc, integrlenc, shiftlenc) if d <= il and d >= sil][0]
+      tt = (d - refcurve[2])/refcurve[1]
+      ptcoor = self.getpat(refcurve[0], tt)
 
-        #the derivative
-        dt = (1.0 * delta) / refcurve[1]
+      #the derivative
+      dt = (1.0 * delta) / refcurve[1]
+      try:
         dpp = self.getpat(refcurve[0], tt+dt) - ptcoor
-        dpm = self.getpat(refcurve[0], tt-dt) - ptcoor
         slp = dpp['y'] / dpp['x']
+      except ValueError:
+        slp = None
+
+      try:
+        dpm = self.getpat(refcurve[0], tt-dt) - ptcoor
         slm = dpm['y'] / dpm['x']
+      except ValueError:
+        slm = None
+
+      if slp is None:
+        slope = slm
+      elif slm is None:
+        slope = slp
+      else:
         slope = (slp + slm) / 2.0
     return ptcoor, slope
     
@@ -442,12 +454,13 @@ def python_bezier_test(img, tdraw, testpath):
   for i in range(1, bzlp.numbezc()+1):
     print "numerically calculated length of curve", str(i) + ":", bzlp.lencurve(i)
 
-  palc, m = bzlp.getpointcbc(500.0)
+  ll = bzlp.lenfullcurve()
+  palc, m = bzlp.getpointcbc(ll/2.0)
   print "along the curve:", palc, m
 
   arbidi = 10
   dirp = CompBezierCurve.Point(palc['x'] + arbidi, palc['y'] + m*arbidi)
-  finp = palc.getcofpat(dirp, 6)
+  finp = palc.pointatdist(dirp, 6)
   print "on the tangent", finp
 
   sys.stdout.flush()
@@ -457,27 +470,66 @@ def python_bezier_test(img, tdraw, testpath):
 def python_text_along_path(img, tdraw, text, leadpath):
   _, leads_ids = pdb.gimp_vectors_get_strokes(leadpath)
   _, _, leadcps, _ = pdb.gimp_vectors_stroke_get_points(leadpath, leads_ids[0])
-  bzlp = CompBezierCurve(*leadcps)
-
-  for i in [0.0, 0.2, 0.5, 0.8, 1.0]:
-    print bzlp.getpat(1, i)
-    sys.stdout.flush()
+  bzclead = CompBezierCurve(*leadcps)
 
   text_layer = pdb.gimp_text_fontname(img, tdraw, img.width/3, img.height/3, text, 0, False, 60, 0, 'sans-serif')
-  vec = pdb.gimp_vectors_new_from_text_layer(img, text_layer)
-  pdb.gimp_image_insert_vectors(img, vec, None, 0)
+  textvec = pdb.gimp_vectors_new_from_text_layer(img, text_layer)
+  pdb.gimp_image_insert_vectors(img, textvec, None, 0)
   
-  _, stroke_ids = pdb.gimp_vectors_get_strokes(vec)
-  bzc = []
+  _, stroke_ids = pdb.gimp_vectors_get_strokes(textvec)
+  bzctext = []
   for sid in stroke_ids:
-    _, _, controlpoints, _ = pdb.gimp_vectors_stroke_get_points(vec, sid)
-    bzc.append(CompBezierCurve(*controlpoints))
+    _, _, controlpoints, _ = pdb.gimp_vectors_stroke_get_points(textvec, sid)
+    bzctext.append(CompBezierCurve(*controlpoints))
 
-  bzcshifted = [i.shift(100, 50) for i in bzc]
+  #recovering coordinates
+  allx = []
+  ally = []
+  for cc in bzctext:
+    allx.extend([e.getxy('x')[1] for e in cc.cbc])
+    ally.extend([e.getxy('y')[1] for e in cc.cbc])
+
+  #scaling the text to the length of the leading path
+  xlen = max(allx) - min(allx)
+  bzcleadlen = bzclead.lenfullcurve()
+  scalefac = bzcleadlen / xlen
+  scaledbzctext = [i.scale(scalefac) for i in bzctext]
+
+  #shifting the text to the position of the leading path
+  vertex = CompBezierCurve.Point(min(allx)*scalefac, max(ally)*scalefac)
+  shiftpoint = bzclead[0].getctrlp(1) - vertex
+  shiftedbzctext = [i.shift(shiftpoint['x'], shiftpoint['y']) for i in scaledbzctext]
+
+  #recovering coordinates of shifted and scaled text
+  ssallx = []
+  ssally = []
+  for cc in shiftedbzctext:
+    ssallx.extend([e.getxy('x')[1] for e in cc.cbc])
+    ssally.extend([e.getxy('y')[1] for e in cc.cbc])
+  shvertex = CompBezierCurve.Point(min(ssallx), max(ssally))
+
+  #bending the text along the leading path
+  arbidi = 10
+  bendedpoints = []
+  for cbc in shiftedbzctext:
+    for cbcpp in cbc:
+      xdis = cbcpp.getctrlp(1)['x'] - shvertex['x']
+      plc, m = bzclead.getpointcbc(xdis)
+
+      dirp = CompBezierCurve.Point(plc['x'] + arbidi, plc['y'] + m*arbidi)
+      ydis = vertex['y'] - cbcpp.getctrlp(1)['y']
+      finp = plc.pointatdist(dirp, ydis/arbidi)
+      shiftvec = cbcpp.getctrlp(1) - finp
+      finpa = cbcpp.getctrlp(0) + shiftvec
+      finpb = cbcpp.getctrlp(2) + shiftvec
+      bendedpoints.append(CompBezierCurve.CBCPoint(finpa, finp, finpb))
+
+  bendedbzctext = CompBezierCurve(*bendedpoints)
+
+  #showing the text as a new path
   res = pdb.gimp_vectors_new(img, text+'2')
   pdb.gimp_image_insert_vectors(img, res, None, 0)
-  for el in bzcshifted:
-    pdb.gimp_vectors_stroke_new_from_points(res, 0, el.lenseq(), el.getfullseq(), False)
+  pdb.gimp_vectors_stroke_new_from_points(res, 0, bendedbzctext.lenseq(), bendedbzctext.getfullseq(), False)
 
   return res
 
