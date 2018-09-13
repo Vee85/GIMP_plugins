@@ -90,6 +90,17 @@ class CompBezierCurve:
       '''overloading __sub__ (-) operator'''
       return CompBezierCurve.Point(self.x - other.x, self.y - other.y)
 
+    def __mul__(self, other):
+      '''overloading __mul__ (*) operator'''
+      if isinstance(other, CompBezierCurve.Point):
+        return (self.x * other.x) + (self.y * other.y)
+      else:
+        return CompBezierCurve.Point(self.x * other, self.y * other)
+
+    def __rmul__(self, other):
+      '''overloading __rmul__ (*) operator'''
+      return self.__mul__(other)
+
     def distp(self, ap):
       '''Distance from Point to another Point ap'''
       return math.sqrt(math.pow((self.x - ap.x), 2) + math.pow((self.y - ap.y), 2))
@@ -373,15 +384,18 @@ class CompBezierCurve:
 
     return ll, err, cc
     
-  def getponcbc(self, d):
-    '''Get the coordinate of the point at distance d from the beginning of the composite Bézier curve.
-    Distance d is measured on the composite Bézier curve in the coordinate units.
+  def getpointcbc(self, d, delta=5):
+    '''It calculates the coordinate of the point at distance d from the beginning of the composite Bézier curve
+    and the slope of the tangent at the point. Distance d and delta are measured on the composite Bézier curve
+    in the coordinate units. delta is the step used to calculate the slope (should be greater than the precision
+    used in lencurve method to have a reliable estimate of the slope. 
     '''
     allenc = [self.lencurve(i)[0] for i in range(1, self.numbezc()+1)]
     integrlenc = [sum(allenc[:i+1]) for i in range(len(allenc))]
     if d > integrlenc[-1] or d < 0:
-      raise ValueError("length outside range: must be greater than 0 or lesser than the total length of the composite Bézier curve") 
+      raise ValueError("length outside range: must be greater than 0 or lesser than the total length of the composite Bézier curve")
     else:
+      slope = None
       if d == 0:
         ptcoor = self[0].getctrlp(1)
       elif d in integrlenc:
@@ -390,9 +404,17 @@ class CompBezierCurve:
       else:
         shiftlenc = [0] + integrlenc[:-1]
         refcurve = [(i+1, l, sil) for i, l, il, sil in zip(range(len(integrlenc)), allenc, integrlenc, shiftlenc) if d < il and d > sil][0]
-        ptcoor = self.getpat(refcurve[0], (d - refcurve[2])/refcurve[1])
+        tt = (d - refcurve[2])/refcurve[1]
+        ptcoor = self.getpat(refcurve[0], tt)
 
-    return ptcoor
+        #the derivative
+        dt = (1.0 * delta) / refcurve[1]
+        dpp = self.getpat(refcurve[0], tt+dt) - ptcoor
+        dpm = self.getpat(refcurve[0], tt-dt) - ptcoor
+        slp = dpp['y'] / dpp['x']
+        slm = dpm['y'] / dpm['x']
+        slope = (slp + slm) / 2.0
+    return ptcoor, slope
     
   def shift(self, x, y):
     '''Shift the full curve by (+x, +y)'''
@@ -420,7 +442,13 @@ def python_bezier_test(img, tdraw, testpath):
   for i in range(1, bzlp.numbezc()+1):
     print "numerically calculated length of curve", str(i) + ":", bzlp.lencurve(i)
 
-  print bzlp.getponcbc(500.0)
+  palc, m = bzlp.getpointcbc(500.0)
+  print "along the curve:", palc, m
+
+  arbidi = 10
+  dirp = CompBezierCurve.Point(palc['x'] + arbidi, palc['y'] + m*arbidi)
+  finp = palc.getcofpat(dirp, 6)
+  print "on the tangent", finp
 
   sys.stdout.flush()
 
