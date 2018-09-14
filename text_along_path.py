@@ -408,7 +408,7 @@ class CompBezierCurve:
       ptcoor = self.getpat(refcurve[0], tt)
 
       #the derivative
-      dt = (1.0 * delta) / refcurve[1]
+      dt = (-1.0 * delta) / refcurve[1]
       try:
         dpp = self.getpat(refcurve[0], tt+dt) - ptcoor
         slp = dpp['y'] / dpp['x']
@@ -438,33 +438,6 @@ class CompBezierCurve:
     if ry is None:
       ry = rx
     return CompBezierCurve(*[e.scale(rx, ry) for e in self.cbc])
-
-    
-#A test method using gimp to show curves
-def python_bezier_test(img, tdraw, testpath):
-  _, tids = pdb.gimp_vectors_get_strokes(testpath)
-  _, _, tcps, _ = pdb.gimp_vectors_stroke_get_points(testpath, tids[0])
-  bzlp = CompBezierCurve(*tcps)
-
-  for i in [0.0, 0.2, 0.5, 0.8, 1.0]:
-    print "point at", i, "in curve 1:", bzlp.getpat(1, i)
-
-  for i in range(1, bzlp.numbezc()+1):
-    print "approximate length of curve", str(i) + ":" , bzlp._lencurveappr(i)
-
-  for i in range(1, bzlp.numbezc()+1):
-    print "numerically calculated length of curve", str(i) + ":", bzlp.lencurve(i)
-
-  ll = bzlp.lenfullcurve()
-  palc, m = bzlp.getpointcbc(ll/2.0)
-  print "along the curve:", palc, m
-
-  arbidi = 10
-  dirp = CompBezierCurve.Point(palc['x'] + arbidi, palc['y'] + m*arbidi)
-  finp = palc.pointatdist(dirp, 6)
-  print "on the tangent", finp
-
-  sys.stdout.flush()
 
 
 #The function to be registered in GIMP
@@ -511,19 +484,21 @@ def python_text_along_path(img, tdraw, text, leadpath):
   shvertex = CompBezierCurve.Point(min(ssallx), max(ssally))
 
   #bending the text along the leading path.
-  #@@@ try keeping the curves separated, and remembering if they are closed or not
-  arbidi = 10
+  basexdis = 10
+  arbix = 10
   lowering = 0.98
   bendedbzctext = []
   for cbc in shiftedbzctext:
     bendedpoints = []
     for cbcpp in cbc:
       xdis = cbcpp.getctrlp(1)['x'] - shvertex['x']
-      plc, m = bzclead.getpointcbc(lowering*xdis)
+      plc, m = bzclead.getpointcbc((lowering*xdis) + basexdis)
 
-      dirp = CompBezierCurve.Point(plc['x'] + arbidi, plc['y'] + m*arbidi)
+      arbiy = -1.0 * arbix / m
+      dirp = CompBezierCurve.Point(plc['x'] + arbix, plc['y'] + arbiy)
       ydis = shvertex['y'] - cbcpp.getctrlp(1)['y']
-      finp = plc.pointatdist(dirp, (lowering*ydis)/arbidi)
+      signeddist = plc.distp(dirp) if arbiy < 0 else -1.0 * plc.distp(dirp)
+      finp = plc.pointatdist(dirp, (lowering*ydis)/signeddist)
       shiftvec = finp - cbcpp.getctrlp(1)
       bendedpoints.append(cbcpp.shift(shiftvec['x'], shiftvec['y']))
 
@@ -531,12 +506,24 @@ def python_text_along_path(img, tdraw, text, leadpath):
     bendedbzctext[-1].closed = cbc.closed
 
   #showing the text as a new path
-  res = pdb.gimp_vectors_new(img, text+'2')
-  pdb.gimp_image_insert_vectors(img, res, None, 0)
+  bendvec = pdb.gimp_vectors_new(img, "temporary")
+  pdb.gimp_image_insert_vectors(img, bendvec, None, 0)
   for el in bendedbzctext:
-    pdb.gimp_vectors_stroke_new_from_points(res, 0, el.lenseq(), el.getfullseq(), el.closed)
+    pdb.gimp_vectors_stroke_new_from_points(bendvec, 0, el.lenseq(), el.getfullseq(), el.closed)
 
-  return res
+  #cleaning up and final steps
+  pdb.gimp_image_remove_layer(img, text_layer)
+  pdb.gimp_image_remove_vectors(img, textvec)
+  bendvec.name = text
+
+  bendlayer = pdb.gimp_layer_new(img, img.width, img.height, 1, text, 100, LAYER_MODE_NORMAL)
+  pdb.gimp_image_insert_layer(img, bendlayer, None, 0)
+  
+  pdb.gimp_image_select_item(img, 0, bendvec)
+  pdb.gimp_edit_bucket_fill(bendlayer, 0, LAYER_MODE_NORMAL, 100, 255, False, 0, 0)
+  pdb.gimp_selection_none(img)
+
+  return bendvec
 
 
 #The command to register the function
@@ -557,24 +544,8 @@ register(
     (PF_VECTORS, "bendtext", "The path which represent the bent text"),
   ],
   python_text_along_path
-  )
+)
 
-#The command to register the function
-register(
-  "python-fu-bezier-test",
-  "python-fu-bezier-test",
-  "TEST: bezier class",
-  "Valentino Esposito",
-  "Valentino Esposito",
-  "2018",
-  "<Image>/Tools/BezierTest",
-  "RGB*, GRAY*, INDEXED*",
-  [
-    (PF_VECTORS, "testpath", "The test path", None),
-  ],
-  [ ],
-  python_bezier_test
-  )
 
 #The main function to activate the script
 main()
