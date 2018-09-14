@@ -22,6 +22,8 @@
 #  
 #  
 
+#This script bends a text following the lead of a path
+
 import sys
 import os
 import math
@@ -105,7 +107,7 @@ class CompBezierCurve:
       '''Distance from Point to another Point ap'''
       return math.sqrt(math.pow((self.x - ap.x), 2) + math.pow((self.y - ap.y), 2))
 
-    def pointatdist(self, ap, d):
+    def pointatdistp(self, ap, d):
       '''Get the coordinate of a point ad distance d from this point in direction of another point ap.
       d is in units of the point - ap distance (e.g. t = 1 is the point ap).
       '''
@@ -114,6 +116,14 @@ class CompBezierCurve:
         res[l] = self[l] + d*(ap[l] - self[l])
       return res
 
+    def pointatdistm(self, ang, d):
+      '''Get the coordinate of a point ad distance d from this point and at angle ang (in radiants). 0 radiants is
+      in the positive x. d is in units of x and y.
+      '''
+      res = CompBezierCurve.Point()
+      res['x'] = self['x'] + d*math.cos(ang)
+      res['y'] = self['y'] + d*math.sin(ang)
+      return res
 
   class CBCPoint:
     '''Class holding three control points of a 2D composite Bézier curve. They are three points in the x, y plane.
@@ -334,11 +344,11 @@ class CompBezierCurve:
         pthree = cps[k+1].getctrlp(1)
 
         #calculating intermediate points (de Casteljau's algorithm)
-        ponefh = pzero.pointatdist(pone, t)
-        pmed = pone.pointatdist(ptwo, t)
-        ptwosh = ptwo.pointatdist(pthree, t)
-        ptwofh = ponefh.pointatdist(pmed, t)
-        ponesh = pmed.pointatdist(ptwosh, t)
+        ponefh = pzero.pointatdistp(pone, t)
+        pmed = pone.pointatdistp(ptwo, t)
+        ptwosh = ptwo.pointatdistp(pthree, t)
+        ptwofh = ponefh.pointatdistp(pmed, t)
+        ponesh = pmed.pointatdistp(ptwosh, t)
 
         #building the new composite Bézier curve
         splitcpl.extend([pzero, ponefh, ptwofh, sp, ponesh, ptwosh])
@@ -488,17 +498,15 @@ def python_text_along_path(img, tdraw, text, leadpath):
   arbix = 10
   lowering = 0.98
   bendedbzctext = []
+  halfheight = (max(ssally) - min(ssally))/2.0
   for cbc in shiftedbzctext:
     bendedpoints = []
     for cbcpp in cbc:
       xdis = cbcpp.getctrlp(1)['x'] - shvertex['x']
       plc, m = bzclead.getpointcbc((lowering*xdis) + basexdis)
 
-      arbiy = -1.0 * arbix / m
-      dirp = CompBezierCurve.Point(plc['x'] + arbix, plc['y'] + arbiy)
-      ydis = shvertex['y'] - cbcpp.getctrlp(1)['y']
-      signeddist = plc.distp(dirp) if arbiy < 0 else -1.0 * plc.distp(dirp)
-      finp = plc.pointatdist(dirp, (lowering*ydis)/signeddist)
+      ydis = shvertex['y'] - cbcpp.getctrlp(1)['y'] - halfheight  #halfheight corrects the text such that is half top half bottom the leading path
+      finp = plc.pointatdistm(math.atan(-1.0/abs(m)), ydis)  #absolute value prevent the text for reverting when the derivative change sign
       shiftvec = finp - cbcpp.getctrlp(1)
       bendedpoints.append(cbcpp.shift(shiftvec['x'], shiftvec['y']))
 
