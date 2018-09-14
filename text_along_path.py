@@ -213,6 +213,7 @@ class CompBezierCurve:
         self.cbc.append(self.CBCPoint(bzp[6*i:6*(i+1)]))
     else:
       raise RuntimeError(errmess)
+    self.closed = False
 
   def __repr__(self):
     restr = "{ "
@@ -479,8 +480,9 @@ def python_text_along_path(img, tdraw, text, leadpath):
   _, stroke_ids = pdb.gimp_vectors_get_strokes(textvec)
   bzctext = []
   for sid in stroke_ids:
-    _, _, controlpoints, _ = pdb.gimp_vectors_stroke_get_points(textvec, sid)
+    _, _, controlpoints, isclosed = pdb.gimp_vectors_stroke_get_points(textvec, sid)
     bzctext.append(CompBezierCurve(*controlpoints))
+    bzctext[-1].closed = isclosed
 
   #recovering coordinates
   allx = []
@@ -489,10 +491,10 @@ def python_text_along_path(img, tdraw, text, leadpath):
     allx.extend([e.getxy('x')[1] for e in cc.cbc])
     ally.extend([e.getxy('y')[1] for e in cc.cbc])
 
-  #scaling the text to the length of the leading path
+  #scaling the text to the length of the leading path if the leading path is shorted
   xlen = max(allx) - min(allx)
   bzcleadlen = bzclead.lenfullcurve()
-  scalefac = bzcleadlen / xlen
+  scalefac = (bzcleadlen / xlen) if (bzcleadlen / xlen) < 1.0 else 1.0 
   scaledbzctext = [i.scale(scalefac) for i in bzctext]
 
   #shifting the text to the position of the leading path
@@ -508,28 +510,31 @@ def python_text_along_path(img, tdraw, text, leadpath):
     ssally.extend([e.getxy('y')[1] for e in cc.cbc])
   shvertex = CompBezierCurve.Point(min(ssallx), max(ssally))
 
-  #bending the text along the leading path
+  #bending the text along the leading path.
+  #@@@ try keeping the curves separated, and remembering if they are closed or not
   arbidi = 10
-  bendedpoints = []
+  lowering = 0.98
+  bendedbzctext = []
   for cbc in shiftedbzctext:
+    bendedpoints = []
     for cbcpp in cbc:
       xdis = cbcpp.getctrlp(1)['x'] - shvertex['x']
-      plc, m = bzclead.getpointcbc(xdis)
+      plc, m = bzclead.getpointcbc(lowering*xdis)
 
       dirp = CompBezierCurve.Point(plc['x'] + arbidi, plc['y'] + m*arbidi)
-      ydis = vertex['y'] - cbcpp.getctrlp(1)['y']
-      finp = plc.pointatdist(dirp, ydis/arbidi)
-      shiftvec = cbcpp.getctrlp(1) - finp
-      finpa = cbcpp.getctrlp(0) + shiftvec
-      finpb = cbcpp.getctrlp(2) + shiftvec
-      bendedpoints.append(CompBezierCurve.CBCPoint(finpa, finp, finpb))
+      ydis = shvertex['y'] - cbcpp.getctrlp(1)['y']
+      finp = plc.pointatdist(dirp, (lowering*ydis)/arbidi)
+      shiftvec = finp - cbcpp.getctrlp(1)
+      bendedpoints.append(cbcpp.shift(shiftvec['x'], shiftvec['y']))
 
-  bendedbzctext = CompBezierCurve(*bendedpoints)
+    bendedbzctext.append(CompBezierCurve(*bendedpoints))
+    bendedbzctext[-1].closed = cbc.closed
 
   #showing the text as a new path
   res = pdb.gimp_vectors_new(img, text+'2')
   pdb.gimp_image_insert_vectors(img, res, None, 0)
-  pdb.gimp_vectors_stroke_new_from_points(res, 0, bendedbzctext.lenseq(), bendedbzctext.getfullseq(), False)
+  for el in bendedbzctext:
+    pdb.gimp_vectors_stroke_new_from_points(res, 0, el.lenseq(), el.getfullseq(), el.closed)
 
   return res
 
