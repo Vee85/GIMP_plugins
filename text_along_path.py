@@ -25,7 +25,6 @@
 #This script bends a text following the lead of a path
 
 import sys
-import os
 import math
 from gimpfu import *
 
@@ -451,12 +450,12 @@ class CompBezierCurve:
 
 
 #The function to be registered in GIMP
-def python_text_along_path(img, tdraw, text, leadpath):
+def python_text_along_path(img, tdraw, text, leadpath, usedfont='sans-serif'):
   _, leads_ids = pdb.gimp_vectors_get_strokes(leadpath)
   _, _, leadcps, _ = pdb.gimp_vectors_stroke_get_points(leadpath, leads_ids[0])
   bzclead = CompBezierCurve(*leadcps)
 
-  text_layer = pdb.gimp_text_fontname(img, tdraw, img.width/3, img.height/3, text, 0, False, 60, 0, 'sans-serif')
+  text_layer = pdb.gimp_text_fontname(img, tdraw, img.width/3, img.height/3, text, 0, False, 60, 0, usedfont)
   textvec = pdb.gimp_vectors_new_from_text_layer(img, text_layer)
   pdb.gimp_image_insert_vectors(img, textvec, None, 0)
   
@@ -494,9 +493,9 @@ def python_text_along_path(img, tdraw, text, leadpath):
   shvertex = CompBezierCurve.Point(min(ssallx), max(ssally))
 
   #bending the text along the leading path.
-  basexdis = 10
+  basexdis = 0.04 * bzcleadlen
   arbix = 10
-  lowering = 0.98
+  lowering = 0.95
   bendedbzctext = []
   halfheight = (max(ssally) - min(ssally))/2.0
   for cbc in shiftedbzctext:
@@ -505,8 +504,11 @@ def python_text_along_path(img, tdraw, text, leadpath):
       xdis = cbcpp.getctrlp(1)['x'] - shvertex['x']
       plc, m = bzclead.getpointcbc((lowering*xdis) + basexdis)
 
+      tanangle = math.atan(m)
+      ortoangle = math.atan(-1.0/m)
+      angle = ortoangle if ortoangle < tanangle else ortoangle - math.pi
       ydis = shvertex['y'] - cbcpp.getctrlp(1)['y'] - halfheight  #halfheight corrects the text such that is half top half bottom the leading path
-      finp = plc.pointatdistm(math.atan(-1.0/abs(m)), ydis)  #absolute value prevent the text for reverting when the derivative change sign
+      finp = plc.pointatdistm(angle, ydis)
       shiftvec = finp - cbcpp.getctrlp(1)
       bendedpoints.append(cbcpp.shift(shiftvec['x'], shiftvec['y']))
 
@@ -531,7 +533,7 @@ def python_text_along_path(img, tdraw, text, leadpath):
   pdb.gimp_edit_bucket_fill(bendlayer, 0, LAYER_MODE_NORMAL, 100, 255, False, 0, 0)
   pdb.gimp_selection_none(img)
 
-  return bendvec
+  return bendlayer, bendvec
 
 
 #The command to register the function
@@ -547,8 +549,10 @@ register(
   [
     (PF_STRING, "text", "The text to be bent", None),
     (PF_VECTORS, "leadpath", "The path which lead the bending", None),
+    (PF_FONT, "usedfont", "The font used for the text", 'sans-serif'),
   ],
   [
+    (PF_LAYER, "bendlayer", "A transparent layer with the text bend in foreground color"),
     (PF_VECTORS, "bendtext", "The path which represent the bent text"),
   ],
   python_text_along_path
