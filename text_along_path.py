@@ -311,7 +311,8 @@ class CompBezierCurve:
 
   def getpat(self, i, t):
     '''Get the coordinate of the point at distance t (0 <= t <= 1) on the i--th Bézier curve
-    in the composite Bézier curve. i starts from 1'''
+    in the composite Bézier curve. i starts from 1.
+    '''
     if t < 0.0 or t > 1.0:
       raise ValueError("t parameter must be between 0 and 1")
     cps = self.getbezc(i)
@@ -323,7 +324,7 @@ class CompBezierCurve:
       res[l] = (ca[l] * math.pow(t, 3)) + (cb[l] * math.pow(t, 2)) + (cc[l] * t) + cd[l];
 
     return res
-
+    
   def splitbezier(self, t, i, j=None):
     '''split from i-th to j-th Bézier curves of the composite Bézier curve each into two Bézier curves.
     Each curve is splitted at point t (0 <= t <= 1) using de Casteljau's algorithm.
@@ -348,7 +349,7 @@ class CompBezierCurve:
         ptwosh = ptwo.pointatdistp(pthree, t)
         ptwofh = ponefh.pointatdistp(pmed, t)
         ponesh = pmed.pointatdistp(ptwosh, t)
-
+        
         #building the new composite Bézier curve
         splitcpl.extend([pzero, ponefh, ptwofh, sp, ponesh, ptwosh])
       splitcpl.extend([cps[-1].getctrlp(1), cps[-1].getctrlp(2)])
@@ -377,20 +378,26 @@ class CompBezierCurve:
     starting point up to t (0 <= t <= 1). The approximated method consists in splitting recursively the original
     curve and using _lencurveappr method on all the splitted curves. maxiter is the number ofmax iteration
     '''
-    ccbc = self.splitbezier(t, i)
+    splitccbc = self.splitbezier(t, i)
+    ccbc = CompBezierCurve(splitccbc[0], splitccbc[1])
 
     ollsum = None
     cc = 0
+    found = False
     while cc < maxiter:
       lc = [ccbc._lencurveappr(k) for k in range(1, ccbc.numbezc()+1)]
       ll = sum(lc)
       if ollsum is not None:
         err = abs(ll - ollsum)
         if abs(err) <= precision:
+          found = True
           break
       ollsum = ll
       ccbc = ccbc.splitbezier(0.5, 1, ccbc.numbezc())
       cc = cc+1
+
+    if not found:
+      raise RuntimeError("Error, max number of iteration reached and a value within precision has not been found!")
 
     return ll, err, cc
 
@@ -399,6 +406,37 @@ class CompBezierCurve:
     allenc = [self.lencurve(i, 1.0, precision, maxiter)[0] for i in range(1, self.numbezc()+1)]
     integrlenc = [sum(allenc[:i+1]) for i in range(len(allenc))]
     return integrlenc[-1]
+
+  def getpad(self, i, d, precision=1, maxiter=100):
+    '''Get the coordinate of the point at distance d (0 <= d <= lencurve) on the i--th Bézier curve
+    in the composite Bézier curve. i starts from 1, d is in coordinate units.
+    Due to non linearity of t (0 <= t <= 1) the distance is estimated through brute force calculation,
+    searching a t parameter close enough to the requested distance.
+    '''
+    lenc, _, _ = self.lencurve(i)
+    if d < 0.0 or d > lenc:
+      raise ValueError("length outside range: must be greater than 0 or lesser than the length of the Bézier curve " + str(lenc))
+
+    #using bisection method
+    searchint = [0.0, 0.5, 1.0]
+    estt = None
+    c = 0
+    while c < maxiter:
+      lt = self.lencurve(i, searchint[1])[0]
+      if d < lt - precision:
+        nsint = [searchint[0], (searchint[1] + searchint[0])/2.0, searchint[1]]
+      elif d > lt + precision:
+        nsint = [searchint[1], (searchint[2] + searchint[1])/2.0, searchint[2]]        
+      elif d < lt + precision and d > lt - precision:
+        estt = searchint[1]
+        break
+      searchint = nsint
+      c = c + 1
+
+    if estt is None:
+      raise RuntimeError("Error, max number of iteration reached and a value within precision has not been found!")
+    else:
+      return self.getpat(i, estt)
     
   def getpointcbc(self, d, delta=5):
     '''It calculates the coordinate of the point at distance d from the beginning of the composite Bézier curve
@@ -413,19 +451,18 @@ class CompBezierCurve:
     else:        
       shiftlenc = [0] + integrlenc[:-1]
       refcurve = [(i+1, l, sil) for i, l, il, sil in zip(range(len(integrlenc)), allenc, integrlenc, shiftlenc) if d <= il and d >= sil][0]
-      tt = (d - refcurve[2])/refcurve[1]
-      ptcoor = self.getpat(refcurve[0], tt)
+      dd = d - refcurve[2]
+      ptcoor = self.getpad(refcurve[0], dd)
 
       #the derivative
-      dt = (-1.0 * delta) / refcurve[1]
       try:
-        dpp = self.getpat(refcurve[0], tt+dt) - ptcoor
+        dpp = self.getpad(refcurve[0], dd+delta) - ptcoor
         slp = dpp['y'] / dpp['x']
       except ValueError:
         slp = None
 
       try:
-        dpm = self.getpat(refcurve[0], tt-dt) - ptcoor
+        dpm = self.getpad(refcurve[0], dd-delta) - ptcoor
         slm = dpm['y'] / dpm['x']
       except ValueError:
         slm = None
@@ -451,7 +488,10 @@ class CompBezierCurve:
 
 #The function to be registered in GIMP
 def python_text_along_path(img, tdraw, text, leadpath, usedfont='sans-serif'):
-  _, leads_ids = pdb.gimp_vectors_get_strokes(leadpath)
+  lenli, leads_ids = pdb.gimp_vectors_get_strokes(leadpath)
+  if lenli > 1:
+    print "Warning, leadpath vectors has more than one stroke ids. The first one is used."
+    sys.stdout.flush()
   _, _, leadcps, _ = pdb.gimp_vectors_stroke_get_points(leadpath, leads_ids[0])
   bzclead = CompBezierCurve(*leadcps)
 
