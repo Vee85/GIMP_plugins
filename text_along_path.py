@@ -116,12 +116,19 @@ class CompBezierCurve:
       return res
 
     def pointatdistm(self, ang, d):
-      '''Get the coordinate of a point ad distance d from this point and at angle ang (in radiants). 0 radiants is
+      '''Get the coordinate of a point ad distance d from this point and at angle ang (in radians). 0 radians is
       in the positive x. d is in units of x and y.
       '''
       res = CompBezierCurve.Point()
       res['x'] = self['x'] + d*math.cos(ang)
       res['y'] = self['y'] + d*math.sin(ang)
+      return res
+
+    def rotatepoint(self, theta):
+      '''Rotate the point of angle theta (in radians) counterclockwise. The rotation center is the origin'''
+      res = CompBezierCurve.Point()
+      res['x'] = math.cos(theta)*self['x'] - math.sin(theta)*self['y']
+      res['y'] = math.sin(theta)*self['x'] + math.cos(theta)*self['y']
       return res
 
   class CBCPoint:
@@ -143,7 +150,7 @@ class CompBezierCurve:
           raise RuntimeError(errmess)
       elif len(points) == 3 and all([isinstance(i, (list, tuple, CompBezierCurve.Point)) for i in points]):
         if all([isinstance(i, CompBezierCurve.Point) for i in points]):
-          self.cda = points[0]  #control direction point A
+          self.cda = points[0] #control direction point A
           self.cmp = points[1] #main point
           self.cdb = points[2] #control direction point B
         elif all([len(i) == 2 for i in points]):
@@ -203,6 +210,19 @@ class CompBezierCurve:
       temx = [e * rx for e in self.getxy('x')]
       temy = [e * ry for e in self.getxy('y')]
       return CompBezierCurve.CBCPoint(*[(i, j) for i, j in zip(temx, temy)])
+
+    def rotate(self, theta):
+      '''rotate the control points of angle theta (in radians) counterclockwise around the point marking the curve
+      It returns the rotated CBCPoint object
+      '''
+      rotcentre = self.getctrlp(1)
+      vecone = self.getctrlp(0) - rotcentre
+      vectwo = self.getctrlp(2) - rotcentre
+      veconerot = vecone.rotatepoint(theta)
+      vectworot = vectwo.rotatepoint(theta)
+      newone = rotcentre + veconerot
+      newtwo = rotcentre + vectworot
+      return CompBezierCurve.CBCPoint(newone, rotcentre, newtwo)
 
   #main class methods
   #constructor
@@ -418,21 +438,21 @@ class CompBezierCurve:
       raise ValueError("length outside range: must be greater than 0 or lesser than the length of the Bézier curve " + str(lenc))
 
     #using bisection method
-    searchint = [0.0, 0.5, 1.0]
+    searchpar = [0.0, 0.5, 1.0]
     estt = None
     c = 0
     while c < maxiter:
-      lt = self.lencurve(i, searchint[1])[0]
+      lt = self.lencurve(i, searchpar[1])[0]
       if d < lt - precision:
-        nsint = [searchint[0], (searchint[1] + searchint[0])/2.0, searchint[1]]
+        nspar = [searchpar[0], (searchpar[1] + searchpar[0])/2.0, searchpar[1]]
       elif d > lt + precision:
-        nsint = [searchint[1], (searchint[2] + searchint[1])/2.0, searchint[2]]        
-      elif d < lt + precision and d > lt - precision:
-        estt = searchint[1]
+        nspar = [searchpar[1], (searchpar[2] + searchpar[1])/2.0, searchpar[2]]        
+      elif d <= lt + precision and d >= lt - precision:
+        estt = searchpar[1]
         break
-      searchint = nsint
-      c = c + 1
-
+      searchpar = nspar
+      c = c+1
+      
     if estt is None:
       raise RuntimeError("Error, max number of iteration reached and a value within precision has not been found!")
     else:
@@ -460,13 +480,13 @@ class CompBezierCurve:
         slp = dpp['y'] / dpp['x']
       except ValueError:
         slp = None
-
+        
       try:
         dpm = self.getpad(refcurve[0], dd-delta) - ptcoor
         slm = dpm['y'] / dpm['x']
       except ValueError:
         slm = None
-
+        
       if slp is None:
         slope = slm
       elif slm is None:
@@ -550,7 +570,9 @@ def python_text_along_path(img, tdraw, text, leadpath, usedfont='sans-serif'):
       ydis = shvertex['y'] - cbcpp.getctrlp(1)['y'] - halfheight  #halfheight corrects the text such that is half top half bottom the leading path
       finp = plc.pointatdistm(angle, ydis)
       shiftvec = finp - cbcpp.getctrlp(1)
-      bendedpoints.append(cbcpp.shift(shiftvec['x'], shiftvec['y']))
+      movcbc = cbcpp.shift(shiftvec['x'], shiftvec['y'])
+      fincbc = movcbc.rotate(tanangle)
+      bendedpoints.append(fincbc)
 
     bendedbzctext.append(CompBezierCurve(*bendedpoints))
     bendedbzctext[-1].closed = cbc.closed
