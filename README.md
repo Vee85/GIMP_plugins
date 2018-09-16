@@ -22,3 +22,6 @@
 
 * **stroke_vectors_options.py**:
   Stroke a path by using a list of arguments, similar to what the GIMP command stroke path can do. It is intended to be used mainly by other scripts which need to replicate those features. Currently it does not allow a custom stroking line, only a set of prebuilded lines.
+
+* **text_along_path.py**:
+  Bend a text along a leading path. It fairly reproduces the feature included in GIMP, which is not usable by other scripts (this one is).
