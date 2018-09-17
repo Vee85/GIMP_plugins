@@ -165,7 +165,7 @@ This script is intended to be used mainly by other scripts which need to repplic
   "RGB*, GRAY*",
   [
     (PF_VECTORS, "vector", "The path to be stroked", None),
-    (PF_INT, "pixsize", "Size in pixel of the stroke", 5),
+    (PF_INT32, "pixsize", "Size in pixel of the stroke", 5),
     (PF_SPINNER, "tstroke", "Line: Solid (0); Long dashed (1); Medium dashed (2); Short dashed (3); Sparse dotted (4);\n \
 Normal dotted (5); Dense dotted (6); Stipples (7); Dash dotted (8); Dash dot dotted (9)", 0, (0, 9, 1)),
   ],

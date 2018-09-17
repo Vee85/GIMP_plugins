@@ -507,7 +507,9 @@ class CompBezierCurve:
 
 
 #The function to be registered in GIMP
-def python_text_along_path(img, tdraw, text, leadpath, usedfont='sans-serif'):
+def python_text_along_path(img, tdraw, text, txtsize, usedfont, leadpath):
+  pdb.gimp_image_undo_group_start(img)
+
   lenli, leads_ids = pdb.gimp_vectors_get_strokes(leadpath)
   if lenli > 1:
     print "Warning, leadpath vectors has more than one stroke ids. The first one is used."
@@ -515,7 +517,7 @@ def python_text_along_path(img, tdraw, text, leadpath, usedfont='sans-serif'):
   _, _, leadcps, _ = pdb.gimp_vectors_stroke_get_points(leadpath, leads_ids[0])
   bzclead = CompBezierCurve(*leadcps)
 
-  text_layer = pdb.gimp_text_fontname(img, tdraw, img.width/3, img.height/3, text, 0, False, 60, 0, usedfont)
+  text_layer = pdb.gimp_text_fontname(img, tdraw, img.width/3, img.height/3, text, 0, False, txtsize, 0, usedfont)
   textvec = pdb.gimp_vectors_new_from_text_layer(img, text_layer)
   pdb.gimp_image_insert_vectors(img, textvec, None, 0)
   
@@ -595,6 +597,8 @@ def python_text_along_path(img, tdraw, text, leadpath, usedfont='sans-serif'):
   pdb.gimp_edit_bucket_fill(bendlayer, 0, LAYER_MODE_NORMAL, 100, 255, False, 0, 0)
   pdb.gimp_selection_none(img)
 
+  pdb.gimp_image_undo_group_end(img)
+
   return bendlayer, bendvec
 
 
@@ -610,8 +614,9 @@ register(
   "RGB*, GRAY*, INDEXED*",
   [
     (PF_STRING, "text", "The text to be bent", None),
-    (PF_VECTORS, "leadpath", "The path which lead the bending", None),
+    (PF_INT32, "txtsize", "Size of the text in pixels. Will be reduced\nif is too big and does not fit the length of the leading path", 60),
     (PF_FONT, "usedfont", "The font used for the text", 'sans-serif'),
+    (PF_VECTORS, "leadpath", "The path which lead the bending", None),
   ],
   [
     (PF_LAYER, "bendlayer", "A transparent layer with the text bend in foreground color"),
