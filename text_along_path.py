@@ -511,10 +511,9 @@ def python_text_along_path(img, tdraw, text, txtsize, usedfont, leadpath):
   pdb.gimp_image_undo_group_start(img)
 
   lenli, leads_ids = pdb.gimp_vectors_get_strokes(leadpath)
-  if lenli > 1:
-    print "Warning, leadpath vectors has more than one stroke ids. The first one is used."
-    sys.stdout.flush()
-  _, _, leadcps, _ = pdb.gimp_vectors_stroke_get_points(leadpath, leads_ids[0])
+  if lenli == 0:
+    raise RuntimeError("Error, text bending is impossible.\nleadpath has 0 stroke ids.")
+  _, _, leadcps, _ = pdb.gimp_vectors_stroke_get_points(leadpath, leads_ids[-1])
   bzclead = CompBezierCurve(*leadcps)
 
   text_layer = pdb.gimp_text_fontname(img, tdraw, img.width/3, img.height/3, text, 0, False, txtsize, 0, usedfont)
@@ -580,26 +579,30 @@ def python_text_along_path(img, tdraw, text, txtsize, usedfont, leadpath):
     bendedbzctext[-1].closed = cbc.closed
 
   #showing the text as a new path
-  bendvec = pdb.gimp_vectors_new(img, "temporary")
-  pdb.gimp_image_insert_vectors(img, bendvec, None, 0)
+  bentvec = pdb.gimp_vectors_new(img, "temporary")
+  pdb.gimp_image_insert_vectors(img, bentvec, None, 0)
   for el in bendedbzctext:
-    pdb.gimp_vectors_stroke_new_from_points(bendvec, 0, el.lenseq(), el.getfullseq(), el.closed)
+    pdb.gimp_vectors_stroke_new_from_points(bentvec, 0, el.lenseq(), el.getfullseq(), el.closed)
 
   #cleaning up and final steps
   pdb.gimp_image_remove_layer(img, text_layer)
   pdb.gimp_image_remove_vectors(img, textvec)
-  bendvec.name = text
+  bentvec.name = text
 
   bendlayer = pdb.gimp_layer_new(img, img.width, img.height, 1, text, 100, LAYER_MODE_NORMAL)
   pdb.gimp_image_insert_layer(img, bendlayer, None, 0)
   
-  pdb.gimp_image_select_item(img, 0, bendvec)
+  pdb.gimp_image_select_item(img, 0, bentvec)
   pdb.gimp_edit_bucket_fill(bendlayer, 0, LAYER_MODE_NORMAL, 100, 255, False, 0, 0)
   pdb.gimp_selection_none(img)
 
+  if pdb.gimp_edit_copy(bendlayer):
+    floating_text = pdb.gimp_edit_paste(tdraw, True)
+
+  pdb.gimp_image_remove_layer(img, bendlayer)
   pdb.gimp_image_undo_group_end(img)
 
-  return bendlayer, bendvec
+  return floating_text, bentvec
 
 
 #The command to register the function
@@ -615,12 +618,12 @@ register(
   [
     (PF_STRING, "text", "The text to be bent", None),
     (PF_INT32, "txtsize", "Size of the text in pixels. Will be reduced\nif is too big and does not fit the length of the leading path", 60),
-    (PF_FONT, "usedfont", "The font used for the text", 'sans-serif'),
-    (PF_VECTORS, "leadpath", "The path which lead the bending", None),
+    (PF_FONT, "usedfont", "The font used for the text", 'Sans-serif'),
+    (PF_VECTORS, "leadpath", "The path which lead the bending.\nIf it contains more than one id, the last one is used", None),
   ],
   [
-    (PF_LAYER, "bendlayer", "A transparent layer with the text bend in foreground color"),
-    (PF_VECTORS, "bendtext", "The path which represent the bent text"),
+    (PF_LAYER, "floating_text", "A floating selection layer with the text bent in foreground color"),
+    (PF_VECTORS, "bentvec", "The path which represent the bent text"),
   ],
   python_text_along_path
 )
