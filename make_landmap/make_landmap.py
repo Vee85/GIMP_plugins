@@ -22,9 +22,8 @@
 #  
 #  
 
-#This script draws a regional map. Can be used to generate gdr-like maps. It mostly follows the guidelines of a tutorial on http://www.cartographersguild.com/
-#This script must be placed in ~/.gimp-n.m/plug-ins
-#where n.m is the gimp version (e.g. 2.8)
+#This script draws a regional map. Can be used to generate gdr-like maps.
+#It mostly follows the guidelines of a tutorial on http://www.cartographersguild.com/
 
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
@@ -374,8 +373,8 @@ class BDrawDial(gtk.Dialog):
 
     #Designing the interface
     #new row
-    ditext = "Histogram in log scale of the pixel counts.\n"
-    ditext += "Click to add a control point, or draw one to another position.\n"
+    ditext = "Histogram in log scale of the pixel counts.\nRight-click to add a control point, or draw one to another position.\n"
+    ditext += "Left-click on a control point to deactivate it.\nIt will become a circle and is not used.\n"
     laba = gtk.Label(ditext + ltext)
     self.vbox.add(laba)
     
@@ -3066,15 +3065,15 @@ class RiversBuild(GlobalBuilder):
     self.vbox.add(laba)
 
     #new row
-    vbxb = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(vbxb)
+    hboxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxb)
 
     self.raba = gtk.RadioButton(None, "Draw rivers")
     self.raba.connect("toggled", self.on_radiob_toggled, 0)
-    vbxb.add(self.raba)
+    hboxb.add(self.raba)
     self.rabb = gtk.RadioButton(self.raba, "Delete rivers")
     self.rabb.connect("toggled", self.on_radiob_toggled, 1)
-    vbxb.add(self.rabb)
+    hboxb.add(self.rabb)
 
     #new row
     self.add_checkbutton_autohide()
@@ -3390,12 +3389,12 @@ class SymbolsBuild(GlobalBuilder):
   #override method to prepare the symbols drawing (args not used)
   def beforegen(self, *args):
     if not pdb.gimp_item_is_valid(self.bgl):
-      self.bgl = self.makeunilayer("symbols outline")
+      self.bgl = self.makeunilayer(self.namelist[0])
       pdb.gimp_layer_add_alpha(self.bgl)
       pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
 
     if not pdb.gimp_item_is_valid(self.symbols):
-      self.symbols = self.makeunilayer("symbols")
+      self.symbols = self.makeunilayer(self.namelist[1])
       pdb.gimp_layer_add_alpha(self.symbols)
       pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
       self.pixsymb = 0
@@ -3781,6 +3780,203 @@ class RoadBuild(GlobalBuilder):
     del self.roadslayers[-1]
     
 
+#class to add labels to the map
+class LabelsBuild(GlobalBuilder):
+  #constuctor
+  def __init__(self, image, layermask, channelmask, *args):
+    mwin = GlobalBuilder.__init__(self, image, None, layermask, channelmask, False, True, *args)
+
+    #internal arguments
+    self.labels = None
+    self.labpaths = None
+    self.labstyles = ["Title", "Ornate", "Simple"]
+    self.fonts = ['Serif Bold', 'Liberation Serif Bold Italic', 'Sans-serif']
+    self.labcolor = [rgbcoltogdk(136, 29, 0), rgbcoltogdk(0, 0, 0), rgbcoltogdk(0, 0, 0)] 
+    self.bsize = [70, 50, 30]
+    self.chfont = None #will be reinitialized during GUI generation
+    self.chsize = None #will be reinitialized during GUI generation
+    self.chcolor = None #will be reinitialized during GUI generation
+    self.rborient = 0 #will be reinitialized during GUI generation
+
+    self.namelist = ["Labels outline", "Labels"]
+    # ~ self.pixlab = 0
+
+    #designing the interface
+    #new row    
+    labatxt = "Adding labels. You can insert normal labels and curved labels."
+    laba = gtk.Label(labatxt)
+    self.vbox.add(laba)
+
+    #new row
+    hboxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxb)
+    
+    labb = gtk.Label("Choose label style:")
+    hboxb.add(labb)
+    
+    boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_STRING, gobject.TYPE_INT, gtk.gdk.Color)
+    
+    #filling the model for the combobox
+    for i, j, k, w in zip(self.labstyles, self.fonts, self.bsize, self.labcolor):
+      irow = boxmodelb.append(None, [i, j, k, w])
+
+    cboxb = gtk.ComboBox(boxmodelb)
+    rendtextb = gtk.CellRendererText()
+    cboxb.pack_start(rendtextb, True)
+    cboxb.add_attribute(rendtextb, "text", 0)
+    cboxb.set_entry_text_column(0)
+    cboxb.set_active(0)
+    cboxb.connect("changed", self.on_style_changed)
+    hboxb.add(cboxb)
+
+    self.butcolor = gtk.ColorButton()
+    self.butcolor.set_title("Change color")
+    self.butcolor.connect("color-set", self.on_butcolor_clicked)
+    hboxb.add(self.butcolor)
+
+    self.on_style_changed(cboxb) #setting the initial parameters
+
+    #new row
+    hboxc = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxc)
+
+    self.rabca = gtk.RadioButton(None, "Straight horizontal label")
+    self.rabca.connect("toggled", self.on_radiob_toggled, 0)
+    hboxc.add(self.rabca)
+    self.rabcb = gtk.RadioButton(self.rabca, "Straight vertical label")
+    self.rabcb.connect("toggled", self.on_radiob_toggled, 1)
+    hboxc.add(self.rabcb)
+    self.rabcc = gtk.RadioButton(self.rabca, "Bended label")
+    self.rabcc.connect("toggled", self.on_radiob_toggled, 2)
+    hboxc.add(self.rabcc)
+
+    #new row
+    hboxd = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxd)
+    
+    labd = gtk.Label("Label Text:")
+    hboxd.add(labd)
+    
+    self.entryd = gtk.Entry(20)
+    hboxd.add(self.entryd)
+
+    buttond = gtk.Button("Clear Text")
+    buttond.connect("clicked", self.on_but_entry_clear)
+    hboxd.add(buttond)
+
+    #button area
+    self.add_button_quit()
+    self.add_button_cancel("Cancel Labels")
+    self.add_button_showhide()
+    self.add_button_generate("Add Label")
+    self.add_button_nextprev()
+    return mwin
+
+  #callback method, set the label style
+  def on_style_changed(self, widget):
+    refmode = widget.get_model()
+    self.chfont = refmode.get_value(widget.get_active_iter(), 1)
+    self.chsize = refmode.get_value(widget.get_active_iter(), 2)
+    chosencol = refmode.get_value(widget.get_active_iter(), 3)
+    self.chcolor = gdkcoltorgb(chosencol)
+    self.butcolor.set_color(chosencol)
+
+  #callback method, set the orientation
+  def on_radiob_toggled(self, widget, vv):
+    self.rborient = vv
+
+  #callback method, clear the text in the entry at button press
+  def on_but_entry_clear(self, widget):
+    self.entryd.set_text("")
+
+  #callback method, setting the color
+  def on_butcolor_clicked(self, widget):
+    self.chcolor = gdkcoltorgb(widget.get_color())
+
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.labels)
+      self.bgl = None
+      self.labels = None
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.bgl, self.labels)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.bgl, self.labels)
+
+  #override loading method
+  def loaddrawables(self):
+    for ll in self.img.layers:
+      if ll.name == self.namelist[0]:
+        self.bgl = ll
+      if ll.name == self.namelist[1]:
+        self.labels = ll
+    return self.loaded()
+
+  # ~ #method, check and update pixlab attribute
+  # ~ def checkpixlab(self):
+    # ~ _, _, _, newpixlab, _, _ = pdb.gimp_drawable_histogram(self.labels, HISTOGRAM_VALUE, 0.0, 1.0)
+    # ~ if self.pixlab != newpixlab:
+      # ~ self.pixlab = newpixlab
+      # ~ return True
+    # ~ else:
+      # ~ return False
+      
+  #override method to prepare the labels drawing (args not used)
+  def beforegen(self, *args):
+    if not pdb.gimp_item_is_valid(self.bgl):
+      self.bgl = self.makeunilayer(self.namelist[0])
+      pdb.gimp_layer_add_alpha(self.bgl)
+      pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
+
+    if not pdb.gimp_item_is_valid(self.labels):
+      self.labels = self.makeunilayer(self.namelist[1])
+      pdb.gimp_layer_add_alpha(self.labels)
+      pdb.plug_in_colortoalpha(self.img, self.labels, (255, 255, 255))
+      # ~ self.pixlab = 0
+    # ~ else:
+      # ~ _, _, _, self.pixlab, _, _ = pdb.gimp_drawable_histogram(self.labels, HISTOGRAM_VALUE, 0.0, 1.0)
+
+    if not pdb.gimp_item_is_valid(self.labpaths):
+      self.labpaths = pdb.gimp_vectors_new(self.img, "leadpaths")
+      pdb.gimp_image_insert_vectors(self.img, self.labpaths, None, 0)
+      
+    pdb.gimp_image_set_active_layer(self.img, self.labels)
+    pdb.gimp_image_set_active_vectors(self.img, self.labpaths)
+    pdb.gimp_displays_flush()
+
+  #override method, drawing a label
+  def generatestep(self):
+    oldfgcol = pdb.gimp_context_get_foreground()
+    pdb.gimp_context_set_foreground(self.chcolor)
+
+    if self.rborient == 0:
+      lenli, sids = pdb.gimp_vectors_get_strokes(self.labpaths)
+      if lenli > 0:
+        _, _, controlpoints, _ = pdb.gimp_vectors_stroke_get_points(self.labpaths, sids[-1])
+        coord = controlpoints[2:4] #getting x and y coordinates of the first point
+        floating_text = pdb.gimp_text_fontname(self.img, self.labels, coord[0], coord[1], self.entryd.get_text(), 0, False, self.chsize, 0, self.chfont)
+        pdb.gimp_floating_sel_anchor(floating_text)
+      else:
+        infodi = MsgDialog("Warning!", self, "You must add a point to mark the position where the label is added.")
+        infodi.run()
+
+    elif self.rborient == 1:
+      pass
+
+    elif self.rborient == 2:
+      try:
+        floating_text, bentvec = pdb.python_fu_text_along_path(self.img, self.labels, self.entryd.get_text(), self.chsize, self.chfont, self.labpaths)
+        pdb.gimp_image_remove_vectors(self.img, bentvec)
+        pdb.gimp_floating_sel_anchor(floating_text)
+      except RuntimeError, err:
+        infodi = MsgDialog("Warning!", self, err)
+        infodi.run()
+
+    pdb.gimp_context_set_foreground(oldfgcol)
+    pdb.gimp_image_set_active_vectors(self.img, self.labpaths)
+
+
 #class for the customized GUI
 class MainApp(gtk.Window):
   #constructor
@@ -3853,6 +4049,8 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
     builderlist.append(self.symbols)
     self.roads = RoadBuild(self.img, layermask, channelmask, "Adding roads", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     builderlist.append(self.roads)
+    self.labels = LabelsBuild(self.img, layermask, channelmask, "Adding labels", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    builderlist.append(self.labels)
         
     #setting stuffs
     if iswater > 0:
@@ -3865,7 +4063,8 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
     self.forest.setreferences(self.mount, self.rivers)
     self.rivers.setreferences(self.forest, self.symbols)
     self.symbols.setreferences(self.rivers, self.roads)
-    self.roads.setreferences(self.symbols, None)
+    self.roads.setreferences(self.symbols, self.labels)
+    self.labels.setreferences(self.roads, None)
 
     #loading already present layers and setting the first drawable to launch
     if loading:
@@ -3964,13 +4163,21 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
       inidi.run()
       inidi.destroy()
 
+
 #The function to be registered in GIMP
 def python_make_landmap(img, tdraw):
   #query the procedure database
   numfelimg, _ = pdb.gimp_procedural_db_query("plug-in-fimg-noise", ".*", ".*", ".*", ".*", ".*", ".*")
   if numfelimg == 0:
     messtxt = "Warning: you need to install the felimage plugin to use all the features of this plugin properly.\n"
-    messtxt += "Without the felimage plugin, the mountains quality will be poor."  
+    messtxt += "Without the felimage plugin, the mountains quality will be poor."
+    pdb.gimp_message(messtxt)
+
+  #query the procedure database
+  numvap, _ = pdb.gimp_procedural_db_query("python-fu-text-along-path", ".*", ".*", ".*", ".*", ".*", ".*")
+  if numvap == 0:
+    messtxt = "Warning: you need to install the text_along_path.py plugin to use all the features of this plugin properly.\n"
+    messtxt += "Without the text_along_path.py plugin, map labels cannot be bended."
     pdb.gimp_message(messtxt)
 
   #query the procedure database
@@ -3986,8 +4193,8 @@ def python_make_landmap(img, tdraw):
 
 #The command to register the function
 register(
-  "python-fu_make-landmap",
-  "python-fu_make-landmap",
+  "python-fu-make-landmap",
+  "python-fu-make-landmap",
   "Draw a regional map. Popup dialogs will guide the user in the process.",
   "Valentino Esposito",
   "Valentino Esposito",
@@ -3997,7 +4204,7 @@ register(
   [],
   [],
   python_make_landmap
-  )
+)
 
 #The main function to activate the script
 main()

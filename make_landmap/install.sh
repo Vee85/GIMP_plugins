@@ -24,7 +24,7 @@
 #setting names
 mainscript="make_landmap.py"
 mainfolder="make_landmap_brushes"
-ausscript="stroke_vectors_options.py"
+allscripts=(${mainscript} "stroke_vectors_options.py" "text_along_path.py")
 
 echo "$mainscript installation script, working on linux systems.\n"
 echo "This script copies the main script and the other relevant files in the GIMP user directories."
@@ -54,15 +54,14 @@ else
   exit 1
 fi
 
-echo "Copying $mainscript..."
-cp $mainscript $instdir/plug-ins
-
-echo "Copying $ausscript..."
-cp $ausscript $instdir/plug-ins
+for asc in ${allscripts[@]}; do
+  echo "Copying $asc..."
+  cp ${asc} ${instdir}/plug-ins
+done
 
 if [ ! -d "$instdir/plug-ins/$mainfolder" ]; then
   echo "Creating $mainfolder directory..."
-  mkdir $instdir/plug-ins/$mainfolder
+  mkdir ${instdir}/plug-ins/$mainfolder
 else
   echo "$mainfolder directory already present. Files will be overwritten."
 fi
@@ -70,6 +69,6 @@ fi
 
 cd $mainfolder
 echo "Copying png icons..."
-cp *.png $instdir/plug-ins/$mainfolder
+cp *.png ${instdir}/plug-ins/$mainfolder
 echo "Copying brushes..."
-cp *.gbr $instdir/brushes
+cp *.gbr ${instdir}/brushes
