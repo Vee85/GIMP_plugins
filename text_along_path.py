@@ -425,6 +425,8 @@ class CompBezierCurve:
     '''Calculate the approximated length of the composite Bézier curve using lencurve method'''
     allenc = [self.lencurve(i, 1.0, precision, maxiter)[0] for i in range(1, self.numbezc()+1)]
     integrlenc = [sum(allenc[:i+1]) for i in range(len(allenc))]
+    if len(integrlenc) == 0:
+      raise RuntimeError("Error! Control points are not enough, there is no composite Bézier curve to measure!")
     return integrlenc[-1]
 
   def getpad(self, i, d, precision=1, maxiter=100):
@@ -435,7 +437,7 @@ class CompBezierCurve:
     '''
     lenc, _, _ = self.lencurve(i)
     if d < 0.0 or d > lenc:
-      raise ValueError("length outside range: must be greater than 0 or lesser than the length of the Bézier curve " + str(lenc))
+      raise ValueError("Length outside range: must be greater than 0 or lesser than the length of the Bézier curve " + str(lenc))
 
     #using bisection method
     searchpar = [0.0, 0.5, 1.0]
@@ -557,10 +559,10 @@ def python_text_along_path(img, tdraw, text, txtsize, usedfont, leadpath):
   basexdis = 0.04 * bzcleadlen
   arbix = 10
   lowering = 0.95
-  bendedbzctext = []
+  bentbzctext = []
   halfheight = (max(ssally) - min(ssally))/2.0
   for cbc in shiftedbzctext:
-    bendedpoints = []
+    bentpoints = []
     for cbcpp in cbc:
       xdis = cbcpp.getctrlp(1)['x'] - shvertex['x']
       plc, m = bzclead.getpointcbc((lowering*xdis) + basexdis)
@@ -573,15 +575,15 @@ def python_text_along_path(img, tdraw, text, txtsize, usedfont, leadpath):
       shiftvec = finp - cbcpp.getctrlp(1)
       movcbc = cbcpp.shift(shiftvec['x'], shiftvec['y'])
       fincbc = movcbc.rotate(tanangle)
-      bendedpoints.append(fincbc)
+      bentpoints.append(fincbc)
 
-    bendedbzctext.append(CompBezierCurve(*bendedpoints))
-    bendedbzctext[-1].closed = cbc.closed
+    bentbzctext.append(CompBezierCurve(*bentpoints))
+    bentbzctext[-1].closed = cbc.closed
 
   #showing the text as a new path
   bentvec = pdb.gimp_vectors_new(img, "temporary")
   pdb.gimp_image_insert_vectors(img, bentvec, None, 0)
-  for el in bendedbzctext:
+  for el in bentbzctext:
     pdb.gimp_vectors_stroke_new_from_points(bentvec, 0, el.lenseq(), el.getfullseq(), el.closed)
 
   #cleaning up and final steps
