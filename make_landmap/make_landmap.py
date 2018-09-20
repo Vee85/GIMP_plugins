@@ -802,7 +802,7 @@ class TLSbase(gtk.Dialog):
       self.subimgd.delete()
       self.subimgd = None
 
-  #method, generate the stuffs. To be overrided by child classes
+  #method, generate the stuffs. To be overrided by child classes, must return true or false (if stuffs have been generated correctly)
   def generatestep(self):
     raise NotImplementedError("child class must implement on_butgen_clicked method")
 
@@ -1368,14 +1368,19 @@ class GlobalBuilder(TLSbase):
   def on_butgen_clicked(self, widget):
     if self.generated and not self.multigen:
       self.dhsdrawables(self.DHSACT_DELETE)
+      self.setgenerated(False)
       self.setinsindex()
       self.beforegen()
-    self.generatestep()
-    self.setgenerated(True)
+    isgen = self.generatestep()
     if self.multigen:
+      if isgen:
+        self.setgenerated(True)
       self.setinsindex()
       self.beforegen()
+    else:
+      self.setgenerated(isgen)
 
+    pdb.gimp_displays_flush()
 
 #class for building stuffs in small selected areas. Intented to be used as an abstract class providing common interface and methods (old BuildAddition class)
 class LocalBuilder(TLSbase):
@@ -1633,6 +1638,7 @@ class LocalBuilder(TLSbase):
   def on_butgenrdn_clicked(self, widget):
     if self.generated and not self.multigen:
       self.dhsdrawables(self.DHSACT_DELETE)
+      self.setgenerated(False)
       self.setinsindex()
     self.makegrouplayer(self.textes["baseln"] + "group", self.insindex)
 
@@ -1656,20 +1662,25 @@ class LocalBuilder(TLSbase):
       if self.onsubmap:
         pdb.gimp_item_set_visible(cpmask, False)
       self.appendmask(self.addingchannel)
-      self.generatestep()
-      self.setgenerated(True)
+      isgen = self.generatestep()
       if self.multigen:
+        if isgen:
+          self.setgenerated(True)
         self.setinsindex()
         self.beforegen()
+      else:
+        self.setgenerated(isgen)
     else:
       pdb.gimp_image_remove_layer(self.getimg(), newmp.bgl)
 
     self.takefromsubmap(cpmap)
+    pdb.gimp_displays_flush()
     
   #callback method to let the user to select the area by hand and generate the mask profile.
   def on_butgenhnp_clicked(self, widget):
     if self.generated and not self.multigen:
       self.dhsdrawables(self.DHSACT_DELETE)
+      self.setgenerated(False)
       self.setinsindex()
       
     #making the grouplayer only if needed (an empty grouplayer may be ready to be used from a previous call of this method) 
@@ -1701,12 +1712,15 @@ class LocalBuilder(TLSbase):
         infodi.destroy()
         self.addingchannel.name = self.textes["baseln"] + "mask"
         self.appendmask(self.addingchannel)
-        self.generatestep()
-        self.setgenerated(True)
+        isgen = self.generatestep()
         self.takefromsubmap(cpmap)
         if self.multigen:
+          if isgen:
+            self.setgenerated(True)
           self.beforegen()
           self.setinsindex()
+        else:
+          self.setgenerated(isgen)
       else:
         infodib = MsgDialog("Warning", infodi, "You have to create a selection!")
         rr = infodib.run()
@@ -1722,6 +1736,8 @@ class LocalBuilder(TLSbase):
       pdb.gimp_image_remove_layer(self.getimg(), self.groupl[-1])
       del self.groupl[-1]
       infodi.destroy()
+
+    pdb.gimp_displays_flush()
 
 
 #class to generate random mask profile
@@ -1969,10 +1985,10 @@ class MaskProfile(GlobalBuilder):
       cmm = "The lower the selected value, the wider the affected area."
       self.clipl = self.makeclipl(self.textes["baseln"] + "clip", cmm)
       self.makeprofilel(self.textes["baseln"] + "layer")
-      
-      pdb.gimp_displays_flush()
-      
 
+      return True
+
+      
 #class to generate the water mass profile (sea, ocean, lakes)
 class WaterBuild(GlobalBuilder):
   #constructor
@@ -2104,9 +2120,8 @@ class WaterBuild(GlobalBuilder):
         pxpar = 5.0
       
       self.gaussblur(maskshore, pxpar, pxpar, 0)
-    
-    pdb.gimp_displays_flush()
 
+    return True
 
 #class holding the regional colors and providing interface to select a region
 class RegionChooser:
@@ -2292,8 +2307,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     pdb.plug_in_bump_map_tiled(self.getimg(), self.basebumpsl, self.bumpmapl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
     self.addmaskp(self.basebumpsl)
 
-    pdb.gimp_displays_flush()
-    
+    return True
 
 #class to generate small area of a different land type than the main one
 class AdditionalDetBuild(LocalBuilder, RegionChooser):
@@ -2366,8 +2380,7 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
     if not self.smoothbeforecomb and self.smoothval > 0:
       self.gaussblur(maskt, self.smoothval, self.smoothval, 0)
 
-    pdb.gimp_displays_flush()
-
+    return True
 
 #class to generate the dirt on the terrain
 class DirtDetails(GlobalBuilder):
@@ -2483,8 +2496,7 @@ class DirtDetails(GlobalBuilder):
     cldo.run()
     cldo.destroy()
     
-    pdb.gimp_displays_flush()
-
+    return True
 
 #class to generate the mountains
 class MountainsBuild(LocalBuilder):
@@ -2903,9 +2915,9 @@ class MountainsBuild(LocalBuilder):
       cldo.run()
       cldo.destroy()
 
-    pdb.gimp_displays_flush()
+    return True
 
-
+    
 #class to generate the forests
 class ForestBuild(LocalBuilder):
   #constructor
@@ -3034,10 +3046,10 @@ class ForestBuild(LocalBuilder):
       del self.colorlayers[:]
     for cn in self.fclist:
       self.colorlayers.append(self.addforestcol(cn))
+
+    return True
+
     
-    pdb.gimp_displays_flush()
-
-
 #class to drawing the rivers
 class RiversBuild(GlobalBuilder):
   #constructor
@@ -3708,10 +3720,34 @@ class RoadBuild(GlobalBuilder):
         self.bgl = self.roadslayers[-1]
     return self.loaded()
 
+  #method deleting the last drawables added by beforegen
+  def dellastdraws(self):
+    pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
+    pdb.gimp_image_remove_layer(self.img, self.roadslayers[-1])
+    del self.paths[-1]
+    del self.roadslayers[-1]
+    
   #drawing the roads
   def generatestep(self):
     oldfgcol = pdb.gimp_context_get_foreground()
     pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color to white
+
+    nids, stids = pdb.gimp_vectors_get_strokes(self.paths[-1])
+    if nids == 0:
+      infodi = MsgDialog("Warning!", self, "No path is drawn to draw any road!")
+      infodi.run()
+      infodi.destroy()
+      self.dellastdraws()
+      return False
+    else:
+      for sid in stids:
+        _, nump, _, _ = pdb.gimp_vectors_stroke_get_points(self.paths[-1], sid)
+        if nump <= 6: #means that there is only one point for this stroke
+          infodi = MsgDialog("Warning!", self, "There is one stroke with one point,\nimpossible to draw the road!")
+          infodi.run()
+          infodi.destroy()
+          self.dellastdraws()
+          return False
 
     try:
       pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize, 0)
@@ -3725,6 +3761,7 @@ class RoadBuild(GlobalBuilder):
       pdb.gimp_edit_stroke_vectors(self.roadslayers[-1], self.paths[-1])
     
     pdb.gimp_context_set_foreground(oldfgcol)
+    return True
 
   #override callback method to cancel roads
   def on_butcanc_clicked(self, widget):
@@ -3772,12 +3809,9 @@ class RoadBuild(GlobalBuilder):
 
     filechooser.destroy()
 
-  #override method to delete the last vectors drawable
+  #override method to call dellastddraws
   def afterclosing(self, who):
-    pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
-    pdb.gimp_image_remove_layer(self.img, self.roadslayers[-1])
-    del self.paths[-1]
-    del self.roadslayers[-1]
+    self.dellastdraws()
     
 
 #class to add labels to the map
@@ -3798,12 +3832,16 @@ class LabelsBuild(GlobalBuilder):
     self.chcolor = None #will be reinitialized during GUI generation
     self.rborient = 0 #will be reinitialized during GUI generation
 
-    self.namelist = ["Labels outline", "Labels"]
-    # ~ self.pixlab = 0
+    self.namelist = ["Labels outline", "Labels", "Leadpaths"]
+    self.bgcol = (223, 223, 83)
 
     #designing the interface
-    #new row    
-    labatxt = "Adding labels. You can insert normal labels and curved labels."
+    #new row
+    labatxt = "Adding labels. Select a style to choose a font and a color. You can insert normal labels and curved labels.\n"
+    labatxt += "Normal labels: using path, draw a point in the leadpath path. This will be top-left corner angle of the label.\n"
+    labatxt += "Bent labels: using path, draw the path where the label should appear. The text will be bent along the path.\n\n"
+    labatxt += "You can add as much labels as you want, with different styles each one. Simply set the style, write the text\n"
+    labatxt += "in the entry, and press the 'Add Label' button."
     laba = gtk.Label(labatxt)
     self.vbox.add(laba)
 
@@ -3840,15 +3878,12 @@ class LabelsBuild(GlobalBuilder):
     hboxc = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hboxc)
 
-    self.rabca = gtk.RadioButton(None, "Straight horizontal label")
+    self.rabca = gtk.RadioButton(None, "Horizontal label")
     self.rabca.connect("toggled", self.on_radiob_toggled, 0)
     hboxc.add(self.rabca)
-    self.rabcb = gtk.RadioButton(self.rabca, "Straight vertical label")
+    self.rabcb = gtk.RadioButton(self.rabca, "Bent label")
     self.rabcb.connect("toggled", self.on_radiob_toggled, 1)
     hboxc.add(self.rabcb)
-    self.rabcc = gtk.RadioButton(self.rabca, "Bended label")
-    self.rabcc.connect("toggled", self.on_radiob_toggled, 2)
-    hboxc.add(self.rabcc)
 
     #new row
     hboxd = gtk.HBox(spacing=10, homogeneous=True)
@@ -3863,6 +3898,9 @@ class LabelsBuild(GlobalBuilder):
     buttond = gtk.Button("Clear Text")
     buttond.connect("clicked", self.on_but_entry_clear)
     hboxd.add(buttond)
+
+    #new row
+    self.add_checkbutton_autohide()
 
     #button area
     self.add_button_quit()
@@ -3896,7 +3934,7 @@ class LabelsBuild(GlobalBuilder):
   #override deleting, hiding or showing method
   def dhsdrawables(self, action):
     if action == self.DHSACT_DELETE:
-      self.deletedrawables(self.labels)
+      self.deletedrawables(self.labels, self.labpaths)
       self.bgl = None
       self.labels = None
     elif action == self.DHSACT_HIDE:
@@ -3911,17 +3949,12 @@ class LabelsBuild(GlobalBuilder):
         self.bgl = ll
       if ll.name == self.namelist[1]:
         self.labels = ll
+
+    for vl in self.img.vectors:
+      if vl.name == self.namelist[2]:
+        self.labpaths = vl
     return self.loaded()
 
-  # ~ #method, check and update pixlab attribute
-  # ~ def checkpixlab(self):
-    # ~ _, _, _, newpixlab, _, _ = pdb.gimp_drawable_histogram(self.labels, HISTOGRAM_VALUE, 0.0, 1.0)
-    # ~ if self.pixlab != newpixlab:
-      # ~ self.pixlab = newpixlab
-      # ~ return True
-    # ~ else:
-      # ~ return False
-      
   #override method to prepare the labels drawing (args not used)
   def beforegen(self, *args):
     if not pdb.gimp_item_is_valid(self.bgl):
@@ -3933,12 +3966,9 @@ class LabelsBuild(GlobalBuilder):
       self.labels = self.makeunilayer(self.namelist[1])
       pdb.gimp_layer_add_alpha(self.labels)
       pdb.plug_in_colortoalpha(self.img, self.labels, (255, 255, 255))
-      # ~ self.pixlab = 0
-    # ~ else:
-      # ~ _, _, _, self.pixlab, _, _ = pdb.gimp_drawable_histogram(self.labels, HISTOGRAM_VALUE, 0.0, 1.0)
-
+      
     if not pdb.gimp_item_is_valid(self.labpaths):
-      self.labpaths = pdb.gimp_vectors_new(self.img, "leadpaths")
+      self.labpaths = pdb.gimp_vectors_new(self.img, self.namelist[2])
       pdb.gimp_image_insert_vectors(self.img, self.labpaths, None, 0)
       
     pdb.gimp_image_set_active_layer(self.img, self.labels)
@@ -3948,8 +3978,15 @@ class LabelsBuild(GlobalBuilder):
   #override method, drawing a label
   def generatestep(self):
     oldfgcol = pdb.gimp_context_get_foreground()
+    
+    lbtxt = self.entryd.get_text()
+    if len(lbtxt) == 0:
+      infodi = MsgDialog("Warning!", self, "Write the text of the label before!")
+      infodi.run()
+      infodi.destroy()
+      return False
+      
     pdb.gimp_context_set_foreground(self.chcolor)
-
     if self.rborient == 0:
       lenli, sids = pdb.gimp_vectors_get_strokes(self.labpaths)
       if lenli > 0:
@@ -3960,21 +3997,41 @@ class LabelsBuild(GlobalBuilder):
       else:
         infodi = MsgDialog("Warning!", self, "You must add a point to mark the position where the label is added.")
         infodi.run()
-
+        infodi.destroy()
+        pdb.gimp_context_set_foreground(oldfgcol)
+        return False
+        
     elif self.rborient == 1:
-      pass
-
-    elif self.rborient == 2:
       try:
         floating_text, bentvec = pdb.python_fu_text_along_path(self.img, self.labels, self.entryd.get_text(), self.chsize, self.chfont, self.labpaths)
         pdb.gimp_image_remove_vectors(self.img, bentvec)
         pdb.gimp_floating_sel_anchor(floating_text)
-      except RuntimeError, err:
+      except (ValueError, RuntimeError), err:
         infodi = MsgDialog("Warning!", self, err)
         infodi.run()
-
+        infodi.destroy()
+        pdb.gimp_context_set_foreground(oldfgcol)
+        return False
+        
     pdb.gimp_context_set_foreground(oldfgcol)
     pdb.gimp_image_set_active_vectors(self.img, self.labpaths)
+    return True
+
+  #override method to fix labels, add finishing touches and close.
+  def afterclosing(self, who):
+    if self.generated:
+      pdb.gimp_drawable_edit_clear(self.bgl)
+      pdb.gimp_image_select_item(self.img, 2, self.labels) #2 = replace selection, this select everything in the layer which is not transparent
+      pdb.gimp_selection_grow(self.img, 2)
+      pdb.gimp_selection_feather(self.img, 5)
+      colfillayer(self.img, self.bgl, self.bgcol)
+      pdb.gimp_selection_none(self.img)
+    else:
+      pdb.gimp_image_remove_layer(self.img, self.bgl)
+      pdb.gimp_image_remove_layer(self.img, self.labels)
+      pdb.gimp_image_remove_vectors(self.img, self.labpaths)
+
+    pdb.gimp_displays_flush()
 
 
 #class for the customized GUI
@@ -4177,7 +4234,7 @@ def python_make_landmap(img, tdraw):
   numvap, _ = pdb.gimp_procedural_db_query("python-fu-text-along-path", ".*", ".*", ".*", ".*", ".*", ".*")
   if numvap == 0:
     messtxt = "Warning: you need to install the text_along_path.py plugin to use all the features of this plugin properly.\n"
-    messtxt += "Without the text_along_path.py plugin, map labels cannot be bended."
+    messtxt += "Without the text_along_path.py plugin, map labels cannot be bent."
     pdb.gimp_message(messtxt)
 
   #query the procedure database
