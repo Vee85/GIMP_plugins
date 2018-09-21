@@ -3816,6 +3816,61 @@ class RoadBuild(GlobalBuilder):
 
 #class to add labels to the map
 class LabelsBuild(GlobalBuilder):
+  #nested class, controlling random displacement of symbols
+  class SelPosD(gtk.Dialog):
+    #constructor
+    def __init__(self, *args):
+      swin = gtk.Dialog.__init__(self, *args)
+      self.set_border_width(10)
+      self.labposid = 0
+      
+      #new row
+      hbxa = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hbxa)
+      
+      laba = gtk.Label("Select where do you want to add the label.")
+      hbxa.add(laba)
+      
+      #new row
+      vbxb = gtk.VBox(spacing=10, homogeneous=True)
+      self.vbox.add(vbxb)
+
+      self.raba = gtk.RadioButton(None, "Top-Left")
+      self.raba.connect("toggled", self.on_radiob_toggled, 0)
+      vbxb.add(self.raba)
+      self.rabb = gtk.RadioButton(self.raba, "Top (Title)")
+      self.rabb.connect("toggled", self.on_radiob_toggled, 1)
+      vbxb.add(self.rabb)
+      self.rabc = gtk.RadioButton(self.raba, "Top-Right")
+      self.rabc.connect("toggled", self.on_radiob_toggled, 2)
+      vbxb.add(self.rabc)
+
+      #new row
+      vbxc = gtk.VBox(spacing=10, homogeneous=True)
+      self.vbox.add(vbxc)
+
+      self.rabd = gtk.RadioButton(self.raba, "Bottom-Left")
+      self.rabd.connect("toggled", self.on_radiob_toggled, 3)
+      vbxc.add(self.rabd)
+      self.rabe = gtk.RadioButton(self.raba, "Bottom")
+      self.rabe.connect("toggled", self.on_radiob_toggled, 4)
+      vbxc.add(self.rabe)
+      self.rabf = gtk.RadioButton(self.raba, "Bottom-Right")
+      self.rabf.connect("toggled", self.on_radiob_toggled, 5)
+      vbxc.add(self.rabf)
+
+      #button area
+      self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+      self.add_button("OK", gtk.RESPONSE_OK)
+      
+      self.show_all()
+      return swin
+
+    #callback method, set the position index
+    def on_radiob_toggled(self, widget, vv):
+      self.labposid = vv
+
+  #Main class methods
   #constuctor
   def __init__(self, image, layermask, channelmask, *args):
     mwin = GlobalBuilder.__init__(self, image, None, layermask, channelmask, False, True, *args)
@@ -3837,13 +3892,27 @@ class LabelsBuild(GlobalBuilder):
 
     #designing the interface
     #new row
-    labatxt = "Adding labels. Select a style to choose a font and a color. You can insert normal labels and curved labels.\n"
-    labatxt += "Normal labels: using path, draw a point in the leadpath path. This will be top-left corner angle of the label.\n"
-    labatxt += "Bent labels: using path, draw the path where the label should appear. The text will be bent along the path.\n\n"
+    labatxt = "Adding labels. Select a style to choose a font and a color. You can insert normal labels and curved labels.\n\n"
+    labatxt += u" \u2022 Title / Frame labels: an horizontal text label placed alongside the border of the image, at the generic position\n"
+    labatxt += "   indicated by the user (top, bottom, a corner).\n"
+    labatxt += u" \u2022 Content labels: using path, draw the path where the label should appear. Use always '" + self.namelist[2] + "' path.\n"
+    labatxt += "   The last stroke is used: if it is composed by a single point, this is the upper left corner of an horizontal text label,\n"
+    labatxt += "   otherwise the text will be bent along the path starting from the first point. Text is shrinked to fit the path length if needed.\n\n"
     labatxt += "You can add as much labels as you want, with different styles each one. Simply set the style, write the text\n"
     labatxt += "in the entry, and press the 'Add Label' button."
     laba = gtk.Label(labatxt)
     self.vbox.add(laba)
+
+    #new row
+    hboxc = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxc)
+
+    self.rabca = gtk.RadioButton(None, "Title / Frame labels")
+    self.rabca.connect("toggled", self.on_radiob_toggled, 0)
+    hboxc.add(self.rabca)
+    self.rabcb = gtk.RadioButton(self.rabca, "Content label")
+    self.rabcb.connect("toggled", self.on_radiob_toggled, 1)
+    hboxc.add(self.rabcb)
 
     #new row
     hboxb = gtk.HBox(spacing=10, homogeneous=True)
@@ -3873,17 +3942,6 @@ class LabelsBuild(GlobalBuilder):
     hboxb.add(self.butcolor)
 
     self.on_style_changed(cboxb) #setting the initial parameters
-
-    #new row
-    hboxc = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hboxc)
-
-    self.rabca = gtk.RadioButton(None, "Horizontal label")
-    self.rabca.connect("toggled", self.on_radiob_toggled, 0)
-    hboxc.add(self.rabca)
-    self.rabcb = gtk.RadioButton(self.rabca, "Bent label")
-    self.rabcb.connect("toggled", self.on_radiob_toggled, 1)
-    hboxc.add(self.rabcb)
 
     #new row
     hboxd = gtk.HBox(spacing=10, homogeneous=True)
@@ -3988,26 +4046,53 @@ class LabelsBuild(GlobalBuilder):
       
     pdb.gimp_context_set_foreground(self.chcolor)
     if self.rborient == 0:
-      lenli, sids = pdb.gimp_vectors_get_strokes(self.labpaths)
-      if lenli > 0:
-        _, _, controlpoints, _ = pdb.gimp_vectors_stroke_get_points(self.labpaths, sids[-1])
-        coord = controlpoints[2:4] #getting x and y coordinates of the first point
-        floating_text = pdb.gimp_text_fontname(self.img, self.labels, coord[0], coord[1], self.entryd.get_text(), 0, False, self.chsize, 0, self.chfont)
+      posdi = self.SelPosD("Select position", self, gtk.DIALOG_MODAL)
+      ipr = posdi.run()
+      if ipr == gtk.RESPONSE_OK:
+        shx = 0
+        shy = 0
+        floating_text = pdb.gimp_text_fontname(self.img, self.labels, 0, 0, lbtxt, 0, False, self.chsize, 0, self.chfont)
+        ftw = pdb.gimp_drawable_width(floating_text)
+        fth = pdb.gimp_drawable_height(floating_text)
+        if posdi.labposid in [1, 4]:
+          shx = (self.img.width - ftw)/2.0
+        elif posdi.labposid in [2, 5]:
+          shx = self.img.width - ftw
+        if posdi.labposid in [3, 4, 5]:
+          shy = self.img.height - fth
+
+        if shx != 0 or shy != 0:
+          pdb.gimp_layer_translate(floating_text, shx, shy)
+
+        posdi.destroy()
         pdb.gimp_floating_sel_anchor(floating_text)
-      else:
-        infodi = MsgDialog("Warning!", self, "You must add a point to mark the position where the label is added.")
-        infodi.run()
-        infodi.destroy()
+      elif ipr == gtk.RESPONSE_CANCEL:
+        posdi.destroy()
         pdb.gimp_context_set_foreground(oldfgcol)
         return False
-        
+      
     elif self.rborient == 1:
-      try:
-        floating_text, bentvec = pdb.python_fu_text_along_path(self.img, self.labels, self.entryd.get_text(), self.chsize, self.chfont, self.labpaths)
-        pdb.gimp_image_remove_vectors(self.img, bentvec)
-        pdb.gimp_floating_sel_anchor(floating_text)
-      except (ValueError, RuntimeError), err:
-        infodi = MsgDialog("Warning!", self, err)
+      lenli, sids = pdb.gimp_vectors_get_strokes(self.labpaths)
+      if lenli > 0:
+        _, numpc, controlpoints, _ = pdb.gimp_vectors_stroke_get_points(self.labpaths, sids[-1])
+        if numpc == 6:
+          coord = controlpoints[2:4] #getting x and y coordinates of the first point
+          floating_text = pdb.gimp_text_fontname(self.img, self.labels, coord[0], coord[1], lbtxt, 0, False, self.chsize, 0, self.chfont)
+          pdb.gimp_floating_sel_anchor(floating_text)
+        else:
+          try:
+            floating_text, bentvec = pdb.python_fu_text_along_path(self.img, self.labels, lbtxt, self.chsize, self.chfont, self.labpaths)
+            pdb.gimp_image_remove_vectors(self.img, bentvec)
+            pdb.gimp_floating_sel_anchor(floating_text)
+          except (ValueError, RuntimeError), err:
+            infodi = MsgDialog("Warning!", self, err)
+            infodi.run()
+            infodi.destroy()
+            pdb.gimp_context_set_foreground(oldfgcol)
+            return False
+            
+      else:
+        infodi = MsgDialog("Warning!", self, "The path is empty, add a stroke!")
         infodi.run()
         infodi.destroy()
         pdb.gimp_context_set_foreground(oldfgcol)
