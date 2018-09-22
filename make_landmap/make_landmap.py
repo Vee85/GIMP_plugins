@@ -3817,7 +3817,7 @@ class RoadBuild(GlobalBuilder):
 
 #class to add labels to the map
 class LabelsBuild(GlobalBuilder):
-  #nested class, controlling random displacement of symbols
+  #nested class, let the user choose a position for the label
   class SelPosD(gtk.Dialog):
     #constructor
     def __init__(self, *args):
@@ -3871,6 +3871,73 @@ class LabelsBuild(GlobalBuilder):
     def on_radiob_toggled(self, widget, vv):
       self.labposid = vv
 
+  #nested class, read fonts config file
+  class LoadFonts:
+    #constructor
+    def __init__(self, numfonts):
+      self.filename = "make_landmap_fonts"
+      self.configfile = os.path.dirname(os.path.abspath(__file__)) + '/' + self.filename
+      self.fonts = None
+      self.valid = False
+      self.numfonts = numfonts
+      
+      try:
+        with open(self.configfile) as ff:
+          filelines = ff.readlines()
+      except IOError, e:
+        errdi = MsgDialog("Loading font Error", None, "Config file for fonts not found\n" + str(e))
+        errdi.run()
+        errdi.destroy()
+        return None
+
+      #stripping unvalid lines
+      midlines = [ll.strip() for ll in filelines if ll[0] != '#']
+      validlines = [ll for ll in midlines if len(ll) > 0]
+      self.fonts = validlines[:self.numfonts]
+      if len(self.fonts) < self.numfonts:
+        errdi = MsgDialog("Loading font Error", None, "Not enough fonts in confing file!\nThere should be at least " + str(self.numfonts) + " lines.")
+        errdi.run()
+        errdi.destroy()
+        return None
+        
+      self.valid = self.validatefonts()
+      return None
+
+    #checking if fonts are accessible by GIMP
+    def validatefonts(self):
+      _, allfonts = pdb.gimp_fonts_get_list("")
+      validfonts = [ff in allfonts for ff in self.fonts]
+      if all(validfonts):
+        return True
+      else:
+        for fn, fv in zip(self.fonts, validfonts):
+          if not fv:
+            errdi = MsgDialog("Font Error", None, "Font '" + fn + "' not present in the system. Install it or edit the confing file to choose another font.")
+            errdi.run()
+            errdi.destroy()
+        return False
+
+    #getting font list
+    def getfonts(self):
+      if self.valid:
+        return self.fonts
+      else:
+        return [None] * self.numfonts
+
+    #printing info about fonts
+    def info(self):
+      messtxt = "Fonts are saved in a file called '" + self.filename + "' which should be present in the same folder where is located this plug-in.\n"
+      messtxt += "A copy of the file is provided during installation, but there is not guarantee that the font in the file are installed on your system.\n"
+      messtxt += "If you get errors related to font labes, likely this file is absent or one or more of the included fonts is not installed in you system.\n"
+      messtxt += "In this case, you must create or edit the file by hand, following these guide lines:\n"
+      messtxt += "Each line of this file must contain one font name, there must be a total of " + str(self.numfonts) + " lines, one for each style.\n"
+      messtxt += "You can insert comments using the '#' character at the beginning of a line. Empty lines are ignored.\n"
+      messtxt += "The fastest way to check which fonts you can use is to check which fonts can be used by GIMP.\n"
+      messtxt += "Check the Fonts dialog (Windows -> Dockable Dialogs -> Fonts). It shows all the available fonts."
+      infodi = MsgDialog("Font Info", None, messtxt)
+      infodi.run()
+      infodi.destroy()
+
   #Main class methods
   #constuctor
   def __init__(self, image, layermask, channelmask, *args):
@@ -3880,10 +3947,14 @@ class LabelsBuild(GlobalBuilder):
     self.labels = None
     self.labpaths = None
     self.labstyles = ["Title", "Ornate", "Simple"]
-    self.fonts = ['Serif Bold', 'Liberation Serif Bold Italic', 'Sans-serif']
     self.labcolor = [rgbcoltogdk(136, 29, 0), rgbcoltogdk(0, 0, 0), rgbcoltogdk(0, 0, 0)]
+    
+    self.fontloader = self.LoadFonts(len(self.labstyles))
+    self.fonts = self.fontloader.getfonts()
+    
     basesize = min(self.img.width, self.img.height) * 0.05
     self.bchsize = [basesize*ff for ff in [1.4, 1.0, 0.6]]
+
     self.chfont = None #will be reinitialized during GUI generation
     self.bsize = None #will be reinitialized during GUI generation
     self.chsize = None #will be reinitialized during GUI generation
@@ -3983,6 +4054,11 @@ class LabelsBuild(GlobalBuilder):
 
     #button area
     self.add_button_quit()
+
+    infobutton = gtk.Button("Fonts info")
+    infobutton.connect("clicked", self.on_info_clicked)
+    self.action_area.add(infobutton)
+
     self.add_button_cancel("Cancel Labels")
     self.add_button_showhide()
     self.add_button_generate("Add Label")
@@ -4016,6 +4092,11 @@ class LabelsBuild(GlobalBuilder):
     self.chfact = widget.get_value()
     self.setchsize()
 
+  #callback method to show info on setting the fonts
+  def on_info_clicked(self, widget):
+    self.fontloader.info()
+  
+  #method, set the character size
   def setchsize(self):
     self.chsize = self.chfact * self.bsize
 
@@ -4065,6 +4146,12 @@ class LabelsBuild(GlobalBuilder):
 
   #override method, drawing a label
   def generatestep(self):
+    if self.chfont is None:
+      errdi = MsgDialog("Font Error", self, "Not valid fonts. Cannot generate labels.")
+      errdi.run()
+      errdi.destroy()
+      return False
+    
     oldfgcol = pdb.gimp_context_get_foreground()
     
     lbtxt = self.entryd.get_text()

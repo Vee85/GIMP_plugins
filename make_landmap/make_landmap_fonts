@@ -1,0 +1,7 @@
+#Fonts used by make_landmap.py to write labels.
+#This file must have a row for each style of labels. Each row must contains the name of a font which can be used by GIMP (typically each font installed on the system).
+#Empty and commented lines are not read by the plug-in. Extra valid rows beyond the number of styles are ignored.
+
+Serif Bold
+Liberation Serif Bold Italic
+Sans-serif
