@@ -15,13 +15,13 @@
   Create an animated gif which switches between two o more images with a blurring dissolvence between them. In case more images are provided, the switching is performed passing by an image to the next one, closing the loop with the first image.
 
 * **make_landmap.py**:
-  Generate a regional map. Start from an image with a single layer with white background: pop up dialogs appear to guide the user in the process. Or continue working on a map partially drawn. Works in GIMP 2.10. _The plug-in is not yet complete: up to now can be used to create a map with coasts, mountains, forests, rivers, towns/cities, roads. Future adding: labels._
+  Generate a regional map. Start from an image with a single layer with white background: pop up dialogs appear to guide the user in the process. Map drawing can be interrupted and resumed later. Works in GIMP 2.10.
 
 * **smudge_all.py**:
   Smudge the full layer or a selection area in randomatic directions, creating a random smudge effect. The smudging pressure can be chosen.
 
 * **stroke_vectors_options.py**:
-  Stroke a path by using a list of arguments, similar to what the GIMP command stroke path can do. It is intended to be used mainly by other scripts which need to replicate those features. Currently it does not allow a custom stroking line, only a set of prebuilded lines.
+  Stroke a path by using a list of arguments, similar to what the GIMP command stroke path can do. It is intended to be used mainly by other scripts which need to replicate those features. Currently it does not allow a custom stroking pattern, only a set of prebuilded patterns.
 
 * **text_along_path.py**:
   Bend a text along a leading path. It fairly reproduces the feature included in GIMP, which is not usable by other scripts (this one is).

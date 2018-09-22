@@ -22,9 +22,8 @@
 #  
 #  
 
-#This script draws a regional map. Can be used to generate gdr-like maps. It mostly follows the guidelines of a tutorial on http://www.cartographersguild.com/
-#This script must be placed in ~/.gimp-n.m/plug-ins
-#where n.m is the gimp version (e.g. 2.8)
+#This script draws a regional map. Can be used to generate gdr-like maps.
+#It mostly follows the guidelines of a tutorial on http://www.cartographersguild.com/
 
 #@@@ do so that light comes from the same direction (such as azimuth and angle of various plugins)
 #@@@ add gulf / peninsula type for land using conical shaped gradient (and similar for mountains and forests)
@@ -356,43 +355,6 @@ class CLevDialog(gtk.Dialog):
 
 #class to adjust the color levels of a layer, reproducing a simpler interface to the GIMP color curves dialog. 
 class BDrawDial(gtk.Dialog):
-  #constructor
-  def __init__(self, ltext, *args):
-    dwin = gtk.Dialog.__init__(self, *args)
-    self.set_border_width(10)
-    self.connect("destroy", gtk.main_quit)
-
-    #internal argument
-    self.drw = 500
-    self.drh = 500
-    self.xfr = 10
-    self.yfr = 10
-    self.radmar = 5
-    self.redrawrad = self.radmar + 2
-    self.markers = []
-    self.draggedmarker = None
-
-    #Designing the interface
-    #new row
-    ditext = "Histogram in log scale of the pixel counts.\n"
-    ditext += "Click to add a control point, or draw one to another position.\n"
-    laba = gtk.Label(ditext + ltext)
-    self.vbox.add(laba)
-    
-    #the drawing area
-    self.darea = gtk.DrawingArea()
-    self.darea.set_size_request(self.drw, self.drh)
-    self.darea.connect("expose-event", self.on_expose)
-    self.darea.add_events(gtk.gdk.BUTTON_PRESS_MASK)
-    self.darea.add_events(gtk.gdk.BUTTON_RELEASE_MASK)
-    self.darea.connect("button-press-event", self.on_button_press)
-    self.darea.connect("button-release-event", self.on_button_release)
-    self.vbox.add(self.darea)
-
-    #action area empty
-
-    return dwin
-
   #nested class representing a graphic marker in the drawing area
   class CCMarker:
     #constructor
@@ -426,6 +388,44 @@ class BDrawDial(gtk.Dialog):
       dx = self.x - cx
       dy = self.y - cy
       return math.sqrt(dx*dx + dy*dy)
+
+  #main class methods
+  #constructor
+  def __init__(self, ltext, *args):
+    dwin = gtk.Dialog.__init__(self, *args)
+    self.set_border_width(10)
+    self.connect("destroy", gtk.main_quit)
+
+    #internal argument
+    self.drw = 500
+    self.drh = 500
+    self.xfr = 10
+    self.yfr = 10
+    self.radmar = 5
+    self.redrawrad = self.radmar + 2
+    self.markers = []
+    self.draggedmarker = None
+
+    #Designing the interface
+    #new row
+    ditext = "Histogram in log scale of the pixel counts.\nRight-click to add a control point, or draw one to another position.\n"
+    ditext += "Left-click on a control point to deactivate it.\nIt will become a circle and is not used.\n"
+    laba = gtk.Label(ditext + ltext)
+    self.vbox.add(laba)
+    
+    #the drawing area
+    self.darea = gtk.DrawingArea()
+    self.darea.set_size_request(self.drw, self.drh)
+    self.darea.connect("expose-event", self.on_expose)
+    self.darea.add_events(gtk.gdk.BUTTON_PRESS_MASK)
+    self.darea.add_events(gtk.gdk.BUTTON_RELEASE_MASK)
+    self.darea.connect("button-press-event", self.on_button_press)
+    self.darea.connect("button-release-event", self.on_button_release)
+    self.vbox.add(self.darea)
+
+    #action area empty
+
+    return dwin
 
   #callback method, draw stuffs when the drawing area appears
   def on_expose(self, widget, ev):
@@ -803,7 +803,7 @@ class TLSbase(gtk.Dialog):
       self.subimgd.delete()
       self.subimgd = None
 
-  #method, generate the stuffs. To be overrided by child classes
+  #method, generate the stuffs. To be overrided by child classes, must return true or false (if stuffs have been generated correctly)
   def generatestep(self):
     raise NotImplementedError("child class must implement on_butgen_clicked method")
 
@@ -1369,41 +1369,22 @@ class GlobalBuilder(TLSbase):
   def on_butgen_clicked(self, widget):
     if self.generated and not self.multigen:
       self.dhsdrawables(self.DHSACT_DELETE)
+      self.setgenerated(False)
       self.setinsindex()
       self.beforegen()
-    self.generatestep()
-    self.setgenerated(True)
+    isgen = self.generatestep()
     if self.multigen:
+      if isgen:
+        self.setgenerated(True)
       self.setinsindex()
       self.beforegen()
+    else:
+      self.setgenerated(isgen)
 
+    pdb.gimp_displays_flush()
 
 #class for building stuffs in small selected areas. Intented to be used as an abstract class providing common interface and methods (old BuildAddition class)
 class LocalBuilder(TLSbase):
-  #constructor
-  def __init__(self, image, layermask, channelmask, multigen, *args):
-    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, False, *args)
-    self.insertindex = 0
-    self.addingchannel = None
-    self.textes = None #this should be instantiated in child classes
-    self.multigen = multigen
-    self.smoothbeforecomb = True
-    
-    self.allmasks = [] #will be list of lists
-    self.childnames = ["base", "noise", "clip", "layer"]
-    
-    self.smoothbase = 0
-    self.smoothlist = ["None", "Small", "Medium", "Big"]
-    self.smoothvallist = None
-    self.smoothval = 0 #will be reinitialized by the dedicated method
-
-    self.onsubmap = False
-
-    #No GUI here, it is buildt in the child classes as it may change from class to class. Only the button area is buildt here, which should be equal for all the children
-    #No button area
-
-    return mwin
-
   #class holding the interface to delete paths
   class DelGroup(gtk.Dialog):
     #constructor
@@ -1458,6 +1439,30 @@ class LocalBuilder(TLSbase):
       return self.selgroup
 
   #outer class methods
+  #constructor
+  def __init__(self, image, layermask, channelmask, multigen, *args):
+    mwin = TLSbase.__init__(self, image, None, layermask, channelmask, False, *args)
+    self.insertindex = 0
+    self.addingchannel = None
+    self.textes = None #this should be instantiated in child classes
+    self.multigen = multigen
+    self.smoothbeforecomb = True
+    
+    self.allmasks = [] #will be list of lists
+    self.childnames = ["base", "noise", "clip", "layer"]
+    
+    self.smoothbase = 0
+    self.smoothlist = ["None", "Small", "Medium", "Big"]
+    self.smoothvallist = None
+    self.smoothval = 0 #will be reinitialized by the dedicated method
+
+    self.onsubmap = False
+
+    #No GUI here, it is buildt in the child classes as it may change from class to class. Only the button area is buildt here, which should be equal for all the children
+    #No button area
+
+    return mwin
+    
   #method adding the random and handmade generate button
   def add_buttons_gen(self):
     self.butgenrnd = gtk.Button("Random")
@@ -1634,6 +1639,7 @@ class LocalBuilder(TLSbase):
   def on_butgenrdn_clicked(self, widget):
     if self.generated and not self.multigen:
       self.dhsdrawables(self.DHSACT_DELETE)
+      self.setgenerated(False)
       self.setinsindex()
     self.makegrouplayer(self.textes["baseln"] + "group", self.insindex)
 
@@ -1657,20 +1663,25 @@ class LocalBuilder(TLSbase):
       if self.onsubmap:
         pdb.gimp_item_set_visible(cpmask, False)
       self.appendmask(self.addingchannel)
-      self.generatestep()
-      self.setgenerated(True)
+      isgen = self.generatestep()
       if self.multigen:
+        if isgen:
+          self.setgenerated(True)
         self.setinsindex()
         self.beforegen()
+      else:
+        self.setgenerated(isgen)
     else:
       pdb.gimp_image_remove_layer(self.getimg(), newmp.bgl)
 
     self.takefromsubmap(cpmap)
+    pdb.gimp_displays_flush()
     
   #callback method to let the user to select the area by hand and generate the mask profile.
   def on_butgenhnp_clicked(self, widget):
     if self.generated and not self.multigen:
       self.dhsdrawables(self.DHSACT_DELETE)
+      self.setgenerated(False)
       self.setinsindex()
       
     #making the grouplayer only if needed (an empty grouplayer may be ready to be used from a previous call of this method) 
@@ -1702,12 +1713,15 @@ class LocalBuilder(TLSbase):
         infodi.destroy()
         self.addingchannel.name = self.textes["baseln"] + "mask"
         self.appendmask(self.addingchannel)
-        self.generatestep()
-        self.setgenerated(True)
+        isgen = self.generatestep()
         self.takefromsubmap(cpmap)
         if self.multigen:
+          if isgen:
+            self.setgenerated(True)
           self.beforegen()
           self.setinsindex()
+        else:
+          self.setgenerated(isgen)
       else:
         infodib = MsgDialog("Warning", infodi, "You have to create a selection!")
         rr = infodib.run()
@@ -1724,9 +1738,61 @@ class LocalBuilder(TLSbase):
       del self.groupl[-1]
       infodi.destroy()
 
+    pdb.gimp_displays_flush()
+
 
 #class to generate random mask profile
 class MaskProfile(GlobalBuilder):
+  #nested class, handling a subdialog to improve choice for the mask
+  class SettingDir(gtk.Dialog):
+    #constructor
+    def __init__(self, textes, *args):
+      swin = gtk.Dialog.__init__(self, *args)
+      self.set_border_width(10)
+      
+      self.textes = textes
+      self.namelist = ["top", "top-right", "right", "bottom-right", "bottom", "bottom-left", "left", "top-left"]
+      self.xlist = [1, 2, 2, 2, 1, 0, 0, 0]
+      self.ylist = [0, 0, 1, 2, 2, 2, 1, 0]
+      self.dx = 0 #will be reinitialized during GUI costruction  
+      self.dy = 0 #will be reinitialized during GUI costruction
+      
+      #new row
+      laba = gtk.Label(self.textes["topnestedlab"])
+      self.vbox.add(laba)
+      
+      #new row
+      boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT, gobject.TYPE_INT)
+      
+      #filling the model for the combobox
+      for i, j, k in zip(self.namelist, self.xlist, self.ylist):
+        irow = boxmodelb.append(None, [i, j, k])
+
+      self.dx = self.xlist[0]
+      self.dy = self.ylist[0]
+      
+      cboxb = gtk.ComboBox(boxmodelb)
+      rendtextb = gtk.CellRendererText()
+      cboxb.pack_start(rendtextb, True)
+      cboxb.add_attribute(rendtextb, "text", 0)
+      cboxb.set_entry_text_column(0)
+      cboxb.set_active(0)
+      cboxb.connect("changed", self.on_dir_changed)
+      self.vbox.add(cboxb)
+      
+      #adding button with customized answers
+      self.add_button("OK", gtk.RESPONSE_OK)
+      
+      self.show_all()
+      return swin
+  
+    #callback method, setting the direction parameters
+    def on_dir_changed(self, widget):
+      refmode = widget.get_model()
+      self.dx = refmode.get_value(widget.get_active_iter(), 1)
+      self.dy = refmode.get_value(widget.get_active_iter(), 2)
+
+  #methods of the outer class:
   #constructor
   def __init__(self, textes, image, tdraw, basemask, grouplayer, *args):
     mwin = GlobalBuilder.__init__(self, image, basemask, None, None, True, False, *args)
@@ -1821,57 +1887,7 @@ class MaskProfile(GlobalBuilder):
     
     self.show_all()
     return mwin
-  
-  #nested class, handling a subdialog to improve choice for the mask
-  class SettingDir(gtk.Dialog):
-    #constructor
-    def __init__(self, textes, *args):
-      swin = gtk.Dialog.__init__(self, *args)
-      self.set_border_width(10)
       
-      self.textes = textes
-      self.namelist = ["top", "top-right", "right", "bottom-right", "bottom", "bottom-left", "left", "top-left"]
-      self.xlist = [1, 2, 2, 2, 1, 0, 0, 0]
-      self.ylist = [0, 0, 1, 2, 2, 2, 1, 0]
-      self.dx = 0 #will be reinitialized during GUI costruction  
-      self.dy = 0 #will be reinitialized during GUI costruction
-      
-      #new row
-      laba = gtk.Label(self.textes["topnestedlab"])
-      self.vbox.add(laba)
-      
-      #new row
-      boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT, gobject.TYPE_INT)
-      
-      #filling the model for the combobox
-      for i, j, k in zip(self.namelist, self.xlist, self.ylist):
-        irow = boxmodelb.append(None, [i, j, k])
-
-      self.dx = self.xlist[0]
-      self.dy = self.ylist[0]
-      
-      cboxb = gtk.ComboBox(boxmodelb)
-      rendtextb = gtk.CellRendererText()
-      cboxb.pack_start(rendtextb, True)
-      cboxb.add_attribute(rendtextb, "text", 0)
-      cboxb.set_entry_text_column(0)
-      cboxb.set_active(0)
-      cboxb.connect("changed", self.on_dir_changed)
-      self.vbox.add(cboxb)
-      
-      #adding button with customized answers
-      self.add_button("OK", gtk.RESPONSE_OK)
-      
-      self.show_all()
-      return swin
-  
-    #callback method, setting the direction parameters
-    def on_dir_changed(self, widget):
-      refmode = widget.get_model()
-      self.dx = refmode.get_value(widget.get_active_iter(), 1)
-      self.dy = refmode.get_value(widget.get_active_iter(), 2)
-  
-  #methods of the outer class:
   #callback method, setting the coast type to the one in the combobox
   def on_type_changed(self, widget):
     refmode = widget.get_model()
@@ -1970,10 +1986,10 @@ class MaskProfile(GlobalBuilder):
       cmm = "The lower the selected value, the wider the affected area."
       self.clipl = self.makeclipl(self.textes["baseln"] + "clip", cmm)
       self.makeprofilel(self.textes["baseln"] + "layer")
-      
-      pdb.gimp_displays_flush()
-      
 
+      return True
+
+      
 #class to generate the water mass profile (sea, ocean, lakes)
 class WaterBuild(GlobalBuilder):
   #constructor
@@ -2105,9 +2121,8 @@ class WaterBuild(GlobalBuilder):
         pxpar = 5.0
       
       self.gaussblur(maskshore, pxpar, pxpar, 0)
-    
-    pdb.gimp_displays_flush()
 
+    return True
 
 #class holding the regional colors and providing interface to select a region
 class RegionChooser:
@@ -2293,8 +2308,7 @@ class BaseDetails(GlobalBuilder, RegionChooser):
     pdb.plug_in_bump_map_tiled(self.getimg(), self.basebumpsl, self.bumpmapl, 120, 45, 3, 0, 0, 0, 0, True, False, 2) #2 = sinusoidal
     self.addmaskp(self.basebumpsl)
 
-    pdb.gimp_displays_flush()
-    
+    return True
 
 #class to generate small area of a different land type than the main one
 class AdditionalDetBuild(LocalBuilder, RegionChooser):
@@ -2367,8 +2381,7 @@ class AdditionalDetBuild(LocalBuilder, RegionChooser):
     if not self.smoothbeforecomb and self.smoothval > 0:
       self.gaussblur(maskt, self.smoothval, self.smoothval, 0)
 
-    pdb.gimp_displays_flush()
-
+    return True
 
 #class to generate the dirt on the terrain
 class DirtDetails(GlobalBuilder):
@@ -2484,113 +2497,10 @@ class DirtDetails(GlobalBuilder):
     cldo.run()
     cldo.destroy()
     
-    pdb.gimp_displays_flush()
-
+    return True
 
 #class to generate the mountains
 class MountainsBuild(LocalBuilder):
-  #constructor
-  def __init__(self, image, layermask, channelmask, *args):
-    mwin = LocalBuilder.__init__(self, image, layermask, channelmask, True, *args)
-    self.base = None
-    self.mntangularl = None
-    self.cpvlayer = None
-    self.embosslayer = None
-    self.noisemask = None
-    self.finalmaskl = None
-    self.mntcolorl = None
-    self.mntshadowl = None
-    self.mntedgesl = None
-    
-    self.addsnow = True
-    self.addcol = False
-    self.addshadow = True
-    self.raisedge = {"Top" : True, "Right" : True, "Bottom" : True, "Left" : True}
-    
-    self.setsmoothbeforecomb(False) #mountains should always be smoothed later
-    
-    self.textes = {"baseln" : "mountains", \
-    "labelext" : "mountains", \
-    "namelist" : ["no mountains", "sparse", "mountain border", "central mountain mass", "central valley", "customized"], \
-    "toplab" : "In the final result: white represent where mountains are drawn.", \
-    "topnestedlab" : "Position of the mountains masses in the image."}
-
-    finalnames = ["mask", "defmask"]
-    self.namelist = [self.textes["baseln"] + fn for fn in finalnames]
-    
-    #Designing the interface
-    #new row
-    hbxa = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hbxa)
-
-    labatxt = "Adding mountains to the map. If you do not want to draw mountains, just press Next.\n"
-    labatxt += "You can repeat the step multiple times: just press again one of the buttons to repeat the process and add new mountains."
-    laba = gtk.Label(labatxt)
-    hbxa.add(laba)
-    
-    #new row
-    self.smoothdef([0.03, 0.1, 0.2], "Select smoothing for mountains feet.")
-
-    #new row
-    self.submapdef()
-    
-    #new row
-    hbxd = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hbxd)
-    chbd = gtk.CheckButton("Colour mountains.")
-    chbd.set_active(self.addcol)
-    chbd.connect("toggled", self.on_chbd_toggled)
-    hbxd.add(chbd)
-    
-    #new row
-    hbxb = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hbxb)
-    chbb = gtk.CheckButton("Add snow on mountain's top.")
-    chbb.set_active(self.addsnow)
-    chbb.connect("toggled", self.on_chbb_toggled)
-    hbxb.add(chbb)
-
-    #new row
-    hbxe = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(hbxe)
-    chbe = gtk.CheckButton("Add shadow at mountains' feet.")
-    chbe.set_active(self.addshadow)
-    chbe.connect("toggled", self.on_chbe_toggled)
-    hbxe.add(chbe)
-
-    #new row
-    hbxf = gtk.HBox(spacing=3, homogeneous=False)
-    self.vbox.add(hbxf)
-    labf = gtk.Label("Raise mountains on image borders:")
-    hbxf.add(labf)
-    chbfa = self.addingchbegde(self.raisedge.keys()[0])
-    hbxf.add(chbfa)
-    chbfb = self.addingchbegde(self.raisedge.keys()[1])
-    hbxf.add(chbfb)
-    chbfc = self.addingchbegde(self.raisedge.keys()[2])
-    hbxf.add(chbfc)
-    chbfd = self.addingchbegde(self.raisedge.keys()[3])
-    hbxf.add(chbfd)
-
-    #new row
-    self.add_checkbutton_autohide()
-    
-    #button area
-    self.add_button_quit()
-    self.add_button_cancel()
-    self.add_button_showhide()
-    self.add_buttons_gen()
-    self.add_button_nextprev()
-
-    return mwin
-
-  #adding a checkbutton for rasing the mountains at image borders
-  def addingchbegde(self, dictkey):
-    chbt = gtk.CheckButton(dictkey)
-    chbt.set_active(self.raisedge[dictkey])
-    chbt.connect("toggled", self.on_chbfany_toggled, dictkey)
-    return chbt
-  
   #nested class to let the user control if the mountains mask should be improved and rotated
   class ControlMask(gtk.Dialog):
     #constructor
@@ -2713,6 +2623,108 @@ class MountainsBuild(LocalBuilder):
         cmapper.destroy()
 
   #outer class methods:
+  #constructor
+  def __init__(self, image, layermask, channelmask, *args):
+    mwin = LocalBuilder.__init__(self, image, layermask, channelmask, True, *args)
+    self.base = None
+    self.mntangularl = None
+    self.cpvlayer = None
+    self.embosslayer = None
+    self.noisemask = None
+    self.finalmaskl = None
+    self.mntcolorl = None
+    self.mntshadowl = None
+    self.mntedgesl = None
+    
+    self.addsnow = True
+    self.addcol = False
+    self.addshadow = True
+    self.raisedge = {"Top" : True, "Right" : True, "Bottom" : True, "Left" : True}
+    
+    self.setsmoothbeforecomb(False) #mountains should always be smoothed later
+    
+    self.textes = {"baseln" : "mountains", \
+    "labelext" : "mountains", \
+    "namelist" : ["no mountains", "sparse", "mountain border", "central mountain mass", "central valley", "customized"], \
+    "toplab" : "In the final result: white represent where mountains are drawn.", \
+    "topnestedlab" : "Position of the mountains masses in the image."}
+
+    finalnames = ["mask", "defmask"]
+    self.namelist = [self.textes["baseln"] + fn for fn in finalnames]
+    
+    #Designing the interface
+    #new row
+    hbxa = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxa)
+
+    labatxt = "Adding mountains to the map. If you do not want to draw mountains, just press Next.\n"
+    labatxt += "You can repeat the step multiple times: just press again one of the buttons to repeat the process and add new mountains."
+    laba = gtk.Label(labatxt)
+    hbxa.add(laba)
+    
+    #new row
+    self.smoothdef([0.03, 0.1, 0.2], "Select smoothing for mountains feet.")
+
+    #new row
+    self.submapdef()
+    
+    #new row
+    hbxd = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxd)
+    chbd = gtk.CheckButton("Colour mountains.")
+    chbd.set_active(self.addcol)
+    chbd.connect("toggled", self.on_chbd_toggled)
+    hbxd.add(chbd)
+    
+    #new row
+    hbxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxb)
+    chbb = gtk.CheckButton("Add snow on mountain's top.")
+    chbb.set_active(self.addsnow)
+    chbb.connect("toggled", self.on_chbb_toggled)
+    hbxb.add(chbb)
+
+    #new row
+    hbxe = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hbxe)
+    chbe = gtk.CheckButton("Add shadow at mountains' feet.")
+    chbe.set_active(self.addshadow)
+    chbe.connect("toggled", self.on_chbe_toggled)
+    hbxe.add(chbe)
+
+    #new row
+    hbxf = gtk.HBox(spacing=3, homogeneous=False)
+    self.vbox.add(hbxf)
+    labf = gtk.Label("Raise mountains on image borders:")
+    hbxf.add(labf)
+    chbfa = self.addingchbegde(self.raisedge.keys()[0])
+    hbxf.add(chbfa)
+    chbfb = self.addingchbegde(self.raisedge.keys()[1])
+    hbxf.add(chbfb)
+    chbfc = self.addingchbegde(self.raisedge.keys()[2])
+    hbxf.add(chbfc)
+    chbfd = self.addingchbegde(self.raisedge.keys()[3])
+    hbxf.add(chbfd)
+
+    #new row
+    self.add_checkbutton_autohide()
+    
+    #button area
+    self.add_button_quit()
+    self.add_button_cancel()
+    self.add_button_showhide()
+    self.add_buttons_gen()
+    self.add_button_nextprev()
+
+    return mwin
+
+  #adding a checkbutton for rasing the mountains at image borders
+  def addingchbegde(self, dictkey):
+    chbt = gtk.CheckButton(dictkey)
+    chbt.set_active(self.raisedge[dictkey])
+    chbt.connect("toggled", self.on_chbfany_toggled, dictkey)
+    return chbt
+    
   #callback method, set the adding snow variable
   def on_chbb_toggled(self, widget):
     self.addsnow = widget.get_active()
@@ -2904,9 +2916,9 @@ class MountainsBuild(LocalBuilder):
       cldo.run()
       cldo.destroy()
 
-    pdb.gimp_displays_flush()
+    return True
 
-
+    
 #class to generate the forests
 class ForestBuild(LocalBuilder):
   #constructor
@@ -3035,10 +3047,10 @@ class ForestBuild(LocalBuilder):
       del self.colorlayers[:]
     for cn in self.fclist:
       self.colorlayers.append(self.addforestcol(cn))
+
+    return True
+
     
-    pdb.gimp_displays_flush()
-
-
 #class to drawing the rivers
 class RiversBuild(GlobalBuilder):
   #constructor
@@ -3066,15 +3078,15 @@ class RiversBuild(GlobalBuilder):
     self.vbox.add(laba)
 
     #new row
-    vbxb = gtk.HBox(spacing=10, homogeneous=True)
-    self.vbox.add(vbxb)
+    hboxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxb)
 
     self.raba = gtk.RadioButton(None, "Draw rivers")
     self.raba.connect("toggled", self.on_radiob_toggled, 0)
-    vbxb.add(self.raba)
+    hboxb.add(self.raba)
     self.rabb = gtk.RadioButton(self.raba, "Delete rivers")
     self.rabb.connect("toggled", self.on_radiob_toggled, 1)
-    vbxb.add(self.rabb)
+    hboxb.add(self.rabb)
 
     #new row
     self.add_checkbutton_autohide()
@@ -3202,7 +3214,59 @@ class RiversBuild(GlobalBuilder):
 #class to add symbols (towns, capital towns, and so on)
 class SymbolsBuild(GlobalBuilder):
   INAROW = 5
-  
+
+  #nested class, controlling random displacement of symbols
+  class RandomSymbols(gtk.Dialog):
+    #constructor
+    def __init__(self, *args):
+      swin = gtk.Dialog.__init__(self, *args)
+      self.set_border_width(10)
+      
+      self.nsym = 1
+      self.rsymbplace = 0
+      
+      #new row
+      hbxa = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hbxa)
+      
+      laba = gtk.Label("How many symbols do you want to add?")
+      hbxa.add(laba)
+      
+      nsymadj = gtk.Adjustment(self.nsym, 1, 10, 1, 10)
+      spbuta = gtk.SpinButton(nsymadj, 0, 0)
+      spbuta.connect("output", self.on_nsym_changed)
+      hbxa.add(spbuta)
+
+      #new row
+      vbxb = gtk.VBox(spacing=10, homogeneous=True)
+      self.vbox.add(vbxb)
+
+      self.raba = gtk.RadioButton(None, "Adding symbols on land only")
+      self.raba.connect("toggled", self.on_radiob_toggled, 0)
+      vbxb.add(self.raba)
+      self.rabb = gtk.RadioButton(self.raba, "Adding symbols in the full image")
+      self.rabb.connect("toggled", self.on_radiob_toggled, 1)
+      vbxb.add(self.rabb)
+      self.rabc = gtk.RadioButton(self.raba, "Adding symbols in a hand-made selection")
+      self.rabc.connect("toggled", self.on_radiob_toggled, 2)
+      vbxb.add(self.rabc)
+      
+      #button area
+      self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+      self.add_button("OK", gtk.RESPONSE_OK)
+      
+      self.show_all()
+      return swin
+      
+    #callback method, set the number of symbols to be added
+    def on_nsym_changed(self, widget):
+      self.nsym = widget.get_value()
+
+    #callback method, set if symbols have to be added on land only
+    def on_radiob_toggled(self, widget, vv):
+      self.rsymbplace = vv
+
+  #outer class methods
   #constructor
   def __init__(self, image, layermask, channelmask, *args):
     mwin = GlobalBuilder.__init__(self, image, None, layermask, channelmask, False, False, *args)
@@ -3288,59 +3352,7 @@ class SymbolsBuild(GlobalBuilder):
     self.add_button_nextprev()
   
     return mwin
-
-  #nested class, controlling random displacement of symbols
-  class RandomSymbols(gtk.Dialog):
-    #constructor
-    def __init__(self, *args):
-      swin = gtk.Dialog.__init__(self, *args)
-      self.set_border_width(10)
-      
-      self.nsym = 1
-      self.rsymbplace = 0
-      
-      #new row
-      hbxa = gtk.HBox(spacing=10, homogeneous=True)
-      self.vbox.add(hbxa)
-      
-      laba = gtk.Label("How many symbols do you want to add?")
-      hbxa.add(laba)
-      
-      nsymadj = gtk.Adjustment(self.nsym, 1, 10, 1, 10)
-      spbuta = gtk.SpinButton(nsymadj, 0, 0)
-      spbuta.connect("output", self.on_nsym_changed)
-      hbxa.add(spbuta)
-
-      #new row
-      vbxb = gtk.VBox(spacing=10, homogeneous=True)
-      self.vbox.add(vbxb)
-
-      self.raba = gtk.RadioButton(None, "Adding symbols on land only")
-      self.raba.connect("toggled", self.on_radiob_toggled, 0)
-      vbxb.add(self.raba)
-      self.rabb = gtk.RadioButton(self.raba, "Adding symbols in the full image")
-      self.rabb.connect("toggled", self.on_radiob_toggled, 1)
-      vbxb.add(self.rabb)
-      self.rabc = gtk.RadioButton(self.raba, "Adding symbols in a hand-made selection")
-      self.rabc.connect("toggled", self.on_radiob_toggled, 2)
-      vbxb.add(self.rabc)
-      
-      #button area
-      self.add_button("Cancel", gtk.RESPONSE_CANCEL)
-      self.add_button("OK", gtk.RESPONSE_OK)
-      
-      self.show_all()
-      return swin
-      
-    #callback method, set the number of symbols to be added
-    def on_nsym_changed(self, widget):
-      self.nsym = widget.get_value()
-
-    #callback method, set if symbols have to be added on land only
-    def on_radiob_toggled(self, widget, vv):
-      self.rsymbplace = vv
-
-  #outer class methods
+    
   #method, adding a selecting brush button with image and label in the button area
   def addbuttonimage(self, brname, iconfile):
     butres = gtk.Button()
@@ -3390,12 +3402,12 @@ class SymbolsBuild(GlobalBuilder):
   #override method to prepare the symbols drawing (args not used)
   def beforegen(self, *args):
     if not pdb.gimp_item_is_valid(self.bgl):
-      self.bgl = self.makeunilayer("symbols outline")
+      self.bgl = self.makeunilayer(self.namelist[0])
       pdb.gimp_layer_add_alpha(self.bgl)
       pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
 
     if not pdb.gimp_item_is_valid(self.symbols):
-      self.symbols = self.makeunilayer("symbols")
+      self.symbols = self.makeunilayer(self.namelist[1])
       pdb.gimp_layer_add_alpha(self.symbols)
       pdb.plug_in_colortoalpha(self.img, self.symbols, (255, 255, 255))
       self.pixsymb = 0
@@ -3505,6 +3517,63 @@ in the plugin folder. You can export the png image from GIMP after you have crea
 
 #class to add roads
 class RoadBuild(GlobalBuilder):
+  #class holding the interface to delete paths
+  class DelPaths(gtk.Dialog):
+    #constructor
+    def __init__(self, outobject, *args):
+      swin = gtk.Dialog.__init__(self, *args)
+      self.set_border_width(10)
+      self.outobj = outobject
+      self.selpath = -1
+      self.sellayer = -1
+
+      #new row
+      hbxa = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hbxa)
+      
+      laba = gtk.Label("Select the name of the path you want to delete.")
+      hbxa.add(laba)
+
+      #new row
+      hboxb = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hboxb)
+            
+      boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT, gobject.TYPE_INT)
+      pathsnames = ["All"] + [ll.name for ll in self.outobj.paths]
+      pathsidx = [-1] + range(len(self.outobj.paths[:-1]))
+      rlidx = [-1] + range(len(self.outobj.roadslayers[:-1]))
+      
+      #filling the model for the combobox
+      for i, j, k in zip(pathsnames, pathsidx, rlidx):
+        irow = boxmodelb.append(None, [i, j, k])
+
+      cboxb = gtk.ComboBox(boxmodelb)
+      rendtextb = gtk.CellRendererText()
+      cboxb.pack_start(rendtextb, True)
+      cboxb.add_attribute(rendtextb, "text", 0)
+      cboxb.set_entry_text_column(0)
+      cboxb.set_active(0)
+      cboxb.connect("changed", self.on_selroad_changed)
+      hboxb.add(cboxb)
+
+      #button area
+      self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+      self.add_button("OK", gtk.RESPONSE_OK)
+      
+      self.show_all()
+      return swin
+
+    #callback method to select the path to be deleted
+    def on_selroad_changed(self, widget):
+      refmode = widget.get_model()
+      self.selpath = refmode.get_value(widget.get_active_iter(), 1)
+      self.sellayer = refmode.get_value(widget.get_active_iter(), 2)
+
+    #method to get the selected path (vector and layer objects)
+    def getselected(self):
+      return self.selpath, self.sellayer
+
+  #outer class methods
   #constructor
   def __init__(self, image, layermask, channelmask, *args):
     mwin = GlobalBuilder.__init__(self, image, None, layermask, channelmask, False, True, *args)
@@ -3590,64 +3659,7 @@ class RoadBuild(GlobalBuilder):
     self.add_button_nextprev()
 
     return mwin
-
-  #class holding the interface to delete paths
-  class DelPaths(gtk.Dialog):
-    #constructor
-    def __init__(self, outobject, *args):
-      swin = gtk.Dialog.__init__(self, *args)
-      self.set_border_width(10)
-      self.outobj = outobject
-      self.selpath = -1
-      self.sellayer = -1
-
-      #new row
-      hbxa = gtk.HBox(spacing=10, homogeneous=True)
-      self.vbox.add(hbxa)
-      
-      laba = gtk.Label("Select the name of the path you want to delete.")
-      hbxa.add(laba)
-
-      #new row
-      hboxb = gtk.HBox(spacing=10, homogeneous=True)
-      self.vbox.add(hboxb)
-            
-      boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_INT, gobject.TYPE_INT)
-      pathsnames = ["All"] + [ll.name for ll in self.outobj.paths]
-      pathsidx = [-1] + range(len(self.outobj.paths[:-1]))
-      rlidx = [-1] + range(len(self.outobj.roadslayers[:-1]))
-      
-      #filling the model for the combobox
-      for i, j, k in zip(pathsnames, pathsidx, rlidx):
-        irow = boxmodelb.append(None, [i, j, k])
-
-      cboxb = gtk.ComboBox(boxmodelb)
-      rendtextb = gtk.CellRendererText()
-      cboxb.pack_start(rendtextb, True)
-      cboxb.add_attribute(rendtextb, "text", 0)
-      cboxb.set_entry_text_column(0)
-      cboxb.set_active(0)
-      cboxb.connect("changed", self.on_selroad_changed)
-      hboxb.add(cboxb)
-
-      #button area
-      self.add_button("Cancel", gtk.RESPONSE_CANCEL)
-      self.add_button("OK", gtk.RESPONSE_OK)
-      
-      self.show_all()
-      return swin
-
-    #callback method to select the path to be deleted
-    def on_selroad_changed(self, widget):
-      refmode = widget.get_model()
-      self.selpath = refmode.get_value(widget.get_active_iter(), 1)
-      self.sellayer = refmode.get_value(widget.get_active_iter(), 2)
-
-    #method to get the selected path (vector and layer objects)
-    def getselected(self):
-      return self.selpath, self.sellayer
-
-  #outer class methods
+    
   #overriding method to check if the step has generated some roads
   def loaded(self):
     if len(self.paths) > 0:
@@ -3709,10 +3721,34 @@ class RoadBuild(GlobalBuilder):
         self.bgl = self.roadslayers[-1]
     return self.loaded()
 
+  #method deleting the last drawables added by beforegen
+  def dellastdraws(self):
+    pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
+    pdb.gimp_image_remove_layer(self.img, self.roadslayers[-1])
+    del self.paths[-1]
+    del self.roadslayers[-1]
+    
   #drawing the roads
   def generatestep(self):
     oldfgcol = pdb.gimp_context_get_foreground()
     pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color to white
+
+    nids, stids = pdb.gimp_vectors_get_strokes(self.paths[-1])
+    if nids == 0:
+      infodi = MsgDialog("Warning!", self, "No path is drawn to draw any road!")
+      infodi.run()
+      infodi.destroy()
+      self.dellastdraws()
+      return False
+    else:
+      for sid in stids:
+        _, nump, _, _ = pdb.gimp_vectors_stroke_get_points(self.paths[-1], sid)
+        if nump <= 6: #means that there is only one point for this stroke
+          infodi = MsgDialog("Warning!", self, "There is one stroke with one point,\nimpossible to draw the road!")
+          infodi.run()
+          infodi.destroy()
+          self.dellastdraws()
+          return False
 
     try:
       pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize, 0)
@@ -3726,6 +3762,7 @@ class RoadBuild(GlobalBuilder):
       pdb.gimp_edit_stroke_vectors(self.roadslayers[-1], self.paths[-1])
     
     pdb.gimp_context_set_foreground(oldfgcol)
+    return True
 
   #override callback method to cancel roads
   def on_butcanc_clicked(self, widget):
@@ -3773,13 +3810,432 @@ class RoadBuild(GlobalBuilder):
 
     filechooser.destroy()
 
-  #override method to delete the last vectors drawable
+  #override method to call dellastddraws
   def afterclosing(self, who):
-    pdb.gimp_image_remove_vectors(self.img, self.paths[-1])
-    pdb.gimp_image_remove_layer(self.img, self.roadslayers[-1])
-    del self.paths[-1]
-    del self.roadslayers[-1]
+    self.dellastdraws()
     
+
+#class to add labels to the map
+class LabelsBuild(GlobalBuilder):
+  #nested class, let the user choose a position for the label
+  class SelPosD(gtk.Dialog):
+    #constructor
+    def __init__(self, *args):
+      swin = gtk.Dialog.__init__(self, *args)
+      self.set_border_width(10)
+      self.labposid = 0
+      
+      #new row
+      hbxa = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hbxa)
+      
+      laba = gtk.Label("Select where do you want to add the label.")
+      hbxa.add(laba)
+      
+      #new row
+      vbxb = gtk.VBox(spacing=10, homogeneous=True)
+      self.vbox.add(vbxb)
+
+      self.raba = gtk.RadioButton(None, "Top-Left")
+      self.raba.connect("toggled", self.on_radiob_toggled, 0)
+      vbxb.add(self.raba)
+      self.rabb = gtk.RadioButton(self.raba, "Top (Title)")
+      self.rabb.connect("toggled", self.on_radiob_toggled, 1)
+      vbxb.add(self.rabb)
+      self.rabc = gtk.RadioButton(self.raba, "Top-Right")
+      self.rabc.connect("toggled", self.on_radiob_toggled, 2)
+      vbxb.add(self.rabc)
+
+      #new row
+      vbxc = gtk.VBox(spacing=10, homogeneous=True)
+      self.vbox.add(vbxc)
+
+      self.rabd = gtk.RadioButton(self.raba, "Bottom-Left")
+      self.rabd.connect("toggled", self.on_radiob_toggled, 3)
+      vbxc.add(self.rabd)
+      self.rabe = gtk.RadioButton(self.raba, "Bottom")
+      self.rabe.connect("toggled", self.on_radiob_toggled, 4)
+      vbxc.add(self.rabe)
+      self.rabf = gtk.RadioButton(self.raba, "Bottom-Right")
+      self.rabf.connect("toggled", self.on_radiob_toggled, 5)
+      vbxc.add(self.rabf)
+
+      #button area
+      self.add_button("Cancel", gtk.RESPONSE_CANCEL)
+      self.add_button("OK", gtk.RESPONSE_OK)
+      
+      self.show_all()
+      return swin
+
+    #callback method, set the position index
+    def on_radiob_toggled(self, widget, vv):
+      self.labposid = vv
+
+  #nested class, read fonts config file
+  class LoadFonts:
+    #constructor
+    def __init__(self, numfonts):
+      self.filename = "make_landmap_fonts"
+      self.configfile = os.path.dirname(os.path.abspath(__file__)) + '/' + self.filename
+      self.fonts = None
+      self.valid = False
+      self.numfonts = numfonts
+      
+      try:
+        with open(self.configfile) as ff:
+          filelines = ff.readlines()
+      except IOError, e:
+        errdi = MsgDialog("Loading font Error", None, "Config file for fonts not found\n" + str(e))
+        errdi.run()
+        errdi.destroy()
+        return None
+
+      #stripping unvalid lines
+      midlines = [ll.strip() for ll in filelines if ll[0] != '#']
+      validlines = [ll for ll in midlines if len(ll) > 0]
+      self.fonts = validlines[:self.numfonts]
+      if len(self.fonts) < self.numfonts:
+        errdi = MsgDialog("Loading font Error", None, "Not enough fonts in confing file!\nThere should be at least " + str(self.numfonts) + " lines.")
+        errdi.run()
+        errdi.destroy()
+        return None
+        
+      self.valid = self.validatefonts()
+      return None
+
+    #checking if fonts are accessible by GIMP
+    def validatefonts(self):
+      _, allfonts = pdb.gimp_fonts_get_list("")
+      validfonts = [ff in allfonts for ff in self.fonts]
+      if all(validfonts):
+        return True
+      else:
+        for fn, fv in zip(self.fonts, validfonts):
+          if not fv:
+            errdi = MsgDialog("Font Error", None, "Font '" + fn + "' not present in the system. Install it or edit the confing file to choose another font.")
+            errdi.run()
+            errdi.destroy()
+        return False
+
+    #getting font list
+    def getfonts(self):
+      if self.valid:
+        return self.fonts
+      else:
+        return [None] * self.numfonts
+
+    #printing info about fonts
+    def info(self):
+      messtxt = "Fonts are saved in a file called '" + self.filename + "' which should be present in the same folder where is located this plug-in.\n"
+      messtxt += "A copy of the file is provided during installation, but there is not guarantee that the font in the file are installed on your system.\n"
+      messtxt += "If you get errors related to font labes, likely this file is absent or one or more of the included fonts is not installed in you system.\n"
+      messtxt += "In this case, you must create or edit the file by hand, following these guide lines:\n"
+      messtxt += "Each line of this file must contain one font name, there must be a total of " + str(self.numfonts) + " lines, one for each style.\n"
+      messtxt += "You can insert comments using the '#' character at the beginning of a line. Empty lines are ignored.\n"
+      messtxt += "The fastest way to check which fonts you can use is to check which fonts can be used by GIMP.\n"
+      messtxt += "Check the Fonts dialog (Windows -> Dockable Dialogs -> Fonts). It shows all the available fonts."
+      infodi = MsgDialog("Font Info", None, messtxt)
+      infodi.run()
+      infodi.destroy()
+
+  #Main class methods
+  #constuctor
+  def __init__(self, image, layermask, channelmask, *args):
+    mwin = GlobalBuilder.__init__(self, image, None, layermask, channelmask, False, True, *args)
+
+    #internal arguments
+    self.labels = None
+    self.labpaths = None
+    self.labstyles = ["Title", "Ornate", "Simple"]
+    self.labcolor = [rgbcoltogdk(136, 29, 0), rgbcoltogdk(0, 0, 0), rgbcoltogdk(0, 0, 0)]
+    
+    self.fontloader = self.LoadFonts(len(self.labstyles))
+    self.fonts = self.fontloader.getfonts()
+    
+    basesize = min(self.img.width, self.img.height) * 0.05
+    self.bchsize = [basesize*ff for ff in [1.4, 1.0, 0.6]]
+
+    self.chfont = None #will be reinitialized during GUI generation
+    self.bsize = None #will be reinitialized during GUI generation
+    self.chsize = None #will be reinitialized during GUI generation
+    self.chcolor = None #will be reinitialized during GUI generation
+    self.chfact = 1.0
+    self.rborient = 0 #will be reinitialized during GUI generation
+
+    self.namelist = ["Labels outline", "Labels", "Leadpaths"]
+    self.bgcol = (223, 223, 83)
+
+    #designing the interface
+    #new row
+    labatxt = "Adding labels. Select a style to choose a font and a color, the label scale is a multiplicative factor of the default text size.\n\n"
+    labatxt += u" \u2022 Title / Frame labels: an horizontal text label placed alongside the border of the image, at the generic position\n"
+    labatxt += "   indicated by the user (top, bottom, a corner).\n"
+    labatxt += u" \u2022 Content labels: using path, draw the path where the label should appear. Use always '" + self.namelist[2] + "' path.\n"
+    labatxt += "   The last stroke is used: if it is composed by a single point, this is the upper left corner of an horizontal text label,\n"
+    labatxt += "   otherwise the text will be bent along the path starting from the first point. Text is shrunk to fit the path length if needed.\n\n"
+    labatxt += "You can add as much labels as you want, with different styles each one. Simply set the style, write the text\n"
+    labatxt += "in the entry, and press the 'Add Label' button."
+    laba = gtk.Label(labatxt)
+    self.vbox.add(laba)
+
+    #new row
+    hboxc = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxc)
+
+    self.rabca = gtk.RadioButton(None, "Title / Frame labels")
+    self.rabca.connect("toggled", self.on_radiob_toggled, 0)
+    hboxc.add(self.rabca)
+    self.rabcb = gtk.RadioButton(self.rabca, "Content label")
+    self.rabcb.connect("toggled", self.on_radiob_toggled, 1)
+    hboxc.add(self.rabcb)
+
+    #new row
+    hboxb = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxb)
+    
+    labb = gtk.Label("Choose label style:")
+    hboxb.add(labb)
+    
+    boxmodelb = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_STRING, gobject.TYPE_INT, gtk.gdk.Color)
+    
+    #filling the model for the combobox
+    for i, j, k, w in zip(self.labstyles, self.fonts, self.bchsize, self.labcolor):
+      irow = boxmodelb.append(None, [i, j, k, w])
+
+    cboxb = gtk.ComboBox(boxmodelb)
+    rendtextb = gtk.CellRendererText()
+    cboxb.pack_start(rendtextb, True)
+    cboxb.add_attribute(rendtextb, "text", 0)
+    cboxb.set_entry_text_column(0)
+    cboxb.set_active(0)
+    cboxb.connect("changed", self.on_style_changed)
+    hboxb.add(cboxb)
+
+    self.butcolor = gtk.ColorButton()
+    self.butcolor.set_title("Change color")
+    self.butcolor.connect("color-set", self.on_butcolor_clicked)
+    hboxb.add(self.butcolor)
+
+    self.on_style_changed(cboxb) #setting the initial parameters
+
+    #new row
+    hboxe = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxe)
+
+    labe = gtk.Label("Set label scale:")
+    hboxe.add(labe)
+
+    chsizadj = gtk.Adjustment(self.chfact, 0.2, 3.0, 0.05, 0.5)    
+    scalee = gtk.HScale(chsizadj)
+    scalee.set_size_request(120, 45)
+    scalee.connect("value-changed", self.on_chfactsize_changed)
+    hboxe.add(scalee)
+
+    spbute = gtk.SpinButton(chsizadj, 0, 2)
+    spbute.connect("output", self.on_chfactsize_changed)
+    hboxe.add(spbute)
+
+    #new row
+    hboxd = gtk.HBox(spacing=10, homogeneous=True)
+    self.vbox.add(hboxd)
+    
+    labd = gtk.Label("Label Text:")
+    hboxd.add(labd)
+    
+    self.entryd = gtk.Entry(20)
+    hboxd.add(self.entryd)
+
+    buttond = gtk.Button("Clear Text")
+    buttond.connect("clicked", self.on_but_entry_clear)
+    hboxd.add(buttond)
+
+    #new row
+    self.add_checkbutton_autohide()
+
+    #button area
+    self.add_button_quit()
+
+    infobutton = gtk.Button("Fonts info")
+    infobutton.connect("clicked", self.on_info_clicked)
+    self.action_area.add(infobutton)
+
+    self.add_button_cancel("Cancel Labels")
+    self.add_button_showhide()
+    self.add_button_generate("Add Label")
+    self.add_button_nextprev()
+    return mwin
+
+  #callback method, set the label style
+  def on_style_changed(self, widget):
+    refmode = widget.get_model()
+    self.chfont = refmode.get_value(widget.get_active_iter(), 1)
+    self.bsize = refmode.get_value(widget.get_active_iter(), 2)
+    self.setchsize()
+    chosencol = refmode.get_value(widget.get_active_iter(), 3)
+    self.chcolor = gdkcoltorgb(chosencol)
+    self.butcolor.set_color(chosencol)
+
+  #callback method, set the orientation
+  def on_radiob_toggled(self, widget, vv):
+    self.rborient = vv
+
+  #callback method, clear the text in the entry at button press
+  def on_but_entry_clear(self, widget):
+    self.entryd.set_text("")
+
+  #callback method, setting the color
+  def on_butcolor_clicked(self, widget):
+    self.chcolor = gdkcoltorgb(widget.get_color())
+
+  #callback method to set the brush size
+  def on_chfactsize_changed(self, widget):
+    self.chfact = widget.get_value()
+    self.setchsize()
+
+  #callback method to show info on setting the fonts
+  def on_info_clicked(self, widget):
+    self.fontloader.info()
+  
+  #method, set the character size
+  def setchsize(self):
+    self.chsize = self.chfact * self.bsize
+
+  #override deleting, hiding or showing method
+  def dhsdrawables(self, action):
+    if action == self.DHSACT_DELETE:
+      self.deletedrawables(self.labels, self.labpaths)
+      self.bgl = None
+      self.labels = None
+    elif action == self.DHSACT_HIDE:
+      self.editvislayers(False, self.bgl, self.labels)
+    elif action == self.DHSACT_SHOW:
+      self.editvislayers(True, self.bgl, self.labels)
+
+  #override loading method
+  def loaddrawables(self):
+    for ll in self.img.layers:
+      if ll.name == self.namelist[0]:
+        self.bgl = ll
+      if ll.name == self.namelist[1]:
+        self.labels = ll
+
+    for vl in self.img.vectors:
+      if vl.name == self.namelist[2]:
+        self.labpaths = vl
+    return self.loaded()
+
+  #override method to prepare the labels drawing (args not used)
+  def beforegen(self, *args):
+    if not pdb.gimp_item_is_valid(self.bgl):
+      self.bgl = self.makeunilayer(self.namelist[0])
+      pdb.gimp_layer_add_alpha(self.bgl)
+      pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
+
+    if not pdb.gimp_item_is_valid(self.labels):
+      self.labels = self.makeunilayer(self.namelist[1])
+      pdb.gimp_layer_add_alpha(self.labels)
+      pdb.plug_in_colortoalpha(self.img, self.labels, (255, 255, 255))
+      
+    if not pdb.gimp_item_is_valid(self.labpaths):
+      self.labpaths = pdb.gimp_vectors_new(self.img, self.namelist[2])
+      pdb.gimp_image_insert_vectors(self.img, self.labpaths, None, 0)
+      
+    pdb.gimp_image_set_active_layer(self.img, self.labels)
+    pdb.gimp_image_set_active_vectors(self.img, self.labpaths)
+    pdb.gimp_displays_flush()
+
+  #override method, drawing a label
+  def generatestep(self):
+    if self.chfont is None:
+      errdi = MsgDialog("Font Error", self, "Not valid fonts. Cannot generate labels.")
+      errdi.run()
+      errdi.destroy()
+      return False
+    
+    oldfgcol = pdb.gimp_context_get_foreground()
+    
+    lbtxt = self.entryd.get_text()
+    if len(lbtxt) == 0:
+      infodi = MsgDialog("Warning!", self, "Write the text of the label before!")
+      infodi.run()
+      infodi.destroy()
+      return False
+      
+    pdb.gimp_context_set_foreground(self.chcolor)
+    if self.rborient == 0:
+      posdi = self.SelPosD("Select position", self, gtk.DIALOG_MODAL)
+      ipr = posdi.run()
+      if ipr == gtk.RESPONSE_OK:
+        shx = 0
+        shy = 0
+        floating_text = pdb.gimp_text_fontname(self.img, self.labels, 0, 0, lbtxt, 0, False, self.chsize, 0, self.chfont)
+        ftw = pdb.gimp_drawable_width(floating_text)
+        fth = pdb.gimp_drawable_height(floating_text)
+        if posdi.labposid in [1, 4]:
+          shx = (self.img.width - ftw)/2.0
+        elif posdi.labposid in [2, 5]:
+          shx = self.img.width - ftw
+        if posdi.labposid in [3, 4, 5]:
+          shy = self.img.height - fth
+
+        if shx != 0 or shy != 0:
+          pdb.gimp_layer_translate(floating_text, shx, shy)
+
+        posdi.destroy()
+        pdb.gimp_floating_sel_anchor(floating_text)
+      elif ipr == gtk.RESPONSE_CANCEL:
+        posdi.destroy()
+        pdb.gimp_context_set_foreground(oldfgcol)
+        return False
+        
+    elif self.rborient == 1:
+      lenli, sids = pdb.gimp_vectors_get_strokes(self.labpaths)
+      if lenli > 0:
+        _, numpc, controlpoints, _ = pdb.gimp_vectors_stroke_get_points(self.labpaths, sids[-1])
+        if numpc == 6:
+          coord = controlpoints[2:4] #getting x and y coordinates of the first point
+          floating_text = pdb.gimp_text_fontname(self.img, self.labels, coord[0], coord[1], lbtxt, 0, False, self.chsize, 0, self.chfont)
+          pdb.gimp_floating_sel_anchor(floating_text)
+        else:
+          try:
+            floating_text, bentvec = pdb.python_fu_text_along_path(self.img, self.labels, lbtxt, self.chsize, self.chfont, self.labpaths)
+            pdb.gimp_image_remove_vectors(self.img, bentvec)
+            pdb.gimp_floating_sel_anchor(floating_text)
+          except (ValueError, RuntimeError), err:
+            errmess = "From python-fu-text-along-path plug-in:\n" + err
+            infodi = MsgDialog("Warning!", self, errmess)
+            infodi.run()
+            infodi.destroy()
+            pdb.gimp_context_set_foreground(oldfgcol)
+            return False
+            
+      else:
+        infodi = MsgDialog("Warning!", self, "The path is empty, add a stroke!")
+        infodi.run()
+        infodi.destroy()
+        pdb.gimp_context_set_foreground(oldfgcol)
+        return False
+        
+    pdb.gimp_context_set_foreground(oldfgcol)
+    pdb.gimp_image_set_active_vectors(self.img, self.labpaths)
+    return True
+
+  #override method to fix labels, add finishing touches and close.
+  def afterclosing(self, who):
+    if self.generated:
+      pdb.gimp_drawable_edit_clear(self.bgl)
+      pdb.gimp_image_select_item(self.img, 2, self.labels) #2 = replace selection, this select everything in the layer which is not transparent
+      pdb.gimp_selection_grow(self.img, 2)
+      pdb.gimp_selection_feather(self.img, 5)
+      colfillayer(self.img, self.bgl, self.bgcol)
+      pdb.gimp_selection_none(self.img)
+    else:
+      pdb.gimp_image_remove_layer(self.img, self.bgl)
+      pdb.gimp_image_remove_layer(self.img, self.labels)
+      pdb.gimp_image_remove_vectors(self.img, self.labpaths)
+
+    pdb.gimp_displays_flush()
+
 
 #class for the customized GUI
 class MainApp(gtk.Window):
@@ -3853,6 +4309,8 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
     builderlist.append(self.symbols)
     self.roads = RoadBuild(self.img, layermask, channelmask, "Adding roads", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
     builderlist.append(self.roads)
+    self.labels = LabelsBuild(self.img, layermask, channelmask, "Adding labels", self, gtk.DIALOG_MODAL) #title = "building...", parent = self, flag = gtk.DIALOG_MODAL, they as passed as *args
+    builderlist.append(self.labels)
         
     #setting stuffs
     if iswater > 0:
@@ -3865,7 +4323,8 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
     self.forest.setreferences(self.mount, self.rivers)
     self.rivers.setreferences(self.forest, self.symbols)
     self.symbols.setreferences(self.rivers, self.roads)
-    self.roads.setreferences(self.symbols, None)
+    self.roads.setreferences(self.symbols, self.labels)
+    self.labels.setreferences(self.roads, None)
 
     #loading already present layers and setting the first drawable to launch
     if loading:
@@ -3964,13 +4423,21 @@ Press the 'Work on current map' button. The plug-in will start at the last gener
       inidi.run()
       inidi.destroy()
 
+
 #The function to be registered in GIMP
 def python_make_landmap(img, tdraw):
   #query the procedure database
   numfelimg, _ = pdb.gimp_procedural_db_query("plug-in-fimg-noise", ".*", ".*", ".*", ".*", ".*", ".*")
   if numfelimg == 0:
     messtxt = "Warning: you need to install the felimage plugin to use all the features of this plugin properly.\n"
-    messtxt += "Without the felimage plugin, the mountains quality will be poor."  
+    messtxt += "Without the felimage plugin, the mountains quality will be poor."
+    pdb.gimp_message(messtxt)
+
+  #query the procedure database
+  numvap, _ = pdb.gimp_procedural_db_query("python-fu-text-along-path", ".*", ".*", ".*", ".*", ".*", ".*")
+  if numvap == 0:
+    messtxt = "Warning: you need to install the text_along_path.py plugin to use all the features of this plugin properly.\n"
+    messtxt += "Without the text_along_path.py plugin, map labels cannot be bent."
     pdb.gimp_message(messtxt)
 
   #query the procedure database
@@ -3986,8 +4453,8 @@ def python_make_landmap(img, tdraw):
 
 #The command to register the function
 register(
-  "python-fu_make-landmap",
-  "python-fu_make-landmap",
+  "python-fu-make-landmap",
+  "python-fu-make-landmap",
   "Draw a regional map. Popup dialogs will guide the user in the process.",
   "Valentino Esposito",
   "Valentino Esposito",
@@ -3997,7 +4464,7 @@ register(
   [],
   [],
   python_make_landmap
-  )
+)
 
 #The main function to activate the script
 main()
