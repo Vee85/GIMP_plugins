@@ -63,13 +63,15 @@ def colfillayer(image, layer, rgbcolor):
 #class to store an image and its layer and channel and display
 class ImageD:
   #constructor
-  def __init__(self, width, height, mode):
+  def __init__(self, width, height, mode, addlm=True):
     self.image = pdb.gimp_image_new(width, height, mode)
     self.bglayer = pdb.gimp_layer_new(self.image, self.image.width, self.image.height, 0, "background", 100, 0) #0 = normal mode
     pdb.gimp_image_insert_layer(self.image, self.bglayer, None, 0)
-    self.masklayer = pdb.gimp_layer_new(self.image, self.image.width, self.image.height, 0, "copymask", 100, 0) #0 = normal mode
-    pdb.gimp_image_insert_layer(self.image, self.masklayer, None, 0)
-    colfillayer(self.image, self.masklayer, (255, 255, 255))
+    self.masklayer = None
+    if addlm:
+      self.masklayer = pdb.gimp_layer_new(self.image, self.image.width, self.image.height, 0, "copymask", 100, 0) #0 = normal mode
+      pdb.gimp_image_insert_layer(self.image, self.masklayer, None, 0)
+      colfillayer(self.image, self.masklayer, (255, 255, 255))
     self.display = pdb.gimp_display_new(self.image)
 
   def getimage(self):
@@ -88,7 +90,7 @@ class ImageD:
     pdb.gimp_display_delete(self.display)
 
 
-#class, dialog with label and optional checkbutton pl
+#class, dialog with label and optional checkbutton
 class MsgDialog(gtk.Dialog):
   #constructor
   def __init__(self, title, parent, message, addcanc=False, chbmess=None):
@@ -247,16 +249,16 @@ class CLevDialog(gtk.Dialog):
         if (m == CLevDialog.GAMMA):
           adjlist.append(gtk.Adjustment(self.gamma, 0.10, 10.00, 0.01, 0.1))
           labtxt.append("Gamma")
-        if (m == CLevDialog.INPUT_MIN):
+        elif (m == CLevDialog.INPUT_MIN):
           adjlist.append(gtk.Adjustment(self.inlow, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Low Input")
-        if (m == CLevDialog.INPUT_MAX):
+        elif (m == CLevDialog.INPUT_MAX):
           adjlist.append(gtk.Adjustment(self.inhigh, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("High Input")
-        if (m == CLevDialog.OUTPUT_MIN):
+        elif (m == CLevDialog.OUTPUT_MIN):
           adjlist.append(gtk.Adjustment(self.outlow, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Low Output")
-        if (m == CLevDialog.OUTPUT_MAX):
+        elif (m == CLevDialog.OUTPUT_MAX):
           adjlist.append(gtk.Adjustment(self.outhigh, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("High Output")
     elif self.ctype == CLevDialog.THRESHOLD:
@@ -264,7 +266,7 @@ class CLevDialog(gtk.Dialog):
         if (m == CLevDialog.THR_MIN):
           adjlist.append(gtk.Adjustment(self.thrmin, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Min Threshold")
-        if (m == CLevDialog.THR_MAX):
+        elif (m == CLevDialog.THR_MAX):
           adjlist.append(gtk.Adjustment(self.thrmax, 0.0, 1.0, 0.001, 0.05))
           labtxt.append("Max Threshold")
     elif self.ctype == CLevDialog.OPACITY:
@@ -315,13 +317,13 @@ class CLevDialog(gtk.Dialog):
       self.make_reslayer()
       if (m == CLevDialog.GAMMA):
         self.gamma = widget.get_value()
-      if (m == CLevDialog.INPUT_MIN):
+      elif (m == CLevDialog.INPUT_MIN):
         self.inlow = widget.get_value()
-      if (m == CLevDialog.INPUT_MAX):
+      elif (m == CLevDialog.INPUT_MAX):
         self.inhigh = widget.get_value()
-      if (m == CLevDialog.OUTPUT_MIN):
+      elif (m == CLevDialog.OUTPUT_MIN):
         self.outlow = widget.get_value()
-      if (m == CLevDialog.OUTPUT_MAX):
+      elif (m == CLevDialog.OUTPUT_MAX):
         self.outhigh = widget.get_value()
 
       pdb.gimp_drawable_levels(self.reslayer, 0, self.inlow, self.inhigh, False, self.gamma, self.outlow, self.outhigh, False)
@@ -330,7 +332,7 @@ class CLevDialog(gtk.Dialog):
       self.make_reslayer()
       if (m == CLevDialog.THR_MIN):
         self.thrmin = widget.get_value()
-      if (m == CLevDialog.THR_MAX):
+      elif (m == CLevDialog.THR_MAX):
         self.thrmax = widget.get_value()
 
       pdb.gimp_drawable_threshold(self.reslayer, 0, self.thrmin, self.thrmax)
@@ -3942,29 +3944,36 @@ class LabelsBuild(GlobalBuilder):
   #constuctor
   def __init__(self, image, layermask, channelmask, *args):
     mwin = GlobalBuilder.__init__(self, image, None, layermask, channelmask, False, True, *args)
-
+    
     #internal arguments
+    self.parchments = None
     self.labels = None
     self.labpaths = None
     self.labstyles = ["Title", "Ornate", "Simple"]
     self.labcolor = [rgbcoltogdk(136, 29, 0), rgbcoltogdk(0, 0, 0), rgbcoltogdk(0, 0, 0)]
-    
+
     self.fontloader = self.LoadFonts(len(self.labstyles))
     self.fonts = self.fontloader.getfonts()
     
     basesize = min(self.img.width, self.img.height) * 0.05
     self.bchsize = [basesize*ff for ff in [1.4, 1.0, 0.6]]
-
+    
     self.chfont = None #will be reinitialized during GUI generation
     self.bsize = None #will be reinitialized during GUI generation
     self.chsize = None #will be reinitialized during GUI generation
     self.chcolor = None #will be reinitialized during GUI generation
     self.chfact = 1.0
     self.rborient = 0 #will be reinitialized during GUI generation
-
-    self.namelist = ["Labels outline", "Labels", "Leadpaths"]
+    self.addparch = False
+    
+    self.patternum, _ = pdb.gimp_patterns_get_list("make_landmap pattern")
+    if self.patternum == 0:
+      errdi = MsgDialog("Warning!", self, "There is not any pattern to be loaded for parchment.\nDid you add the make_landmap patterns to the GIMP patterns folder?")
+      errdi.run()
+      errdi.destroy()
+    self.namelist = ["Labels Outline", "Label Parchments", "Labels", "Leadpaths"]
     self.bgcol = (223, 223, 83)
-
+    
     #designing the interface
     #new row
     labatxt = "Adding labels. Select a style to choose a font and a color, the label scale is a multiplicative factor of the default text size.\n\n"
@@ -3977,7 +3986,7 @@ class LabelsBuild(GlobalBuilder):
     labatxt += "in the entry, and press the 'Add Label' button."
     laba = gtk.Label(labatxt)
     self.vbox.add(laba)
-
+    
     #new row
     hboxc = gtk.HBox(spacing=10, homogeneous=True)
     self.vbox.add(hboxc)
@@ -3988,6 +3997,11 @@ class LabelsBuild(GlobalBuilder):
     self.rabcb = gtk.RadioButton(self.rabca, "Content label")
     self.rabcb.connect("toggled", self.on_radiob_toggled, 1)
     hboxc.add(self.rabcb)
+
+    chbuttonc = gtk.CheckButton("Add parchment")
+    chbuttonc.set_active(self.addparch)
+    chbuttonc.connect("clicked", self.on_butch_parchment)
+    hboxc.add(chbuttonc)
 
     #new row
     hboxb = gtk.HBox(spacing=10, homogeneous=True)
@@ -4095,7 +4109,11 @@ class LabelsBuild(GlobalBuilder):
   #callback method to show info on setting the fonts
   def on_info_clicked(self, widget):
     self.fontloader.info()
-  
+
+  #callback method to set the parchment flag
+  def on_butch_parchment(self, widget):
+    self.addparch = widget.get_active()
+
   #method, set the character size
   def setchsize(self):
     self.chsize = self.chfact * self.bsize
@@ -4103,13 +4121,14 @@ class LabelsBuild(GlobalBuilder):
   #override deleting, hiding or showing method
   def dhsdrawables(self, action):
     if action == self.DHSACT_DELETE:
-      self.deletedrawables(self.labels, self.labpaths)
+      self.deletedrawables(self.labels, self.parchments, self.labpaths)
       self.bgl = None
+      self.parchments = None
       self.labels = None
     elif action == self.DHSACT_HIDE:
-      self.editvislayers(False, self.bgl, self.labels)
+      self.editvislayers(False, self.bgl, self.parchments, self.labels)
     elif action == self.DHSACT_SHOW:
-      self.editvislayers(True, self.bgl, self.labels)
+      self.editvislayers(True, self.bgl, self.parchments, self.labels)
 
   #override loading method
   def loaddrawables(self):
@@ -4117,10 +4136,12 @@ class LabelsBuild(GlobalBuilder):
       if ll.name == self.namelist[0]:
         self.bgl = ll
       if ll.name == self.namelist[1]:
+        self.parchments = ll
+      if ll.name == self.namelist[2]:
         self.labels = ll
 
     for vl in self.img.vectors:
-      if vl.name == self.namelist[2]:
+      if vl.name == self.namelist[3]:
         self.labpaths = vl
     return self.loaded()
 
@@ -4131,19 +4152,68 @@ class LabelsBuild(GlobalBuilder):
       pdb.gimp_layer_add_alpha(self.bgl)
       pdb.plug_in_colortoalpha(self.img, self.bgl, (255, 255, 255))
 
+    if not pdb.gimp_item_is_valid(self.parchments):
+      self.parchments = self.makeunilayer(self.namelist[1])
+      pdb.gimp_layer_add_alpha(self.parchments)
+      pdb.plug_in_colortoalpha(self.img, self.parchments, (255, 255, 255))
+
     if not pdb.gimp_item_is_valid(self.labels):
-      self.labels = self.makeunilayer(self.namelist[1])
+      self.labels = self.makeunilayer(self.namelist[2])
       pdb.gimp_layer_add_alpha(self.labels)
       pdb.plug_in_colortoalpha(self.img, self.labels, (255, 255, 255))
       
     if not pdb.gimp_item_is_valid(self.labpaths):
-      self.labpaths = pdb.gimp_vectors_new(self.img, self.namelist[2])
+      self.labpaths = pdb.gimp_vectors_new(self.img, self.namelist[3])
       pdb.gimp_image_insert_vectors(self.img, self.labpaths, None, 0)
       
     pdb.gimp_image_set_active_layer(self.img, self.labels)
     pdb.gimp_image_set_active_vectors(self.img, self.labpaths)
     pdb.gimp_displays_flush()
 
+  #method to generate a floating text with some info
+  def makelabtext(self, x, y, txt, border=0):
+    fl_text = pdb.gimp_text_fontname(self.img, self.labels, x, y, txt, border, False, self.chsize, 0, self.chfont)
+    wt = pdb.gimp_drawable_width(fl_text)
+    ht = pdb.gimp_drawable_height(fl_text)
+    
+    inborder = True
+    if (x + wt) > self.img.width or (y + ht) > self.img.height:
+      pdb.gimp_image_remove_layer(self.img, fl_text)
+      fl_text = None
+      inborder = False
+      infodi = MsgDialog("Error!", self, "The text is outside image boundaries.\npPlace the text in another position or reduce the size.")
+      infodi.run()
+      infodi.destroy()
+        
+    return fl_text, wt, ht, inborder
+
+  #method, add square parchment around the text
+  def addparchment(self, x, y, wd, he, bd=0):
+    if self.patternum == 0:
+      errdi = MsgDialog("Error", self, "There is not any pattern to be loaded for parchment.\nDid you add the make_landmap patterns to the GIMP patterns folder?")
+      errdi.run()
+      errdi.destroy()
+    else:
+      minborder = 0.05*min(wd, he)
+      border = minborder if bd < minborder else bd      
+      imgpc = ImageD(wd, he, 0, False)
+      
+      pdb.gimp_context_set_pattern("make_landmap pattern parchment")
+      pdb.gimp_drawable_edit_bucket_fill(imgpc.getbglayer(), FILL_PATTERN, wd/2.0, he/2.0)
+      pdb.script_fu_fuzzy_border(imgpc.getimage(), imgpc.getbglayer(), (0, 0, 0), border, True, 3, False, 100, False, False)
+      borderlayer = imgpc.getimage().layers[0]
+      imgpc.bglayer = pdb.gimp_image_merge_down(imgpc.getimage(), borderlayer, 0)
+      pdb.plug_in_colortoalpha(imgpc.getimage(), imgpc.getbglayer(), (0, 0, 0)) #@@@ this is useless at the current state
+      
+      pdb.gimp_edit_copy_visible(imgpc.getimage())
+      pdb.gimp_image_select_rectangle(self.img, 2, x, y, wd, he)
+      fl_sel = pdb.gimp_edit_paste(self.parchments, True)
+      pdb.gimp_floating_sel_anchor(fl_sel)
+      pdb.gimp_selection_none(self.img)
+      imgpc.delete()
+      
+    pdb.gimp_displays_flush()
+    
   #override method, drawing a label
   def generatestep(self):
     if self.chfont is None:
@@ -4168,21 +4238,26 @@ class LabelsBuild(GlobalBuilder):
       if ipr == gtk.RESPONSE_OK:
         shx = 0
         shy = 0
-        floating_text = pdb.gimp_text_fontname(self.img, self.labels, 0, 0, lbtxt, 0, False, self.chsize, 0, self.chfont)
-        ftw = pdb.gimp_drawable_width(floating_text)
-        fth = pdb.gimp_drawable_height(floating_text)
+        floating_text, ftw, fth, inbrd = self.makelabtext(shx, shy, lbtxt, 10)
+        if not inbrd:
+          posdi.destroy()
+          pdb.gimp_context_set_foreground(oldfgcol)
+          return False
+          
         if posdi.labposid in [1, 4]:
           shx = (self.img.width - ftw)/2.0
         elif posdi.labposid in [2, 5]:
           shx = self.img.width - ftw
         if posdi.labposid in [3, 4, 5]:
           shy = self.img.height - fth
-
+          
         if shx != 0 or shy != 0:
           pdb.gimp_layer_translate(floating_text, shx, shy)
-
+          
         posdi.destroy()
         pdb.gimp_floating_sel_anchor(floating_text)
+        if self.addparch:
+          self.addparchment(shx, shy, ftw, fth)
       elif ipr == gtk.RESPONSE_CANCEL:
         posdi.destroy()
         pdb.gimp_context_set_foreground(oldfgcol)
@@ -4194,15 +4269,22 @@ class LabelsBuild(GlobalBuilder):
         _, numpc, controlpoints, _ = pdb.gimp_vectors_stroke_get_points(self.labpaths, sids[-1])
         if numpc == 6:
           coord = controlpoints[2:4] #getting x and y coordinates of the first point
-          floating_text = pdb.gimp_text_fontname(self.img, self.labels, coord[0], coord[1], lbtxt, 0, False, self.chsize, 0, self.chfont)
-          pdb.gimp_floating_sel_anchor(floating_text)
+          floating_text, ftw, fth, inbrd = self.makelabtext(coord[0], coord[1], lbtxt, 10)
+          if not inbrd:
+            pdb.gimp_context_set_foreground(oldfgcol)
+            return False
+            
+        pdb.gimp_floating_sel_anchor(floating_text)
+        if self.addparch:
+          self.addparchment(coord[0], coord[1], ftw, fth)
+
         else:
           try:
             floating_text, bentvec = pdb.python_fu_text_along_path(self.img, self.labels, lbtxt, self.chsize, self.chfont, self.labpaths)
             pdb.gimp_image_remove_vectors(self.img, bentvec)
             pdb.gimp_floating_sel_anchor(floating_text)
           except (ValueError, RuntimeError), err:
-            errmess = "From python-fu-text-along-path plug-in:\n" + err
+            errmess = "From python-fu-text-along-path plug-in:\n" + str(err)
             infodi = MsgDialog("Warning!", self, errmess)
             infodi.run()
             infodi.destroy()
@@ -4231,6 +4313,7 @@ class LabelsBuild(GlobalBuilder):
       pdb.gimp_selection_none(self.img)
     else:
       pdb.gimp_image_remove_layer(self.img, self.bgl)
+      pdb.gimp_image_remove_layer(self.img, self.parchments)
       pdb.gimp_image_remove_layer(self.img, self.labels)
       pdb.gimp_image_remove_vectors(self.img, self.labpaths)
 
