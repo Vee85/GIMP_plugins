@@ -33,11 +33,11 @@ echo "It assumes that your GIMP user directory is in your home. It this is not t
 
 if [ -z $1 ]; then
   #looking for GIMP version
-  gimpv=`gimp --version` 
+  gimpv=`gimp --version`
   fullnumver=`echo $gimpv | cut -f6- -d\ `
   numver=`echo $fullnumver | cut -f-2 -d.`
 
-  if [ -z $gimpv]; then
+  if [ -z "${gimpv}" ]; then
     echo "It seems you do not have a command line for GIMP. Please give the full path of your user directory as argument."
     instdir=""
   else
@@ -47,8 +47,8 @@ else
   instdir=$1
 fi
 
-if [ -d "$instdir" ]; then
-  echo "Your GIMP user folder is: $instdir"
+if [ -d "${instdir}" ]; then
+  echo "Your GIMP user folder is: ${instdir}"
 else
   echo "Cannot find your GIMP folder."
   echo "Try again typing 'install.sh path/of/your/GIMP/folder' and be sure that the path is correct."

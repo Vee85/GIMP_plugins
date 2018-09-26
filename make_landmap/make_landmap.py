@@ -4194,16 +4194,21 @@ class LabelsBuild(GlobalBuilder):
       errdi.run()
       errdi.destroy()
     else:
-      minborder = 0.05*min(wd, he)
+      minborder = 0.1*min(wd, he)
       border = minborder if bd < minborder else bd      
       imgpc = ImageD(wd, he, 0, False)
       
       pdb.gimp_context_set_pattern("make_landmap pattern parchment")
       pdb.gimp_drawable_edit_bucket_fill(imgpc.getbglayer(), FILL_PATTERN, wd/2.0, he/2.0)
-      pdb.script_fu_fuzzy_border(imgpc.getimage(), imgpc.getbglayer(), (0, 0, 0), border, True, 3, False, 100, False, False)
+      pdb.script_fu_fuzzy_border(imgpc.getimage(), imgpc.getbglayer(), (0, 0, 0), border, False, 3, False, 100, False, False)
       borderlayer = imgpc.getimage().layers[0]
-      imgpc.bglayer = pdb.gimp_image_merge_down(imgpc.getimage(), borderlayer, 0)
-      pdb.plug_in_colortoalpha(imgpc.getimage(), imgpc.getbglayer(), (0, 0, 0)) #@@@ this is useless at the current state
+      pdb.gimp_image_select_item(imgpc.getimage(), 2, borderlayer) #2 = replace selection, this select everything in the layer which is not transparent
+      pdb.gimp_selection_invert(imgpc.getimage()) #inverting selection
+      borderchannel = pdb.gimp_selection_save(imgpc.getimage())
+      pdb.gimp_image_set_active_channel(imgpc.getimage(), borderchannel)
+      bordermask = pdb.gimp_layer_create_mask(imgpc.getbglayer(), 6) #6 = add channel mask
+      pdb.gimp_layer_add_mask(imgpc.getbglayer(), bordermask)
+      pdb.gimp_item_set_visible(borderlayer, False)
       
       pdb.gimp_edit_copy_visible(imgpc.getimage())
       pdb.gimp_image_select_rectangle(self.img, 2, x, y, wd, he)
@@ -4274,10 +4279,10 @@ class LabelsBuild(GlobalBuilder):
             pdb.gimp_context_set_foreground(oldfgcol)
             return False
             
-        pdb.gimp_floating_sel_anchor(floating_text)
-        if self.addparch:
-          self.addparchment(coord[0], coord[1], ftw, fth)
-
+          pdb.gimp_floating_sel_anchor(floating_text)
+          if self.addparch:
+            self.addparchment(coord[0], coord[1], ftw, fth)
+            
         else:
           try:
             floating_text, bentvec = pdb.python_fu_text_along_path(self.img, self.labels, lbtxt, self.chsize, self.chfont, self.labpaths)
