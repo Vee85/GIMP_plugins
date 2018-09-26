@@ -4274,10 +4274,10 @@ class LabelsBuild(GlobalBuilder):
             pdb.gimp_context_set_foreground(oldfgcol)
             return False
             
-          pdb.gimp_floating_sel_anchor(floating_text)
-          if self.addparch:
-            self.addparchment(coord[0], coord[1], ftw, fth)
-            
+        pdb.gimp_floating_sel_anchor(floating_text)
+        if self.addparch:
+          self.addparchment(coord[0], coord[1], ftw, fth)
+
         else:
           try:
             floating_text, bentvec = pdb.python_fu_text_along_path(self.img, self.labels, lbtxt, self.chsize, self.chfont, self.labpaths)

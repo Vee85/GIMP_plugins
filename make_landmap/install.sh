@@ -23,7 +23,8 @@
 
 #setting names
 mainscript="make_landmap.py"
-mainfolder="make_landmap_brushes"
+brushfolder="make_landmap_brushes"
+patternfolder="make_landmap_patterns"
 allscripts=(${mainscript} "stroke_vectors_options.py" "text_along_path.py" "make_landmap_fonts")
 
 echo "$mainscript installation script, working on linux systems.\n"
@@ -59,16 +60,20 @@ for asc in ${allscripts[@]}; do
   cp ${asc} ${instdir}/plug-ins
 done
 
-if [ ! -d "$instdir/plug-ins/$mainfolder" ]; then
-  echo "Creating ${mainfolder} directory..."
-  mkdir ${instdir}/plug-ins/$mainfolder
+
+if [ ! -d "$instdir/plug-ins/${brushfolder}" ]; then
+  echo "Creating ${brushfolder} directory..."
+  mkdir ${instdir}/plug-ins/${brushfolder}
 else
-  echo "$mainfolder directory already present. Files will be overwritten."
+  echo "${brushfolder} directory already present. Files will be overwritten."
 fi
 
-
-cd $mainfolder
+cd ${brushfolder}
 echo "Copying png icons..."
-cp *.png ${instdir}/plug-ins/$mainfolder
+cp *.png ${instdir}/plug-ins/${mainfolder}
 echo "Copying brushes..."
 cp *.gbr ${instdir}/brushes
+
+cd ../${patternfolder}
+echo "Copying patterns..."
+cp *.pat ${instdir}/patterns
