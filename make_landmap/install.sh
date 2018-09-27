@@ -27,9 +27,13 @@ brushfolder="make_landmap_brushes"
 patternfolder="make_landmap_patterns"
 allscripts=(${mainscript} "stroke_vectors_options.py" "text_along_path.py" "make_landmap_fonts")
 
-echo "$mainscript installation script, working on linux systems.\n"
+echo "${mainscript} installation script, working on linux systems."
+echo " "
 echo "This script copies the main script and the other relevant files in the GIMP user directories."
 echo "It assumes that your GIMP user directory is in your home. It this is not the case, give the path as first argument."
+echo " "
+echo "NOTE: you still need to download and install the felimage plug-in by yourself."
+echo " "
 
 if [ -z $1 ]; then
   #looking for GIMP version
