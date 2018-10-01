@@ -74,7 +74,7 @@ fi
 
 cd ${brushfolder}
 echo "Copying png icons..."
-cp *.png ${instdir}/plug-ins/${mainfolder}
+cp *.png ${instdir}/plug-ins/${brushfolder}
 echo "Copying brushes..."
 cp *.gbr ${instdir}/brushes
 

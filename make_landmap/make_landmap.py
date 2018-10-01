@@ -3912,11 +3912,15 @@ class LabelsBuild(GlobalBuilder):
       if all(validfonts):
         return True
       else:
+        tmess = "The following fonts:\n"
         for fn, fv in zip(self.fonts, validfonts):
           if not fv:
-            errdi = MsgDialog("Font Error", None, "Font '" + fn + "' not present in the system. Install it or edit the confing file to choose another font.")
-            errdi.run()
-            errdi.destroy()
+            tmess += fn + ", "
+        errmess = tmess[:-2]
+        errmess += "\nare not present in the system. Install it or edit the confing file to choose another font."
+        errdi = MsgDialog("Font Error", None, errmess)
+        errdi.run()
+        errdi.destroy()
         return False
 
     #getting font list
