@@ -60,8 +60,12 @@ def colfillayer(image, layer, rgbcolor):
   pdb.gimp_context_set_foreground(oldfgcol)
 
 #generic function which returns the name property of a drawable
-def getsortingpar(draw):
-  return draw.name
+def getdrawname(draw):
+  try:
+    res = draw.name
+  except AttributeError:
+    res = None
+  return res
 
 
 #class to store an image and its layer and channel and display
@@ -3747,8 +3751,8 @@ In the latter case, you can edit the path and draw it again: pressing the 'Draw 
     ppl = [pl for pl in self.img.vectors if self.namelist[0] in pl.name]
     lll = [ll for ll in self.img.layers if self.namelist[1] in ll.name]
 
-    self.paths = sorted(ppl, key=getsortingpar)
-    self.roadslayers = sorted(lll, key=getsortingpar)
+    self.paths = sorted(ppl, key=getdrawname)
+    self.roadslayers = sorted(lll, key=getdrawname)
     if len(self.roadslayers) > 0:
       self.bgl = self.roadslayers[-1]
     return self.loaded()
