@@ -59,6 +59,10 @@ def colfillayer(image, layer, rgbcolor):
   pdb.gimp_edit_bucket_fill(layer, 0, 0, 100, 255, True, pdb.gimp_image_width(image)/2, pdb.gimp_image_height(image)/2) #0 (first): filling the layer with foreground color
   pdb.gimp_context_set_foreground(oldfgcol)
 
+#generic function which returns the name property of a drawable
+def getsortingpar(draw):
+  return draw.name
+
 
 #class to store an image and its layer and channel and display
 class ImageD:
@@ -3528,6 +3532,7 @@ class RoadBuild(GlobalBuilder):
       self.outobj = outobject
       self.selpath = -1
       self.sellayer = -1
+      self.keeppath = False
 
       #new row
       hbxa = gtk.HBox(spacing=10, homogeneous=True)
@@ -3558,6 +3563,15 @@ class RoadBuild(GlobalBuilder):
       cboxb.connect("changed", self.on_selroad_changed)
       hboxb.add(cboxb)
 
+      #new row
+      hbxc = gtk.HBox(spacing=10, homogeneous=True)
+      self.vbox.add(hbxc)
+
+      chbc = gtk.CheckButton("Do not delete the path")
+      chbc.set_active(self.keeppath)
+      chbc.connect("toggled", self.on_keeppath_toggled)
+      hbxc.add(chbc)
+
       #button area
       self.add_button("Cancel", gtk.RESPONSE_CANCEL)
       self.add_button("OK", gtk.RESPONSE_OK)
@@ -3570,6 +3584,10 @@ class RoadBuild(GlobalBuilder):
       refmode = widget.get_model()
       self.selpath = refmode.get_value(widget.get_active_iter(), 1)
       self.sellayer = refmode.get_value(widget.get_active_iter(), 2)
+
+    #callback method, setting if the path shold not be deleted 
+    def on_keeppath_toggled(self, widget):
+      self.keeppath = widget.get_active()
 
     #method to get the selected path (vector and layer objects)
     def getselected(self):
@@ -3593,11 +3611,13 @@ class RoadBuild(GlobalBuilder):
 
     #Designing the interface
     #new row    
-    labatxt = "Adding roads. You are going to use paths. Click on the top path in the Paths panel to activate the path tool.\n"
-    labatxt += "Place paths between cities, place nodes and curves. The roads will be drawn on the paths you are going to place by clicking the 'Draw Roads' button.\n"
-    labatxt += "You can repeat this step: just select the new Path that is created each time the roads are drawn and place new paths.\n"
-    labatxt += "If you have a svg file with paths that you wish to import to use as roads, import it through the Import from SVG file button.\n"
-    labatxt += "Change color, size or type line if you wish and click again the 'Draw Roads' button."
+    labatxt = "Adding roads. You are going to use paths. Click on the top path in the Paths panel to activate the path tool.\n\
+Place paths between cities, place nodes and curves. The roads will be drawn on the paths you are going to place by clicking the 'Draw Roads' button.\n\
+You can repeat this step: just select the new Path that is created each time the roads are drawn and place new paths.\n\
+If you have a svg file with paths that you wish to import to use as roads, import it through the Import from SVG file button.\n\
+Change color, size or type line if you wish and click again the 'Draw Roads' button.\n\
+You can cancel all the roads or only a single object path. You can delete both the path and the drawn road or the drawn road only, keeping the path.\n\
+In the latter case, you can edit the path and draw it again: pressing the 'Draw Roads' button, the active path is used to draw a road."
     laba = gtk.Label(labatxt)
     self.vbox.add(laba)
 
@@ -3682,17 +3702,28 @@ class RoadBuild(GlobalBuilder):
   #callback method, setting the road size
   def on_rsize_changed(self, widget):
     self.roadsize = widget.get_value()
+
+  #method adding a transparent layer for roads
+  def addroadlayer(self, pos=None, layername=None):
+    if pos is None:
+      if layername is None:
+        layername = "drawroads" + str(len(self.roadslayers))
+      self.roadslayers.append(self.makeunilayer(layername))
+      pos = -1
+    else:
+      if layername is None:
+        layername = "drawroads" + str(pos)
+      self.roadslayers[pos] = self.makeunilayer(layername)
+    pdb.gimp_layer_add_alpha(self.roadslayers[pos])
+    pdb.plug_in_colortoalpha(self.img, self.roadslayers[pos], (255, 255, 255))
+    pdb.gimp_layer_set_mode(self.roadslayers[pos], LAYER_MODE_OVERLAY)
+    if len(self.roadslayers) == 1:
+      self.bgl = self.roadslayers[0]
     
   #override method to prepare the road drawing 
   def beforegen(self):
-    #adding a transparent layer
-    self.roadslayers.append(self.makeunilayer("drawroads" + str(len(self.roadslayers))))
-    pdb.gimp_layer_add_alpha(self.roadslayers[-1])
-    pdb.plug_in_colortoalpha(self.img, self.roadslayers[-1], (255, 255, 255))
-    pdb.gimp_layer_set_mode(self.roadslayers[-1], LAYER_MODE_OVERLAY)
-    if len(self.roadslayers) == 1:
-      self.bgl = self.roadslayers[0]
-
+    self.addroadlayer()
+    
     #adding an empty path
     self.paths.append(pdb.gimp_vectors_new(self.img, "roads" + str(len(self.paths))))
     pdb.gimp_image_insert_vectors(self.img, self.paths[-1], None, 0)
@@ -3713,14 +3744,13 @@ class RoadBuild(GlobalBuilder):
 
   #override loading method
   def loaddrawables(self):
-    for pl in self.img.vectors:
-      if self.namelist[0] in pl.name:
-        self.paths.append(pl)
-    for ll in self.img.layers:
-      if self.namelist[1] in ll.name:
-        self.roadslayers.append(ll)
-      if len(self.roadslayers) > 0:
-        self.bgl = self.roadslayers[-1]
+    ppl = [pl for pl in self.img.vectors if self.namelist[0] in pl.name]
+    lll = [ll for ll in self.img.layers if self.namelist[1] in ll.name]
+
+    self.paths = sorted(ppl, key=getsortingpar)
+    self.roadslayers = sorted(lll, key=getsortingpar)
+    if len(self.roadslayers) > 0:
+      self.bgl = self.roadslayers[-1]
     return self.loaded()
 
   #method deleting the last drawables added by beforegen
@@ -3729,39 +3759,57 @@ class RoadBuild(GlobalBuilder):
     pdb.gimp_image_remove_layer(self.img, self.roadslayers[-1])
     del self.paths[-1]
     del self.roadslayers[-1]
+
+  #method to test if a vector object has some path drawn (at least two points)
+  def ispathnonempty(self, pp, opdial=True):
+    nids, stids = pdb.gimp_vectors_get_strokes(pp)
+    if nids == 0:
+      if opdial:
+        infodi = MsgDialog("Warning!", self, "No path is drawn to draw any road in " + pp.name + "!")
+        infodi.run()
+        infodi.destroy()
+      return False
+    else:
+      for sid in stids:
+        _, nump, _, _ = pdb.gimp_vectors_stroke_get_points(pp, sid)
+        if nump <= 6: #means that there is only one point for this stroke
+          if opdial:
+            infodi = MsgDialog("Warning!", self, pp.name + " has one stroke with one point,\nimpossible to draw the road!")
+            infodi.run()
+            infodi.destroy()
+          return False
+    return True
     
   #drawing the roads
   def generatestep(self):
     oldfgcol = pdb.gimp_context_get_foreground()
     pdb.gimp_context_set_foreground((255, 255, 255)) #set foreground color to white
 
-    nids, stids = pdb.gimp_vectors_get_strokes(self.paths[-1])
-    if nids == 0:
-      infodi = MsgDialog("Warning!", self, "No path is drawn to draw any road!")
-      infodi.run()
-      infodi.destroy()
+    actpath = pdb.gimp_image_get_active_vectors(self.img)
+    if actpath is None:
+      actpath = self.paths[-1]
+      actlay = self.roadslayers[-1]
+    else:
+      adx = actpath.name[5:]
+      actlay = [ll for ll in self.roadslayers if ll.name[9:] == adx][0]
+
+    if not self.ispathnonempty(actpath):
       self.dellastdraws()
       return False
-    else:
-      for sid in stids:
-        _, nump, _, _ = pdb.gimp_vectors_stroke_get_points(self.paths[-1], sid)
-        if nump <= 6: #means that there is only one point for this stroke
-          infodi = MsgDialog("Warning!", self, "There is one stroke with one point,\nimpossible to draw the road!")
-          infodi.run()
-          infodi.destroy()
-          self.dellastdraws()
-          return False
 
     try:
-      pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize, 0)
+      pdb.python_fu_stroke_vectors(self.img, actlay, actpath, self.roadsize, 0)
     except:
-      pdb.gimp_edit_stroke_vectors(self.roadslayers[-1], self.paths[-1])
+      pdb.gimp_edit_stroke_vectors(actlay, actpath)
 
     pdb.gimp_context_set_foreground(self.roadcolor) #set foreground color to selected color
     try:
-      pdb.python_fu_stroke_vectors(self.img, self.roadslayers[-1], self.paths[-1], self.roadsize/2, self.chtype)
+      pdb.python_fu_stroke_vectors(self.img, actlay, actpath, self.roadsize/2, self.chtype)
     except:
-      pdb.gimp_edit_stroke_vectors(self.roadslayers[-1], self.paths[-1])
+      pdb.gimp_edit_stroke_vectors(actlay, actpath)
+
+    if not self.ispathnonempty(self.paths[-1], False):
+      self.dellastdraws()
     
     pdb.gimp_context_set_foreground(oldfgcol)
     return True
@@ -3779,10 +3827,16 @@ class RoadBuild(GlobalBuilder):
         self.setgenerated(False)
         self.beforegen()
       else:
-        pdb.gimp_image_remove_vectors(self.img, self.paths[pathtod])
+        remlname = self.roadslayers[layertod].name
         pdb.gimp_image_remove_layer(self.img, self.roadslayers[layertod])
-        del self.paths[pathtod]
-        del self.roadslayers[layertod]
+
+        if pathselecter.keeppath:
+          self.addroadlayer(layertod, remlname)
+        else:
+          del self.roadslayers[layertod]
+          pdb.gimp_image_remove_vectors(self.img, self.paths[pathtod])
+          del self.paths[pathtod]
+
         if len(self.roadslayers) > 0:
           self.bgl = self.roadslayers[-1]
         else:
