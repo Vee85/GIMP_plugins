@@ -3765,14 +3765,14 @@ In the latter case, you can edit the path and draw it again: pressing the 'Draw 
     del self.roadslayers[-1]
 
   #method to test if a vector object has some path drawn (at least two points)
-  def ispathnonempty(self, pp, opdial=True):
+  def ispathempty(self, pp, opdial=True):
     nids, stids = pdb.gimp_vectors_get_strokes(pp)
     if nids == 0:
       if opdial:
         infodi = MsgDialog("Warning!", self, "No path is drawn to draw any road in " + pp.name + "!")
         infodi.run()
         infodi.destroy()
-      return False
+      return True
     else:
       for sid in stids:
         _, nump, _, _ = pdb.gimp_vectors_stroke_get_points(pp, sid)
@@ -3781,8 +3781,8 @@ In the latter case, you can edit the path and draw it again: pressing the 'Draw 
             infodi = MsgDialog("Warning!", self, pp.name + " has one stroke with one point,\nimpossible to draw the road!")
             infodi.run()
             infodi.destroy()
-          return False
-    return True
+          return True
+    return False
     
   #drawing the roads
   def generatestep(self):
@@ -3797,7 +3797,7 @@ In the latter case, you can edit the path and draw it again: pressing the 'Draw 
       adx = actpath.name[5:]
       actlay = [ll for ll in self.roadslayers if ll.name[9:] == adx][0]
 
-    if not self.ispathnonempty(actpath):
+    if self.ispathempty(actpath):
       self.dellastdraws()
       return False
 
@@ -3812,7 +3812,7 @@ In the latter case, you can edit the path and draw it again: pressing the 'Draw 
     except:
       pdb.gimp_edit_stroke_vectors(actlay, actpath)
 
-    if not self.ispathnonempty(self.paths[-1], False):
+    if self.ispathempty(self.paths[-1], False):
       self.dellastdraws()
     
     pdb.gimp_context_set_foreground(oldfgcol)
