@@ -36,62 +36,63 @@ defsavename = "/myanimated.gif"
 #The function to be registered in GIMP
 def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale, midstart):
   if (len(image.layers) < 2):
-    pdb.gimp_message("The SwitchImages animation need at least two source layers")
+    errmess = "The SwitchImages animation need at least two source layers!"
+    pdb.gimp_message(errmess)
+    raise RuntimeError(errmess)
 
-  else:
-    #Saving a copy of the original layers, so that altering the image.layers does not affect later references
-    baselayers = copy.copy(image.layers)
-    zeroname = baselayers[0].name
-    
-    #Resizing layers if requested
-    if (rescale):
-      wd = image.width
-      he = image.height
-      for ly in baselayers:
-        if (ly.width != wd or ly.height != he):
-          pdb.gimp_layer_scale(ly, wd, he, False)
-    
-    intersteps = range(1, 10)
-    
-    #Selecting the two contiguous layers between which the dissolvence is made
-    for ll in range(len(baselayers)):
-      bglayer = baselayers[ll]
-      try:
-        trlayer = baselayers[ll+1]
-      except IndexError:
-        trlayer = baselayers[0]
-        
-      #creating the phase of dissolvence between layers, setting a set of opacity and merging the paired layers
-      for i in intersteps:
-        abspos = ll * (len(intersteps)+1) + i
-        bglayertt = bglayer.copy()
-        trlayertt = trlayer.copy()
-        pdb.gimp_layer_set_opacity(trlayertt, i*10)
-        image.add_layer(trlayertt, abspos)
-        image.add_layer(bglayertt, abspos+1)
-        merglayer = pdb.gimp_image_merge_down(image, trlayertt, 0)
-        merglayer.name = "ph" + str(ll) + "phase" + str(i*10)
+  #Saving a copy of the original layers reference, so that altering the image.layers does not affect later references
+  baselayers = copy.copy(image.layers)
+  zeroname = baselayers[0].name
+  
+  #Resizing layers if requested
+  if (rescale):
+    wd = image.width
+    he = image.height
+    for ly in baselayers:
+      if (ly.width != wd or ly.height != he):
+        pdb.gimp_layer_scale(ly, wd, he, False)
+  
+  intersteps = range(1, 10)
+  
+  #Selecting the two contiguous layers between which the dissolvence is made
+  for ll in range(len(baselayers)):
+    bglayer = baselayers[ll]
+    try:
+      trlayer = baselayers[ll+1]
+    except IndexError:
+      trlayer = baselayers[0]
       
-      #adjusting names for timing frame
-      if (ll == 0 and midstart):
-        bglayer.name = bglayer.name + " (" + str(longtime/2) + "ms)"
-      else:
-        bglayer.name = bglayer.name + " (" + str(longtime) + "ms)"
-        
-    #adding final layer if midstart is requested
-    if (midstart):
-      finallayer = baselayers[0].copy()
-      image.add_layer(finallayer, len(image.layers))
-      finallayer.name = zeroname + "copy (" + str(longtime/2) + "ms)"
-        
-    #preparing exporting to gif
-    if (len(savepath) == 0):
-      savepath = os.getcwd() + defname
-    elif (savepath[-4:] != ".gif"):
-      savepath = savepath + ".gif"
+    #creating the phase of dissolvence between layers, setting a set of opacity and merging the paired layers
+    for i in intersteps:
+      abspos = ll * (len(intersteps)+1) + i
+      bglayertt = bglayer.copy()
+      trlayertt = trlayer.copy()
+      pdb.gimp_layer_set_opacity(trlayertt, i*10)
+      image.add_layer(trlayertt, abspos)
+      image.add_layer(bglayertt, abspos+1)
+      merglayer = pdb.gimp_image_merge_down(image, trlayertt, 0)
+      merglayer.name = "ph" + str(ll) + "phase" + str(i*10)
+    
+    #adjusting names for timing frame
+    if (ll == 0 and midstart):
+      bglayer.name = bglayer.name + " (" + str(longtime/2) + "ms)"
+    else:
+      bglayer.name = bglayer.name + " (" + str(longtime) + "ms)"
+      
+  #adding final layer if midstart is requested
+  if (midstart):
+    finallayer = baselayers[0].copy()
+    image.add_layer(finallayer, len(image.layers))
+    finallayer.name = zeroname + "copy (" + str(longtime/2) + "ms)"
+      
+  #preparing exporting to gif
+  if (len(savepath) == 0):
+    savepath = os.getcwd() + defname
+  elif (savepath[-4:] != ".gif"):
+    savepath = savepath + ".gif"
 
-    pdb.gimp_image_convert_indexed(image, 0, 0, 100, False, False, "ignored")
-    pdb.file_gif_save(image, tdrawable, savepath, savepath, 0, 1, frdelay, 0)
+  pdb.gimp_image_convert_indexed(image, 1, 0, 256, False, False, "ignored") # 1 in second argument: use dithering
+  pdb.file_gif_save(image, tdrawable, savepath, savepath, 0, 1, frdelay, 0)
 
 
 #The command to register the function
