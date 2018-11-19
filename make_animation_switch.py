@@ -98,7 +98,7 @@ def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale
 register(
   "python-fu_make_switchgif",
   "python-fu_make_switchgif",
-  "Create an animated gif which switches between two images with a dissolvence between them",
+  "Create an animated gif which switches between two or more images with a dissolvence between them",
   "Valentino Esposito",
   "Valentino Esposito",
   "2018",
