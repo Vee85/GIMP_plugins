@@ -84,7 +84,10 @@ def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale
     finallayer = baselayers[0].copy()
     image.add_layer(finallayer, len(image.layers))
     finallayer.name = zeroname + "copy (" + str(longtime/2) + "ms)"
-      
+
+  #reversing the layer order: the gif shows the frames from bottom to top, so we have to reverse them
+  pdb.script_fu_reverse_layers(image, image.layers[0])
+  
   #preparing exporting to gif
   if (len(savepath) == 0):
     savepath = os.getcwd() + defname
@@ -99,7 +102,8 @@ def python_make_switchgif(image, tdrawable, savepath, frdelay, longtime, rescale
 register(
   "python-fu_make_switchgif",
   "python-fu_make_switchgif",
-  "Create an animated gif which switches between two or more images with a dissolvence between them",
+  "Create an animated gif which switches between two or more images with a dissolvence between them.\n\
+In the gif, images follow the layer order (top to bottom of the layer list).",
   "Valentino Esposito",
   "Valentino Esposito",
   "2018",
